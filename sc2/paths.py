@@ -10,7 +10,7 @@ from loguru import logger
 from sc2 import wsl
 
 BASEDIR = {
-    "Windows": "C:/Program Files (x86)/StarCraft II",
+    "Windows": "D:\StarCraft II",
     "WSL1": "/mnt/c/Program Files (x86)/StarCraft II",
     "WSL2": "/mnt/c/Program Files (x86)/StarCraft II",
     "Darwin": "/Applications/StarCraft II",
