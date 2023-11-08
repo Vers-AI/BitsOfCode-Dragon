@@ -30,9 +30,9 @@ class CompetitiveBot(BotAI):
         This code runs continually throughout the game
         Populate this function with whatever your bot should do!
         """
-        
+        """
         print(f"this is my bot in iteration {iteration}") #print iteration
-        
+        """
         for loop_nexus in self.workers:
             if self.can_afford(UnitTypeId.PROBE):
                 self.townhalls.ready.random.train(UnitTypeId.PROBE)
