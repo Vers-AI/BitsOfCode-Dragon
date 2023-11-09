@@ -39,9 +39,9 @@ Open a terminal and enter the following commands, replacing `(username)` with yo
 
 export SC2PF=WineLinux
 
-export SC2PATH="/home/(username)/Games/battlenet/drive_c/Program Files (x86)/StarCraft II/"
+export SC2PATH="/home/`(username)`/Games/battlenet/drive_c/Program Files (x86)/StarCraft II/"
 
-export WINE="/home/(username)/.local/share/lutris/runners/wine/(version of wine)/bin/wine" 
+export WINE="/home/`(username)`/.local/share/lutris/runners/wine/`(version of wine)`/bin/wine" 
 
 ##### Starcraft 2 Maps
 
