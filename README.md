@@ -35,13 +35,13 @@ If you've installed StarCraft II using Lutris on Linux, you'll need to set some 
 
 ### Setting Environment Variables Temporarily
 
-Open a terminal and enter the following commands, replacing `<username>` with your actual Linux username and `<version of wine>` with the version of Wine that Lutris is using:
+Open a terminal and enter the following commands, replacing `(username)` with your actual Linux username and `(version of wine)` with the version of Wine that Lutris is using:
 
 export SC2PF=WineLinux
 
-export SC2PATH="/home/<username>/Games/battlenet/drive_c/Program Files (x86)/StarCraft II/"
+export SC2PATH="/home/(username)/Games/battlenet/drive_c/Program Files (x86)/StarCraft II/"
 
-export WINE="/home/<username>/.local/share/lutris/runners/wine/<version of wine>/bin/wine" 
+export WINE="/home/(username)/.local/share/lutris/runners/wine/(version of wine)/bin/wine" 
 
 ##### Starcraft 2 Maps
 
