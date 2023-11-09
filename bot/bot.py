@@ -33,15 +33,36 @@ class CompetitiveBot(BotAI):
         """
         print(f"this is my bot in iteration {iteration}") #print iteration
         """
-        
+        await self.distribute_workers() #puts idle workers to work
+
         if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0:
-                if self.can_afford(UnitTypeId.PYLON):
-                    nexus = self.townhalls.ready.random
-                    await self.build(UnitTypeId.PYLON, near=nexus)
-                return
+            if self.can_afford(UnitTypeId.PYLON):
+                nexus = self.townhalls.ready.random
+                await self.build(UnitTypeId.PYLON, near=nexus)
+            return
+
+        if self.can_afford(UnitTypeId.GATEWAY) and self.structures(UnitTypeId.GATEWAY).amount < 2:
+            pylon = self.structures(UnitTypeId.PYLON).ready
+            if pylon.exists:
+                if self.can_afford(UnitTypeId.GATEWAY):
+                    await self.build(UnitTypeId.GATEWAY, near=pylon.random)
+                    print("Gateway built")
+
+        # Check for ready gateways and build zealots
+        zealots = self.units(UnitTypeId.ZEALOT)
+        gateways = self.structures(UnitTypeId.GATEWAY).ready.idle
+        if gateways.exists and self.can_afford(UnitTypeId.ZEALOT):
+            for gateway in gateways:
+                if len(zealots) < 12:
+                    gateway.train(UnitTypeId.ZEALOT)
+                    print("Zealot built")
         
+        if len(zealots) == 12:
+            for zealot in zealots:
+                zealot.attack(self.enemy_start_locations[0])
+
         for loop_nexus in self.workers:
-            if self.can_afford(UnitTypeId.PROBE):
+            if self.can_afford(UnitTypeId.PROBE) and self.townhalls.ready.amount * 16 > self.workers.amount:
                 self.townhalls.ready.random.train(UnitTypeId.PROBE)
         
                 # Add break statement here if you only want to train one
