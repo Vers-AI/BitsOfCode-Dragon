@@ -33,6 +33,13 @@ class CompetitiveBot(BotAI):
         """
         print(f"this is my bot in iteration {iteration}") #print iteration
         """
+        
+        if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0:
+                if self.can_afford(UnitTypeId.PYLON):
+                    nexus = self.townhalls.ready.random
+                    await self.build(UnitTypeId.PYLON, near=nexus)
+                return
+        
         for loop_nexus in self.workers:
             if self.can_afford(UnitTypeId.PROBE):
                 self.townhalls.ready.random.train(UnitTypeId.PROBE)
@@ -42,6 +49,8 @@ class CompetitiveBot(BotAI):
                 # Can't afford probes anymore
                 break
             
+            
+    
     async def on_end(self, result: Result):
         """
         This code runs once at the end of the game
