@@ -62,7 +62,7 @@ class CompetitiveBot(BotAI):
                 zealot.attack(self.enemy_start_locations[0])
 
         for loop_nexus in self.workers:
-            nexus_list = self.structures(UnitTypeId.NEXUS).ready.idle
+            nexus_list = self.structures(UnitTypeId.NEXUS).ready.idle  # Get list of idle nexuses
             if self.can_afford(UnitTypeId.PROBE) and self.workers.amount < 16 and nexus_list.exists: # Need to look at after expanding, only works for 1 nexus
                 self.townhalls.ready.random.train(UnitTypeId.PROBE)
         
