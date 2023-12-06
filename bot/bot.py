@@ -56,13 +56,14 @@ class CompetitiveBot(BotAI):
                 if len(zealots) < 12:
                     gateway.train(UnitTypeId.ZEALOT)
                     print("Zealot built")
-        
+                
         if len(zealots) == 12:
             for zealot in zealots:
                 zealot.attack(self.enemy_start_locations[0])
 
         for loop_nexus in self.workers:
-            if self.can_afford(UnitTypeId.PROBE) and self.townhalls.ready.amount * 16 > self.workers.amount:
+            nexus_list = self.structures(UnitTypeId.NEXUS).ready.idle
+            if self.can_afford(UnitTypeId.PROBE) and self.workers.amount < 16 and nexus_list.exists: # Need to look at after expanding, only works for 1 nexus
                 self.townhalls.ready.random.train(UnitTypeId.PROBE)
         
                 # Add break statement here if you only want to train one
