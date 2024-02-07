@@ -3,10 +3,10 @@
 Welcome to DragonBot, the example bot showcased in the "Bits of Code" series! This bot is designed as a starting point for those looking to dive into the world of AI bot development in StarCraft II using the Python-SC2 framework.
 
 ## Episode Feature
-DragonBot was featured in an episode of "Bits of Code," which you can watch [here](https://youtu.be/XFrMPzv1KEI). The episode walks you through the bot's strategy of creating and commanding a force of 12 Zealots to engage the enemy.
+DragonBot was featured in an episode of "Bits of Code," which you can watch [here](https://www.youtube.com/playlist?list=PLN2WDx0iwG9V2BehVgv-tg_U0OcrWAdKP). The episode walks you through the bot's strategy of creating and commanding a force of 12 Zealots to engage the enemy.
 
 ## Strategy
-DragonBot's strategy is straightforward and aggressive:
+Currently DragonBot's strategy is straightforward
 1. Rapidly produce 12 Zealots.
 2. Immediately execute an A-Move (Attack-Move) to the enemy's location.
 
