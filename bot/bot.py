@@ -38,6 +38,13 @@ class CompetitiveBot(BotAI):
 
         nexus = self.townhalls.ready.random
 
+        # if a random nexus is not idle and not chrono boosting, chrono boost it
+        #if not nexus.is_idle and not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
+         #   if self.can_afford(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus):
+          #      nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
+           #     print("Chrono Boosted")
+
+
         # Build a pylon if we are low on supply
         if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0:
             if self.can_afford(UnitTypeId.PYLON):
