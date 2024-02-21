@@ -26,8 +26,8 @@ class CompetitiveBot(BotAI):
         Do things here before the game starts
         """
         print("Game started")
-        
-        
+
+
     async def on_step(self, iteration: int):
         """
         This code runs continually throughout the game
@@ -47,9 +47,7 @@ class CompetitiveBot(BotAI):
 
         # if we have less than 4 bases and we have enough minerals and we are not building a nexus, build a nexus
         if self.townhalls.ready.amount < target_base_count and self.can_afford(UnitTypeId.NEXUS) and not self.already_pending(UnitTypeId.NEXUS):
-            # Specify to build in RICHMINERALFIELDs only
-            desired_location = self.get_next_expansion() # TO DO - modify to build in RICHMINERALFIELDs only
-            await self.expand_now(location=desired_location)
+            await self.expand_now()
             print("Expanding")
 
         # Build a pylon if we are low on supply
