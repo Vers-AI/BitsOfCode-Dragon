@@ -4,6 +4,7 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.ability_id import AbilityId
 from sc2.ids.upgrade_id import UpgradeId
 from sc2.ids.buff_id import BuffId
+from sc2.position import Point2
 
 
 class CompetitiveBot(BotAI):
@@ -31,19 +32,25 @@ class CompetitiveBot(BotAI):
         """
         This code runs continually throughout the game
         """
-        """
-        print(f"this is my bot in iteration {iteration}") #print iteration
-        """
+        # Number of total bases to expand to before stoping
+        target_base_count = 4
+    
         await self.distribute_workers() #puts idle workers to work
 
         nexus = self.townhalls.ready.random
 
-        # if a random nexus is not idle and not chrono boosting, chrono boost it
-        #if not nexus.is_idle and not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
-         #   if self.can_afford(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus):
-          #      nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
-           #     print("Chrono Boosted")
+        # if  a random nexus is not idle and not chrono boosting , chrono boost it
+        if not nexus.is_idle and not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
+            if self.can_afford(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus):
+                nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
+                print("Chrono Boosted")
 
+        # if we have less than 4 bases and we have enough minerals and we are not building a nexus, build a nexus
+        if self.townhalls.ready.amount < target_base_count and self.can_afford(UnitTypeId.NEXUS) and not self.already_pending(UnitTypeId.NEXUS):
+            # Specify to build in RICHMINERALFIELDs only
+            desired_location = self.get_next_expansion() # TO DO - modify to build in RICHMINERALFIELDs only
+            await self.expand_now(location=desired_location)
+            print("Expanding")
 
         # Build a pylon if we are low on supply
         if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0:
