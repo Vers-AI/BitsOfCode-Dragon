@@ -50,11 +50,12 @@ class CompetitiveBot(BotAI):
             await self.expand_now()
             print("Expanding")
 
-        # Build a pylon if we are low on supply
-        if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0:
+        # Build a pylon if we are low on supply and less than supply cap of 200
+        if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0: #TO DO - Add supply cap to this line
             if self.can_afford(UnitTypeId.PYLON):
                 await self.build(UnitTypeId.PYLON, near=nexus)
             return
+       
         
         for loop_nexus in self.workers:
             nexus_list = self.structures(UnitTypeId.NEXUS).ready.idle  # Get list of idle nexuses
