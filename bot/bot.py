@@ -5,6 +5,7 @@ from sc2.ids.ability_id import AbilityId
 from sc2.ids.upgrade_id import UpgradeId
 from sc2.ids.buff_id import BuffId
 from sc2.position import Point2
+from sc2.unit import Unit
 
 
 class CompetitiveBot(BotAI):
@@ -26,7 +27,29 @@ class CompetitiveBot(BotAI):
         Do things here before the game starts
         """
         print("Game started")
+        
+        #Create a list of  all gold starting locations
+        def _find_gold_expansions(self) -> list[Point2]:
+            gold_mfs: list[Unit] = [
+                mf for mf in self.state.mineral_field
+                if mf.type_id in {UnitTypeId.RICHMINERALFIELD, UnitTypeId.RICHMINERALFIELD750}
+            ]
 
+            gold_expansions: list[Point2] = []
+
+            # check if gold_mfs are near any location on the map
+            if len(gold_mfs) > 0:     
+                for expansion in self.expansion_locations_list:
+                    # logic to check if expansion is available
+                    if self.is_expansion(expansion) and not self.structures.closer_than(10, expansion):
+                        gold_expansions.append(expansion)
+                        break
+                    for mf in gold_mfs:
+                        if mf.position.distance_to(expansion) < 12.5 and not self.structures.closer_than(10, expansion):
+                            gold_expansions.append(expansion)
+                            break
+
+            return gold_expansions
 
     async def on_step(self, iteration: int):
         """
@@ -34,20 +57,22 @@ class CompetitiveBot(BotAI):
         """
         # Number of total bases to expand to before stoping
         target_base_count = 4
+        # define expansion locations
+        expansion_loctions_list = self._find_expansion_locations()
     
         await self.distribute_workers() #puts idle workers to work
 
         nexus = self.townhalls.ready.random
 
-        # if  a random nexus is not idle and not chrono boosting , chrono boost it
+                
         if not nexus.is_idle and not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
             if self.can_afford(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus):
                 nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
                 print("Chrono Boosted")
 
-        # if we have less than 4 bases and we have enough minerals and we are not building a nexus, build a nexus
+        # if we have less than 4 bases and we have enough minerals and we are not building a nexus, build a nexus at gold expansions
         if self.townhalls.ready.amount < target_base_count and self.can_afford(UnitTypeId.NEXUS) and not self.already_pending(UnitTypeId.NEXUS):
-            await self.expand_now()
+            await self.expand_now(location=expansion_loctions_list)
             print("Expanding")
 
         # Build a pylon if we are low on supply and less than supply cap of 200
