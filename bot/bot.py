@@ -11,6 +11,10 @@ from sc2.unit import Unit
 class CompetitiveBot(BotAI):
     NAME: str = "DragonBot"
     """This bot's name"""
+    #keep track of the last expansion index
+    def __init__(self):
+        super().__init__()
+        self.last_expansion_index = -1
 
     RACE: Race = Race.Protoss
     """This bot's Starcraft 2 race.
@@ -28,29 +32,25 @@ class CompetitiveBot(BotAI):
         """
         print("Game started")
         
-        #Create a list of  all gold starting locations
-        def _find_gold_expansions(self) -> list[Point2]:
+    #Create a list of  all gold starting locations
+    def _find_gold_expansions(self) -> list[Point2]:
             gold_mfs: list[Unit] = [
-                mf for mf in self.state.mineral_field
+                mf for mf in self.mineral_field
                 if mf.type_id in {UnitTypeId.RICHMINERALFIELD, UnitTypeId.RICHMINERALFIELD750}
             ]
 
             gold_expansions: list[Point2] = []
 
-            # check if gold_mfs are near any location on the map
+            # check if gold_mfs are on the map
             if len(gold_mfs) > 0:     
                 for expansion in self.expansion_locations_list:
-                    # logic to check if expansion is available
-                    if self.is_expansion(expansion) and not self.structures.closer_than(10, expansion):
-                        gold_expansions.append(expansion)
-                        break
-                    for mf in gold_mfs:
-                        if mf.position.distance_to(expansion) < 12.5 and not self.structures.closer_than(10, expansion):
+                    for gold_mf in gold_mfs:
+                        if gold_mf.position.distance_to(expansion) < 12.5:
                             gold_expansions.append(expansion)
                             break
 
-            return gold_expansions
-
+            return gold_expansions        
+        
     async def on_step(self, iteration: int):
         """
         This code runs continually throughout the game
@@ -58,7 +58,10 @@ class CompetitiveBot(BotAI):
         # Number of total bases to expand to before stoping
         target_base_count = 4
         # define expansion locations
-        expansion_loctions_list = self._find_expansion_locations()
+        expansion_loctions_list = self._find_gold_expansions()
+        
+        
+        
     
         await self.distribute_workers() #puts idle workers to work
 
@@ -70,9 +73,16 @@ class CompetitiveBot(BotAI):
                 nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
                 print("Chrono Boosted")
 
+        # check if there are any more locations to expand to
+        
+
         # if we have less than 4 bases and we have enough minerals and we are not building a nexus, build a nexus at gold expansions
         if self.townhalls.ready.amount < target_base_count and self.can_afford(UnitTypeId.NEXUS) and not self.already_pending(UnitTypeId.NEXUS):
-            await self.expand_now(location=expansion_loctions_list)
+            if self.last_expansion_index + 1 < len(expansion_loctions_list):
+            # increment the last expansion index
+                self.last_expansion_index += 1
+                print (self.last_expansion_index)
+            await self.expand_now(location=expansion_loctions_list[self.last_expansion_index])
             print("Expanding")
 
         # Build a pylon if we are low on supply and less than supply cap of 200
