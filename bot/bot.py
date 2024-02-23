@@ -48,6 +48,12 @@ class CompetitiveBot(BotAI):
                         if gold_mf.position.distance_to(expansion) < 12.5:
                             gold_expansions.append(expansion)
                             break
+            # sort gold_expansions by proximity to the bot's starting location
+            gold_expansions = sorted(
+                gold_expansions,
+                key=lambda expansion: self.start_location.distance_to(expansion)
+            )
+
 
             return gold_expansions        
         
