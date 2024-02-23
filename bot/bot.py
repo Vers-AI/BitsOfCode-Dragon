@@ -61,10 +61,9 @@ class CompetitiveBot(BotAI):
         """
         This code runs continually throughout the game
         """
-        # Number of total bases to expand to before stoping
-        target_base_count = 4
-        # define expansion locations
-        expansion_loctions_list = self._find_gold_expansions()
+        target_base_count = 4    # Number of total bases to expand to before stoping
+        expansion_loctions_list = self._find_gold_expansions()   # Define expansion locations
+
         
         
         
@@ -84,6 +83,7 @@ class CompetitiveBot(BotAI):
 
         # if we have less than 4 bases and we have enough minerals and we are not building a nexus, build a nexus at gold expansions
         if self.townhalls.ready.amount < target_base_count and self.can_afford(UnitTypeId.NEXUS) and not self.already_pending(UnitTypeId.NEXUS):
+            # if we have not expanded to all the locations
             if self.last_expansion_index + 1 < len(expansion_loctions_list):
             # increment the last expansion index
                 self.last_expansion_index += 1
