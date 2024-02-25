@@ -72,6 +72,7 @@ class CompetitiveBot(BotAI):
 
         nexus = self.townhalls.ready.random
 
+        
                 
         if not nexus.is_idle and not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
             if self.can_afford(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus):
@@ -92,43 +93,62 @@ class CompetitiveBot(BotAI):
             print("Expanding")
 
         # Build a pylon if we are low on supply and less than supply cap of 200
-        if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0: #TO DO - Add supply cap to this line
+        if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0 or self.supply_used > 15 and self.supply_left < 4 and self.already_pending(UnitTypeId.PYLON) < 2: 
             if self.can_afford(UnitTypeId.PYLON):
-                await self.build(UnitTypeId.PYLON, near=nexus)
+                await self.build(UnitTypeId.PYLON, near=nexus.position.towards_with_random_angle(self.game_info.map_center, distance=5))
             return
        
-        
-        for loop_nexus in self.workers:
-            nexus_list = self.structures(UnitTypeId.NEXUS).ready.idle  # Get list of idle nexuses
-            if self.can_afford(UnitTypeId.PROBE) and self.workers.amount < 16 and nexus_list.exists: # Need to look at after expanding, only works for 1 nexus
-                self.townhalls.ready.random.train(UnitTypeId.PROBE)
-        
-                # Add break statement here if you only want to train one
-            else:
-                # Can't afford probes anymore
-                break
+        # train probes on nexuses that are undersaturated
+        if nexus.assigned_harvesters < nexus.ideal_harvesters and nexus.is_idle:
+            if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
+                if self.can_afford(UnitTypeId.PROBE):
+                    nexus.train(UnitTypeId.PROBE)
+                    
+
             
         
+        # build gateways
+            if self.can_afford(UnitTypeId.GATEWAY) and self.structures(UnitTypeId.GATEWAY).amount < 8:
+                pylon = self.structures(UnitTypeId.PYLON).ready
+                if pylon.exists:
+                    if self.can_afford(UnitTypeId.GATEWAY):
+                        await self.build(UnitTypeId.GATEWAY, near=pylon.closest_to(nexus))
+            #if we have no cybernetics core, build one
+            if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.GATEWAY).ready:
+                pylon = self.structures(UnitTypeId.PYLON).ready
+                if pylon.exists:
+                    await self.build(UnitTypeId.CYBERNETICSCORE, near=pylon.closest_to(nexus))       
 
-        if self.can_afford(UnitTypeId.GATEWAY) and self.structures(UnitTypeId.GATEWAY).amount < 2:
-            pylon = self.structures(UnitTypeId.PYLON).ready
-            if pylon.exists:
-                if self.can_afford(UnitTypeId.GATEWAY):
-                    await self.build(UnitTypeId.GATEWAY, near=pylon.random)
-                    print("Gateway built")
+        # build gas
+        for nexus in self.townhalls.ready:
+            vgs = self.vespene_geyser.closer_than(15, nexus)
+            for vg in vgs:
+                if not self.can_afford(UnitTypeId.ASSIMILATOR):
+                    break
+                worker = self.select_build_worker(vg.position)
+                if worker is None:
+                    break
+                if not self.units(UnitTypeId.ASSIMILATOR).closer_than(1, vg).exists:
+                    worker.build(UnitTypeId.ASSIMILATOR, vg)
+                    
 
         # Check for ready gateways and build zealots
         zealots = self.units(UnitTypeId.ZEALOT)
         gateways = self.structures(UnitTypeId.GATEWAY).ready.idle
         if gateways.exists and self.can_afford(UnitTypeId.ZEALOT):
             for gateway in gateways:
-                if len(zealots) < 12:
+                if len(zealots) < 200:
                     gateway.train(UnitTypeId.ZEALOT)
-                    
-                
-        if len(zealots) == 12:
+        
+        # if we hit supply cap attack        
+        if self.supply_cap == 200:
             for zealot in zealots:
                 zealot.attack(self.enemy_start_locations[0])
+
+        
+                            
+
+        
 
         
             
