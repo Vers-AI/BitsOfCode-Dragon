@@ -73,15 +73,25 @@ class CompetitiveBot(BotAI):
         nexus = self.townhalls.ready.random
 
         
-                
+        #Chrono Boost the nexus        
         if not nexus.is_idle and not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
             if self.can_afford(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus):
                 nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
-                print("Chrono Boosted")
-
-        # check if there are any more locations to expand to
+                
         
 
+        # Build a pylon if we are low on supply and less than supply cap of 200
+        if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0 or self.supply_used > 15 and self.supply_left < 4 and self.already_pending(UnitTypeId.PYLON) < 2: 
+            if self.can_afford(UnitTypeId.PYLON):
+                await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
+            return
+       
+        # train probes on nexuses that are undersaturated
+        if nexus.assigned_harvesters < nexus.ideal_harvesters and nexus.is_idle:
+            if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
+                if self.can_afford(UnitTypeId.PROBE):
+                    nexus.train(UnitTypeId.PROBE)
+                    
         # if we have less than 4 bases and we have enough minerals and we are not building a nexus, build a nexus at gold expansions
         if self.townhalls.ready.amount < target_base_count and self.can_afford(UnitTypeId.NEXUS) and not self.already_pending(UnitTypeId.NEXUS):
             # if we have not expanded to all the locations
@@ -91,51 +101,36 @@ class CompetitiveBot(BotAI):
                 print (self.last_expansion_index)
             await self.expand_now(location=expansion_loctions_list[self.last_expansion_index])
             print("Expanding")
-
-        # Build a pylon if we are low on supply and less than supply cap of 200
-        if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0 or self.supply_used > 15 and self.supply_left < 4 and self.already_pending(UnitTypeId.PYLON) < 2: 
-            if self.can_afford(UnitTypeId.PYLON):
-                await self.build(UnitTypeId.PYLON, near=nexus.position.towards_with_random_angle(self.game_info.map_center, distance=5))
-            return
-       
-        # train probes on nexuses that are undersaturated
-        if nexus.assigned_harvesters < nexus.ideal_harvesters and nexus.is_idle:
-            if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
-                if self.can_afford(UnitTypeId.PROBE):
-                    nexus.train(UnitTypeId.PROBE)
-                    
-
             
         
-        # build gateways
-            if self.can_afford(UnitTypeId.GATEWAY) and self.structures(UnitTypeId.GATEWAY).amount < 8:
-                pylon = self.structures(UnitTypeId.PYLON).ready
-                if pylon.exists:
-                    if self.can_afford(UnitTypeId.GATEWAY):
-                        await self.build(UnitTypeId.GATEWAY, near=pylon.closest_to(nexus))
-            #if we have no cybernetics core, build one
-            if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.GATEWAY).ready:
-                pylon = self.structures(UnitTypeId.PYLON).ready
-                if pylon.exists:
-                    await self.build(UnitTypeId.CYBERNETICSCORE, near=pylon.closest_to(nexus))       
+        # build 4 gateways and cybernetics core once pylon is complete
+        if self.structures(UnitTypeId.PYLON).ready:
+            pylon = self.structures(UnitTypeId.PYLON).ready.random
+            if self.structures(UnitTypeId.GATEWAY).amount < 4 and self.can_afford(UnitTypeId.GATEWAY):
+                await self.build(UnitTypeId.GATEWAY, near=pylon.position.towards(self.game_info.map_center, 5))
+            if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0 and self.structures(UnitTypeId.GATEWAY).ready.amount >= 2:
+                await self.build(UnitTypeId.CYBERNETICSCORE, near=pylon.position.towards(nexus.position, 5))
 
-        # build gas
-        for nexus in self.townhalls.ready:
-            vgs = self.vespene_geyser.closer_than(15, nexus)
-            for vg in vgs:
-                if not self.can_afford(UnitTypeId.ASSIMILATOR):
-                    break
-                worker = self.select_build_worker(vg.position)
-                if worker is None:
-                    break
-                if not self.units(UnitTypeId.ASSIMILATOR).closer_than(1, vg).exists:
-                    worker.build(UnitTypeId.ASSIMILATOR, vg)
-                    
+       
+        # build gas 
+        if self.structures(UnitTypeId.CYBERNETICSCORE):
+            for nexus in self.townhalls.ready:
+                vgs = self.vespene_geyser.closer_than(15, nexus)
+                for vg in vgs:
+                    if not self.can_afford(UnitTypeId.ASSIMILATOR):
+                        break
+                    worker = self.select_build_worker(vg.position)
+                    if worker is None:
+                        break
+                    if not self.gas_buildings or not self.gas_buildings.closer_than(1, vg):
+                        worker.build_gas(vg)
+                        worker.stop(queue=True)    
+                
 
         # Check for ready gateways and build zealots
         zealots = self.units(UnitTypeId.ZEALOT)
         gateways = self.structures(UnitTypeId.GATEWAY).ready.idle
-        if gateways.exists and self.can_afford(UnitTypeId.ZEALOT):
+        if gateways.exists and self.can_afford(UnitTypeId.ZEALOT) and self.townhalls.ready.amount >= 2:
             for gateway in gateways:
                 if len(zealots) < 200:
                     gateway.train(UnitTypeId.ZEALOT)
