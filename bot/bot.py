@@ -49,11 +49,7 @@ class CompetitiveBot(BotAI):
                             gold_expansions.append(expansion)
                             break
             # sort gold_expansions by proximity to the bot's starting location
-            gold_expansions = sorted(
-                gold_expansions,
-                key=lambda expansion: self.start_location.distance_to(expansion)
-            )
-
+            gold_expansions.sort(key=lambda x: x.distance_to(self.start_location))
 
             return gold_expansions        
         
@@ -64,24 +60,13 @@ class CompetitiveBot(BotAI):
         target_base_count = 4    # Number of total bases to expand to before stoping
         expansion_loctions_list = self._find_gold_expansions()   # Define expansion locations
 
-        
-        
-        
-    
-        await self.distribute_workers() #puts idle workers to work
-
+        await self.distribute_workers()  # Distribute workers to mine minerals and gas
         nexus = self.townhalls.ready.random
-
-        
-        #Chrono Boost the nexus        
-        if not nexus.is_idle and not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
-            if self.can_afford(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus):
-                nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
                 
         
 
         # Build a pylon if we are low on supply and less than supply cap of 200
-        if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0 or self.supply_used > 15 and self.supply_left < 4 and self.already_pending(UnitTypeId.PYLON) < 2: 
+        if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0 or self.supply_used > 15 and self.supply_left < 6 and self.already_pending(UnitTypeId.PYLON) < 2: 
             if self.can_afford(UnitTypeId.PYLON):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
             return
@@ -103,17 +88,17 @@ class CompetitiveBot(BotAI):
             print("Expanding")
             
         
-        # build 4 gateways and cybernetics core once pylon is complete
+        # build 4 gateways and cybernetics core once pylon is complete and keep building up to 8 warpgates
         if self.structures(UnitTypeId.PYLON).ready:
             pylon = self.structures(UnitTypeId.PYLON).ready.random
-            if self.structures(UnitTypeId.GATEWAY).amount < 4 and self.can_afford(UnitTypeId.GATEWAY):
+            if self.structures(UnitTypeId.GATEWAY).amount < 4 and self.can_afford(UnitTypeId.GATEWAY) and self.structures(UnitTypeId.WARPGATE).ready.amount < 8:
                 await self.build(UnitTypeId.GATEWAY, near=pylon.position.towards(self.game_info.map_center, 5))
-            if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0 and self.structures(UnitTypeId.GATEWAY).ready.amount >= 2:
-                await self.build(UnitTypeId.CYBERNETICSCORE, near=pylon.position.towards(nexus.position, 5))
+        if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0 and self.structures(UnitTypeId.GATEWAY).ready.amount >= 1:
+            await self.build(UnitTypeId.CYBERNETICSCORE, near=pylon.position.towards(nexus.position, 5))
 
        
-        # build gas 
-        if self.structures(UnitTypeId.CYBERNETICSCORE):
+        # build 1 gas 
+        if self.structures(UnitTypeId.GATEWAY) and self.already_pending(UnitTypeId.ASSIMILATOR) == 0 and self.structures(UnitTypeId.ASSIMILATOR).amount < 1:
             for nexus in self.townhalls.ready:
                 vgs = self.vespene_geyser.closer_than(15, nexus)
                 for vg in vgs:
@@ -125,23 +110,60 @@ class CompetitiveBot(BotAI):
                     if not self.gas_buildings or not self.gas_buildings.closer_than(1, vg):
                         worker.build_gas(vg)
                         worker.stop(queue=True)    
-                
+        
+        # saturate the gas 
+        for assimilator in self.gas_buildings:
+            if assimilator.assigned_harvesters < assimilator.ideal_harvesters:
+                workers = self.workers.closer_than(10, assimilator)
+                if workers:
+                    workers.random.gather(assimilator)   
+        # put idle probes to work
+        for probe in self.workers.idle:
+            probe.gather(self.mineral_field.closest_to(nexus))
 
-        # Check for ready gateways and build zealots
-        zealots = self.units(UnitTypeId.ZEALOT)
-        gateways = self.structures(UnitTypeId.GATEWAY).ready.idle
-        if gateways.exists and self.can_afford(UnitTypeId.ZEALOT) and self.townhalls.ready.amount >= 2:
-            for gateway in gateways:
-                if len(zealots) < 200:
+        # Research Warp Gate if Cybernetics Core is complete
+        if self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.can_afford(UpgradeId.WARPGATERESEARCH) and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 0:
+            ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
+            if ccore.is_idle:
+                ccore.research(UpgradeId.WARPGATERESEARCH)
+                        
+        # Morph to warp gates when warp gate research is complete
+        if self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 0 and self.structures(UnitTypeId.GATEWAY).ready:
+            for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
+                gateway(AbilityId.MORPH_WARPGATE)
+
+
+        # If there are warpates and warpin is available, warp in zealots from warpgates near a pylon else train zealots from gateways
+        if self.structures(UnitTypeId.WARPGATE).ready:
+            for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
+                abililities = await self.get_available_abilities(warpgate)
+                if self.can_afford(UnitTypeId.ZEALOT) and self.supply_left > 0 and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.townhalls.amount >= 3:
+                    position = pylon.position.to2.random_on_distance(4)
+                    warpgate.warp_in(UnitTypeId.ZEALOT, position)
+        else:
+            for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
+                if self.can_afford(UnitTypeId.ZEALOT) and self.townhalls.amount >= 2:
                     gateway.train(UnitTypeId.ZEALOT)
         
-        # if we hit supply cap attack        
+        
+        # if we hit supply cap attack
+        zealots = self.units(UnitTypeId.ZEALOT)
         if self.supply_cap == 200:
             for zealot in zealots:
                 zealot.attack(self.enemy_start_locations[0])
 
+        #Chrono boost nexus if cybernetics core is not idle       
+        if not self.structures(UnitTypeId.CYBERNETICSCORE).ready:
+            if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
+                if nexus.energy >= 50:
+                    nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
+        else:
+            ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
+            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not ccore.is_idle:
+                if nexus.energy >= 50:
+                    nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
         
-                            
+
 
         
 
