@@ -88,7 +88,7 @@ class CompetitiveBot(BotAI):
             print("Expanding")
             
         
-        # build 4 gateways and cybernetics core once pylon is complete and keep building up to 8 warpgates
+        # after 4 nexuses are complete, build gateways and cybernetics core once pylon is complete and keep building up to 13 warpgates
         if self.structures(UnitTypeId.PYLON).ready:
             pylon = self.structures(UnitTypeId.PYLON).ready.random
             if self.structures(UnitTypeId.GATEWAY).amount < 4 and self.can_afford(UnitTypeId.GATEWAY) and self.structures(UnitTypeId.WARPGATE).ready.amount < 8:
@@ -133,7 +133,7 @@ class CompetitiveBot(BotAI):
                 gateway(AbilityId.MORPH_WARPGATE)
 
 
-        # If there are warpates and warpin is available, warp in zealots from warpgates near a pylon else train zealots from gateways
+        # If there are warpates and warpin is available, warp in zealots from warpgates near a pylon
         if self.structures(UnitTypeId.WARPGATE).ready:
             for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
                 abililities = await self.get_available_abilities(warpgate)
@@ -152,7 +152,7 @@ class CompetitiveBot(BotAI):
             for zealot in zealots:
                 zealot.attack(self.enemy_start_locations[0])
 
-        #Chrono boost nexus if cybernetics core is not idle       
+        #Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available         
         if not self.structures(UnitTypeId.CYBERNETICSCORE).ready:
             if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
                 if nexus.energy >= 50:
