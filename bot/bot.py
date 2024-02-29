@@ -8,6 +8,8 @@ from sc2.ids.upgrade_id import UpgradeId
 from sc2.ids.buff_id import BuffId
 from sc2.position import Point2
 from sc2.unit import Unit
+from sc2 import position
+from sc2.constants import UnitTypeId
 
 
 class CompetitiveBot(BotAI):
@@ -54,24 +56,38 @@ class CompetitiveBot(BotAI):
             gold_expansions.sort(key=lambda x: x.distance_to(self.start_location))
 
             return gold_expansions        
-        
+    
+    async def warp_new_units(self, pylon):
+        #warp in zealots from warpgates near a pylon if below supply cap
+        for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
+            abililities = await self.get_available_abilities(warpgate)
+            if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
+                position = pylon.position.to2.random_on_distance(4)
+                placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1)
+                if placement is None:
+                    # return ActionResult.CantFindPlacementLocation
+                    logger.info("can't place")
+                    return
+                warpgate.warp_in(UnitTypeId.ZEALOT, placement)
+
+    
     async def on_step(self, iteration: int):
         """
         This code runs continually throughout the game
         """
-        target_base_count = 4    # Number of total bases to expand to before stoping
+        target_base_count = 6    # Number of total bases to expand to before stoping
         expansion_loctions_list = self._find_gold_expansions()   # Define expansion locations
 
         await self.distribute_workers()  # Distribute workers to mine minerals and gas
         nexus = self.townhalls.ready.random
-                
+              
         
 
         # Build a pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
-        if self.supply_left < 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.WARPGATE).exists == False: 
+        if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.townhalls.amount < 4: 
             if self.can_afford(UnitTypeId.PYLON):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
-        if self.structures(UnitTypeId.WARPGATE) and self.supply_cap < 200: 
+        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 7 and self.supply_cap < 200: 
             if self.can_afford(UnitTypeId.PYLON):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
 
@@ -81,9 +97,9 @@ class CompetitiveBot(BotAI):
             if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
                 if self.can_afford(UnitTypeId.PROBE):
                     nexus.train(UnitTypeId.PROBE)
-            elif self.supply_used == 199:
-                if self.can_afford(UnitTypeId.PROBE):
-                    nexus.train(UnitTypeId.PROBE)
+        if self.supply_used == 199:
+            if self.can_afford(UnitTypeId.PROBE):
+                nexus.train(UnitTypeId.PROBE)
                     
         # if we have less than target base count and we have enough minerals and we are not building a nexus, build a nexus at gold expansions
         if self.townhalls.amount < target_base_count and self.can_afford(UnitTypeId.NEXUS):
@@ -91,23 +107,31 @@ class CompetitiveBot(BotAI):
             if self.last_expansion_index + 1 < len(expansion_loctions_list):
             # increment the last expansion index
                 self.last_expansion_index += 1
-                print (self.last_expansion_index)
             await self.expand_now(location=expansion_loctions_list[self.last_expansion_index])
             
             
         
         # after 4 nexuses are complete, build gateways and cybernetics core once pylon is complete and keep building up to 13 warpgates after warpgate researched
         if self.structures(UnitTypeId.PYLON).ready:
+            # Select a pylon
             pylon = self.structures(UnitTypeId.PYLON).ready.random
-            if self.structures(UnitTypeId.NEXUS).amount >= 3 and self.structures(UnitTypeId.GATEWAY).ready.amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and self.structures(UnitTypeId.WARPGATE).exists == False:
+            # Get the positions around the pylon
+            positions = [position.Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-5, 6) for y in range(-5, 6)]
+            # Sort the positions by distance to the pylon
+            positions.sort(key=lambda pos: pylon.position.distance_to(pos))
+            if self.structures(UnitTypeId.NEXUS).amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
                 if self.can_afford(UnitTypeId.GATEWAY):
                     await self.build(UnitTypeId.GATEWAY, near=pylon.position.towards(self.game_info.map_center, 5))
-            if self.structures(UnitTypeId.WARPGATE).ready.amount < 13 and self.structures(UnitTypeId.CYBERNETICSCORE):
-                if self.can_afford(UnitTypeId.GATEWAY):
-                    await self.build(UnitTypeId.GATEWAY, near=pylon.position.towards(self.game_info.map_center, 5))
-
-        if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0 and self.structures(UnitTypeId.GATEWAY).ready.amount >= 1:
-            await self.build(UnitTypeId.CYBERNETICSCORE, near=pylon.position.towards(nexus.position, 5))
+            elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 14 and self.structures(UnitTypeId.CYBERNETICSCORE):
+                for pos in positions:
+                # Check if the position is valid for building
+                    if await self.can_place_single(UnitTypeId.GATEWAY, pos):
+                    # If the position is valid, build the gateway
+                        if self.can_afford(UnitTypeId.GATEWAY):
+                            await self.build(UnitTypeId.GATEWAY, near=pos)
+                            break
+            if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0 and self.structures(UnitTypeId.GATEWAY).ready:
+                await self.build(UnitTypeId.CYBERNETICSCORE, near=pylon.position.towards(self.game_info.map_center, 5))
 
        
         # build 1 gas 
@@ -145,25 +169,16 @@ class CompetitiveBot(BotAI):
             for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                 gateway(AbilityId.MORPH_WARPGATE)
 
-
-        # If there are warpates and warpin is available, warp in zealots from warpgates near a pylon if below supply cap
         if self.structures(UnitTypeId.WARPGATE).ready:
-            for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
-                abililities = await self.get_available_abilities(warpgate)
-                if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
-                    position = pylon.position.to2.random_on_distance(4)
-                    placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1)
-                    if placement is None:
-                        # return ActionResult.CantFindPlacementLocation
-                        logger.info("can't place")
-                        return
-                    warpgate.warp_in(UnitTypeId.ZEALOT, placement)
+            await self.warp_new_units(pylon)
+        
         
         
         
         # if we hit supply cap attack if not move zealts to closest expansion
         zealots = self.units(UnitTypeId.ZEALOT)
         if self.supply_used == 200:
+            print(self.time_formatted, "supply cap reached")
             for zealot in zealots:
                 zealot.attack(self.enemy_start_locations[0])
         else:
@@ -181,6 +196,8 @@ class CompetitiveBot(BotAI):
             if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not ccore.is_idle:
                 if nexus.energy >= 50:
                     nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
+        
+    
         
 
 
