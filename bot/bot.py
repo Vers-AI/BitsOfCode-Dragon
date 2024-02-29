@@ -88,7 +88,7 @@ class CompetitiveBot(BotAI):
             if self.can_afford(UnitTypeId.PYLON):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 7 and self.supply_cap < 200: 
-            if self.can_afford(UnitTypeId.PYLON):
+            if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount < 16:
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
 
        
@@ -122,7 +122,7 @@ class CompetitiveBot(BotAI):
             if self.structures(UnitTypeId.NEXUS).amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
                 if self.can_afford(UnitTypeId.GATEWAY):
                     await self.build(UnitTypeId.GATEWAY, near=pylon.position.towards(self.game_info.map_center, 5))
-            elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 14 and self.structures(UnitTypeId.CYBERNETICSCORE):
+            elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 13 and self.structures(UnitTypeId.CYBERNETICSCORE):
                 for pos in positions:
                 # Check if the position is valid for building
                     if await self.can_place_single(UnitTypeId.GATEWAY, pos):
