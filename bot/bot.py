@@ -87,9 +87,12 @@ class CompetitiveBot(BotAI):
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.townhalls.amount < 4: 
             if self.can_afford(UnitTypeId.PYLON):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
-        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 7 and self.supply_cap < 200: 
-            if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount < 16:
+        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 8 and self.supply_cap < 200:
+            # Calculate the number of Pylons needed to reach the supply cap
+            pylons_needed = (200 - self.supply_cap) // 8 
+            if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 19:
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
+                print(self.time_formatted, "pylons needed", pylons_needed)
 
        
         # train probes on nexuses that are undersaturated
@@ -97,17 +100,21 @@ class CompetitiveBot(BotAI):
             if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
                 if self.can_afford(UnitTypeId.PROBE):
                     nexus.train(UnitTypeId.PROBE)
-        if self.supply_used == 199:
+        
+                    
+
+        if self.supply_used == 199: # train 1 more probe if supply is 199 to reach 200
             if self.can_afford(UnitTypeId.PROBE):
                 nexus.train(UnitTypeId.PROBE)
                     
         # if we have less than target base count and we have enough minerals and we are not building a nexus, build a nexus at gold expansions
-        if self.townhalls.amount < target_base_count and self.can_afford(UnitTypeId.NEXUS):
-            # if we have not expanded to all the locations
-            if self.last_expansion_index + 1 < len(expansion_loctions_list):
-            # increment the last expansion index
-                self.last_expansion_index += 1
-            await self.expand_now(location=expansion_loctions_list[self.last_expansion_index])
+        if self.townhalls.amount + self.already_pending(UnitTypeId.NEXUS) < target_base_count:
+            if self.can_afford(UnitTypeId.NEXUS): 
+                # if we have not expanded to all the locations
+                if self.last_expansion_index + 1 < len(expansion_loctions_list):
+                # increment the last expansion index
+                    self.last_expansion_index += 1
+                await self.expand_now(location=expansion_loctions_list[self.last_expansion_index])
             
             
         
@@ -131,21 +138,31 @@ class CompetitiveBot(BotAI):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
                             break
             if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0 and self.structures(UnitTypeId.GATEWAY).ready:
-                await self.build(UnitTypeId.CYBERNETICSCORE, near=pylon.position.towards(self.game_info.map_center, 5))
+                for pos in positions:
+                    # Check if the position is valid for building
+                    if await self.can_place_single(UnitTypeId.CYBERNETICSCORE, pos):
+                        # If the position is valid, build the Cybernetics Core
+                        await self.build(UnitTypeId.CYBERNETICSCORE, near=pos)
+                        print(self.time_formatted, "building cybernetics core")
+                        break
 
        
         # build 1 gas 
-        if self.structures(UnitTypeId.GATEWAY) and self.already_pending(UnitTypeId.ASSIMILATOR) == 0 and self.structures(UnitTypeId.ASSIMILATOR).amount < 1:
-            for nexus in self.townhalls.ready:
+        if self.structures(UnitTypeId.GATEWAY):
+            if self.structures(UnitTypeId.ASSIMILATOR).amount + self.already_pending(UnitTypeId.ASSIMILATOR) < 1:
+                # get the starting nexus
+                nexus = self.townhalls.first
+                # get all vespene geysers close to the starting nexus
                 vgs = self.vespene_geyser.closer_than(15, nexus)
-                for vg in vgs:
-                    if not self.can_afford(UnitTypeId.ASSIMILATOR):
-                        break
+                # sort the geysers by distance to the nexus
+                vgs = sorted(vgs, key=lambda vg: vg.distance_to(nexus.position))
+                # select the closest geyser
+                vg = vgs[0]
+                if self.can_afford(UnitTypeId.ASSIMILATOR):
                     worker = self.select_build_worker(vg.position)
-                    if worker is None:
-                        break
-                    if not self.gas_buildings or not self.gas_buildings.closer_than(1, vg):
+                    if worker and (not self.gas_buildings or not self.gas_buildings.closer_than(1, vg)):
                         worker.build_gas(vg)
+                        print(self.time_formatted, "building assimilator")
                         worker.stop(queue=True)    
         
         # saturate the gas 
@@ -169,7 +186,8 @@ class CompetitiveBot(BotAI):
             for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                 gateway(AbilityId.MORPH_WARPGATE)
 
-        if self.structures(UnitTypeId.WARPGATE).ready:
+        # warp in zealots from warpgates near a pylon if there are 6 warpgates
+        if self.structures(UnitTypeId.WARPGATE).ready.amount > 6:
             await self.warp_new_units(pylon)
         
         
@@ -178,7 +196,7 @@ class CompetitiveBot(BotAI):
         # if we hit supply cap attack if not move zealts to closest expansion
         zealots = self.units(UnitTypeId.ZEALOT)
         if self.supply_used == 200:
-            print(self.time_formatted, "supply cap reached")
+            print(self.time_formatted, "supply cap reached with:", self.structures(UnitTypeId.WARPGATE).ready.amount, "warpgates")
             for zealot in zealots:
                 zealot.attack(self.enemy_start_locations[0])
         else:
@@ -186,16 +204,24 @@ class CompetitiveBot(BotAI):
                 zealot(AbilityId.ATTACK, nexus.position.towards(self.game_info.map_center, 5))
         
 
-        #Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available         
-        if not self.structures(UnitTypeId.CYBERNETICSCORE).ready:
-            if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
-                if nexus.energy >= 50:
-                    nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
-        else:
+        # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available         
+        if self.structures(UnitTypeId.WARPGATE).ready:
+            warpgates = self.structures(UnitTypeId.WARPGATE).ready
+            for warpgate in warpgates:
+                abilities = await self.get_available_abilities(warpgate)
+                if not AbilityId.WARPGATETRAIN_ZEALOT in abilities:
+                    if not warpgate.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
+                        if nexus.energy >= 50:
+                            nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
+        elif self.structures(UnitTypeId.CYBERNETICSCORE).ready:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
             if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not ccore.is_idle:
                 if nexus.energy >= 50:
                     nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
+        else:
+            if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
+                if nexus.energy >= 50:
+                    nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
         
     
         
