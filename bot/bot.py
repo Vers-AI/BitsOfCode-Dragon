@@ -94,15 +94,17 @@ class CompetitiveBot(BotAI):
         
 
         # Build a pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
-        if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.townhalls.amount <= 4: 
+        if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
-        # When we hit 4 bases, build an extra Pylon if we have less than 2
-        elif self.structures(UnitTypeId.GATEWAY).amount == 4 and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 2:
-            if self.can_afford(UnitTypeId.PYLON):
-                await self.build(UnitTypeId.PYLON, near=closest.towards_with_random_angle(self.game_info.map_center, 20))
+                print(self.time_formatted, "building pylon")
+        # When we hit 4 gateways, build an extra Pylon if we have less than 2
+        elif self.supply_left <= 2 and self.structures(UnitTypeId.PYLON).amount  < 2:
+            if self.can_afford(UnitTypeId.PYLON) and self.already_pending(UnitTypeId.PYLON) == 0:
+                await self.build(UnitTypeId.PYLON, near=closest.towards_with_random_angle(self.game_info.map_center, 15))
+                print(self.time_formatted, "building pylon - 2")
         # After 13 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
-        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 12 and self.townhalls.amount == 6 and self.supply_cap < 200:
+        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount == 13 and self.townhalls.amount == 6 and self.supply_cap < 200:
             if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
                 await self.build(UnitTypeId.PYLON, near=closest.towards(self.game_info.map_center, 30))
 
@@ -121,21 +123,21 @@ class CompetitiveBot(BotAI):
                     nexus.train(UnitTypeId.PROBE)
         
                     
-        # if we have less than target base count and build 4 nexuses at gold bases and then build at other locations
-        if self.townhalls.amount < 5:
+        # if we have less than target base count and build 5 nexuses at gold bases and then build at other locations
+        if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count:
             if self.can_afford(UnitTypeId.NEXUS): 
                     self.last_expansion_index += 1
                     await self.expand_now(location=expansion_loctions_list[self.last_expansion_index])
-                    print(self.time_formatted, "expanding to gold bases", self.last_expansion_index + 1, "of", len(expansion_loctions_list), "total current bases=", self.townhalls.amount)
-        elif self.townhalls.amount >= 5 and self.townhalls.amount < target_base_count:
+                    print(self.time_formatted, "expanding to gold bases", self.last_expansion_index, "of", len(expansion_loctions_list), "total current bases=", self.townhalls.amount)
+        if self.last_expansion_index == 3 and self.townhalls.amount < target_base_count:
             if self.can_afford(UnitTypeId.NEXUS):
                 await self.expand_now()
-                print(self.time_formatted, "expanding to other locations")
+                print(self.time_formatted, "expanding to",self.last_expansion_index,"th location, total current bases=", self.townhalls.amount)
                 
             
             
         
-        # after 4 nexuses are complete, build gateways and cybernetics core once pylon is complete and keep building up to 13 warpgates after warpgate researched
+        # after 4 nexuses are built, build gateways and cybernetics core once pylon is complete and keep building up to 13 warpgates after warpgate researched
         if self.structures(UnitTypeId.PYLON).ready:
             # Select a pylon
             pylon = self.structures(UnitTypeId.PYLON).ready.random
@@ -143,9 +145,13 @@ class CompetitiveBot(BotAI):
             positions = [position.Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-5, 6) for y in range(-5, 6)]
             # Sort the positions by distance to the pylon
             positions.sort(key=lambda pos: pylon.position.distance_to(pos))
-            if self.structures(UnitTypeId.NEXUS).amount >= 3 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
-                if self.can_afford(UnitTypeId.GATEWAY):
-                    await self.build(UnitTypeId.GATEWAY, near=pylon.position.towards(self.game_info.map_center, 5))
+            if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
+                for pos in positions:
+                    # Check if the position is valid for building
+                    if await self.can_place_single(UnitTypeId.GATEWAY, pos):
+                    # If the position is valid, build the gateway
+                        if self.can_afford(UnitTypeId.GATEWAY):
+                            await self.build(UnitTypeId.GATEWAY, near=pos)
             elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6:
                 for pos in positions:
                 # Check if the position is valid for building
