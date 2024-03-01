@@ -137,7 +137,7 @@ class CompetitiveBot(BotAI):
             
             
         
-        # after 4 nexuses are built, build gateways and cybernetics core once pylon is complete and keep building up to 13 warpgates after warpgate researched
+        # Key buildings: after 4 nexuses are built, build gateways and cybernetics core once pylon is complete and keep building up to 13 warpgates after warpgate researched
         if self.structures(UnitTypeId.PYLON).ready:
             # Select a pylon
             pylon = self.structures(UnitTypeId.PYLON).ready.random
@@ -145,7 +145,7 @@ class CompetitiveBot(BotAI):
             positions = [position.Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-5, 6) for y in range(-5, 6)]
             # Sort the positions by distance to the pylon
             positions.sort(key=lambda pos: pylon.position.distance_to(pos))
-            if self.townhalls.amount >= 3 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
+            if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
                 for pos in positions:
                     # Check if the position is valid for building
                     if await self.can_place_single(UnitTypeId.GATEWAY, pos):
