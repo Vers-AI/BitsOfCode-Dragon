@@ -98,13 +98,13 @@ class CompetitiveBot(BotAI):
             if self.can_afford(UnitTypeId.PYLON):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
         # When we hit 4 bases, build an extra Pylon if we have less than 2
-        elif self.structures(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 2:
+        elif self.structures(UnitTypeId.NEXUS).amount == 6 and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 2:
             if self.can_afford(UnitTypeId.PYLON):
-                await self.build(UnitTypeId.PYLON, near=closest.position.towards(self.game_info.map_center, 9, -180))
+                await self.build(UnitTypeId.PYLON, near=closest.position.towards(self.game_info.map_center, 16, -90))
         # After 13 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
-        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 10 and self.townhalls.amount == 6 and self.supply_cap < 200:
+        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 12 and self.townhalls.amount == 6 and self.supply_cap < 200:
             if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
-                await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
+                await self.build(UnitTypeId.PYLON, near=closest.towards(self.game_info.map_center, 30))
 
        
         # train probes on nexuses that are undersaturated
@@ -116,9 +116,10 @@ class CompetitiveBot(BotAI):
         
                     
 
-        if self.supply_used == 199: # train 1 more probe if supply is 199 to reach 200
-            if self.can_afford(UnitTypeId.PROBE):
-                nexus.train(UnitTypeId.PROBE)
+        if self.supply_used < 200 and self.structures(UnitTypeId.NEXUS).amount == 6 and self.structures(UnitTypeId.WARPGATE).amount >= 13: # quick build to 200 supply with probes
+            for nexus in self.townhalls.ready:
+                if self.can_afford(UnitTypeId.PROBE):
+                    nexus.train(UnitTypeId.PROBE)
                     
         # if we have less than target base count and build 4 nexuses at gold bases and then build at other locations
         if self.townhalls.amount < 5:
@@ -145,7 +146,7 @@ class CompetitiveBot(BotAI):
             if self.structures(UnitTypeId.NEXUS).amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
                 if self.can_afford(UnitTypeId.GATEWAY):
                     await self.build(UnitTypeId.GATEWAY, near=pylon.position.towards(self.game_info.map_center, 5))
-            elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 13 and self.structures(UnitTypeId.CYBERNETICSCORE):
+            elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6:
                 for pos in positions:
                 # Check if the position is valid for building
                     if await self.can_place_single(UnitTypeId.GATEWAY, pos):
@@ -168,7 +169,6 @@ class CompetitiveBot(BotAI):
             if self.structures(UnitTypeId.ASSIMILATOR).amount + self.already_pending(UnitTypeId.ASSIMILATOR) < 1:
                 if self.can_afford(UnitTypeId.ASSIMILATOR):
                     vgs = self.vespene_geyser.closer_than(15, closest)
-                    print(self.townhalls.first.position)
                     if vgs:
                         worker = self.select_build_worker(vgs.first.position)
                         if worker is None:
@@ -210,7 +210,7 @@ class CompetitiveBot(BotAI):
         # if we hit supply cap attack if not move zealts to closest expansion
         zealots = self.units(UnitTypeId.ZEALOT)
         if self.supply_used == 200:
-            print(self.time_formatted, "supply cap reached with:", self.structures(UnitTypeId.WARPGATE).ready.amount, "warpgates","+", self.structures(UnitTypeId.PYLON).ready.amount, "pylons", "and", self.townhalls.amount, "nexuses")
+            print(self.time_formatted, "supply cap reached with:", self.structures(UnitTypeId.WARPGATE).ready.amount, "warpgates","+", self.structures(UnitTypeId.PYLON).ready.amount, "pylons", "and", self.townhalls.amount, "nexuses", "+", self.units(UnitTypeId.ZEALOT).amount, "zealots","and", self.workers.amount, "probes")
             for zealot in zealots:
                 zealot.attack(self.enemy_start_locations[0])
         else:
