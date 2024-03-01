@@ -100,9 +100,9 @@ class CompetitiveBot(BotAI):
         # When we hit 4 bases, build an extra Pylon if we have less than 2
         elif self.structures(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 2:
             if self.can_afford(UnitTypeId.PYLON):
-                await self.build(UnitTypeId.PYLON, near=closest.position.towards(self.game_info.map_center, 10, -30))
+                await self.build(UnitTypeId.PYLON, near=closest.position.towards(self.game_info.map_center, 9, -180))
         # After 13 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
-        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 12 and self.townhalls.amount == 6 and self.supply_cap < 200:
+        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 10 and self.townhalls.amount == 6 and self.supply_cap < 200:
             if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 5))
 
@@ -199,7 +199,7 @@ class CompetitiveBot(BotAI):
         # warp in zealots from warpgates near a pylon if there are 6 warpgates else build zealots
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
-        elif self.structures(UnitTypeId.NEXUS).amount > 4 and not self.structures(UnitTypeId.WARPGATE).ready and self.structures(UnitTypeId.CYBERNETICSCORE):
+        elif self.structures(UnitTypeId.NEXUS).amount == 6 and not self.structures(UnitTypeId.WARPGATE).ready and self.structures(UnitTypeId.CYBERNETICSCORE):
             for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                 if self.can_afford(UnitTypeId.ZEALOT):
                     gateway.train(UnitTypeId.ZEALOT)
