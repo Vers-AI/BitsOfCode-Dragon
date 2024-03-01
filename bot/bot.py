@@ -143,7 +143,7 @@ class CompetitiveBot(BotAI):
             positions = [position.Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-5, 6) for y in range(-5, 6)]
             # Sort the positions by distance to the pylon
             positions.sort(key=lambda pos: pylon.position.distance_to(pos))
-            if self.structures(UnitTypeId.NEXUS).amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
+            if self.structures(UnitTypeId.NEXUS).amount >= 3 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
                 if self.can_afford(UnitTypeId.GATEWAY):
                     await self.build(UnitTypeId.GATEWAY, near=pylon.position.towards(self.game_info.map_center, 5))
             elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6:
