@@ -99,7 +99,7 @@ class CompetitiveBot(BotAI):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
                 print(self.time_formatted, "building pylon")
         # When we hit 4 gateways, build an extra Pylon if we have less than 2
-        elif self.supply_left <= 2 and self.structures(UnitTypeId.PYLON).amount  < 2:
+        elif self.structures(UnitTypeId.PYLON).amount  < 2 and self.townhalls.amount == 4:
             if self.can_afford(UnitTypeId.PYLON) and self.already_pending(UnitTypeId.PYLON) == 0:
                 await self.build(UnitTypeId.PYLON, near=closest.towards_with_random_angle(self.game_info.map_center, 15))
                 print(self.time_formatted, "building pylon - 2")
@@ -145,14 +145,14 @@ class CompetitiveBot(BotAI):
             positions = [position.Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-5, 6) for y in range(-5, 6)]
             # Sort the positions by distance to the pylon
             positions.sort(key=lambda pos: pylon.position.distance_to(pos))
-            if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
+            if self.townhalls.amount >= 3 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
                 for pos in positions:
                     # Check if the position is valid for building
                     if await self.can_place_single(UnitTypeId.GATEWAY, pos):
                     # If the position is valid, build the gateway
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
-            elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6:
+            elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
                 for pos in positions:
                 # Check if the position is valid for building
                     if await self.can_place_single(UnitTypeId.GATEWAY, pos):
