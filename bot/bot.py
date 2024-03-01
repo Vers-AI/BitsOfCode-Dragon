@@ -98,9 +98,9 @@ class CompetitiveBot(BotAI):
             if self.can_afford(UnitTypeId.PYLON):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
         # When we hit 4 bases, build an extra Pylon if we have less than 2
-        elif self.structures(UnitTypeId.NEXUS).amount == 6 and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 2:
+        elif self.structures(UnitTypeId.GATEWAY).amount == 4 and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 2:
             if self.can_afford(UnitTypeId.PYLON):
-                await self.build(UnitTypeId.PYLON, near=closest.position.towards(self.game_info.map_center, 16, -90))
+                await self.build(UnitTypeId.PYLON, near=closest.towards_with_random_angle(self.game_info.map_center, 20))
         # After 13 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 12 and self.townhalls.amount == 6 and self.supply_cap < 200:
             if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
@@ -108,18 +108,18 @@ class CompetitiveBot(BotAI):
 
        
         # train probes on nexuses that are undersaturated
-        for nexus in self.townhalls.ready:
-            if nexus.assigned_harvesters < nexus.ideal_harvesters and nexus.is_idle:
-                if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
-                    if self.can_afford(UnitTypeId.PROBE):
-                        nexus.train(UnitTypeId.PROBE)
+        #if nexus.assigned_harvesters < nexus.ideal_harvesters and nexus.is_idle:
+        if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
+            if self.can_afford(UnitTypeId.PROBE):
+                nexus.train(UnitTypeId.PROBE)
         
                     
-
-        if self.supply_used < 200 and self.structures(UnitTypeId.NEXUS).amount == 6 and self.structures(UnitTypeId.WARPGATE).amount >= 13: # quick build to 200 supply with probes
+        # Building Probes
+        if self.supply_used < 200 and self.structures(UnitTypeId.NEXUS).amount == 6 and self.structures(UnitTypeId.WARPGATE).amount == 13: # quick build to 200 supply with probes
             for nexus in self.townhalls.ready:
-                if self.can_afford(UnitTypeId.PROBE):
+                if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
                     nexus.train(UnitTypeId.PROBE)
+        
                     
         # if we have less than target base count and build 4 nexuses at gold bases and then build at other locations
         if self.townhalls.amount < 5:
