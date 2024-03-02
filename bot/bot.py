@@ -99,14 +99,15 @@ class CompetitiveBot(BotAI):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
                 print(self.time_formatted, "building pylon")
         # When we hit 4 gateways, build an extra Pylon if we have less than 2
-        elif self.structures(UnitTypeId.PYLON).amount  < 2 and self.townhalls.amount == 7:
+        elif self.structures(UnitTypeId.PYLON).amount  < 2 and self.townhalls.amount == 10:
             if self.can_afford(UnitTypeId.PYLON) and self.already_pending(UnitTypeId.PYLON) == 0:
                 await self.build(UnitTypeId.PYLON, near=closest.towards_with_random_angle(self.game_info.map_center, 15))
                 print(self.time_formatted, "building pylon - 2")
         # After 13 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
-        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount == 11 and self.supply_cap < 200:
+        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 11 and self.supply_cap < 200:
+            direction = Point2((0, 3))  
             if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
-                await self.build(UnitTypeId.PYLON, near=closest.towards_with_random_angle(self.game_info.map_center, 5))
+                await self.build(UnitTypeId.PYLON, near=closest.position + direction.towards(self.game_info.map_center, 10))
 
        
         # train probes on nexuses that are undersaturated
@@ -206,10 +207,10 @@ class CompetitiveBot(BotAI):
 
         # warp in zealots from warpgates near a pylon if there are 6 warpgates else build zealots
         if self.structures(UnitTypeId.WARPGATE).ready:
-            if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 11:
+            if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount >= 11:
                 await self.warp_new_units(pylon)
-        elif not self.structures(UnitTypeId.WARPGATE): 
-            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)== 11:
+        elif not self.structures(UnitTypeId.WARPGATE).ready: 
+            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)>= 10:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
@@ -217,12 +218,12 @@ class CompetitiveBot(BotAI):
         
         
         
-        # if we hit supply cap attack if not move zealts to closest expansion
+        # if we hit supply cap surrender if not move zealtots to the center of the map
         zealots = self.units(UnitTypeId.ZEALOT)
         if self.supply_used == 200:
             print(self.time_formatted, "supply cap reached with:", self.structures(UnitTypeId.WARPGATE).ready.amount, "warpgates","+", self.structures(UnitTypeId.PYLON).ready.amount, "pylons", "and", self.townhalls.amount, "nexuses", "+", self.units(UnitTypeId.ZEALOT).amount, "zealots","and", self.workers.amount, "probes")
-            for zealot in zealots:
-                zealot.attack(self.enemy_start_locations[0])
+            await self.chat_send("Suppy Cap Reached at:" + self.time_formatted)
+            self.client.leave
         else:
             for zealot in zealots:
                 zealot(AbilityId.ATTACK, nexus.position.towards(self.game_info.map_center, 5))
@@ -244,7 +245,7 @@ class CompetitiveBot(BotAI):
                     nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
         else:
             if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
-                if nexus.energy >= 50 and self.time > 0.17:
+                if nexus.energy >= 50 and self.time > 17:
                     nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
         
     
