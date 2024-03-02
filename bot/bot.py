@@ -107,7 +107,7 @@ class CompetitiveBot(BotAI):
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 11 and self.supply_cap < 200:
             direction = Point2((0, 3))  
             if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
-                await self.build(UnitTypeId.PYLON, near=closest.position + direction.towards(self.game_info.map_center, 10))
+                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 10)
 
        
         # train probes on nexuses that are undersaturated
