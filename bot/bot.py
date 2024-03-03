@@ -1,6 +1,6 @@
 """ 
 This bot is a bot from episode 2 of Bits of Code(https://bit.ly/3TjclBh). 
-It is a simple bot that expands to gold bases and builds zealots trying to reach Max supply by 5:42 in game time. 
+It is a simple bot that expands to gold bases and builds zealots trying to reach Max supply by 5:46 in game time. 
 use the map Prion Terrace. 
 
 Download the map from the following link: https://bit.ly/3UUr1bk
