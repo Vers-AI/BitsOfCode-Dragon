@@ -1,7 +1,9 @@
 """ 
-This bot is a bot from episode 2 of Bits of Code. 
-It is a simple bot that expands to gold bases and builds zealots trying to reach Max supply by 5:46 in game time. 
+This bot is a bot from episode 2 of Bits of Code(https://bit.ly/3TjclBh). 
+It is a simple bot that expands to gold bases and builds zealots trying to reach Max supply by 5:42 in game time. 
 use the map Prion Terrace. 
+
+Download the map from the following link: https://bit.ly/3UUr1bk
 """
 
 from loguru import logger
@@ -123,6 +125,13 @@ class CompetitiveBot(BotAI):
                 if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
                     nexus.train(UnitTypeId.PROBE)
         
+        # move a probe 275 minerals in advance to each in advance to the next base location to cut down on travel time
+        """if self.last_expansion_index < 3:
+            if self.minerals > 275: 
+                location = expansion_loctions_list[self.last_expansion_index] 
+                worker = self.workers.closest_to(location)
+                worker.move(location, queue=False)"""
+            
                     
         # if we have less than target base count and build 5 nexuses at gold bases and then build at other locations
         if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count:
