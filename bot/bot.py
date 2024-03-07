@@ -28,14 +28,13 @@ class CompetitiveBot(BotAI):
     def __init__(self):
         super().__init__()
         self.last_expansion_index = -1
-        self.first_nexus = None
         
         self.worker_to_mineral_patch_dict: Dict[int, int] = {}
         self.mineral_patch_to_list_of_workers: Dict[int, Set[int]] = {}
         self.minerals_sorted_by_distance: Units = Units([], self)
-        # Distance 0.01 to 0.1 seems fine
+        # Distance 0.01 to 0.1 works
         self.townhall_distance_threshold = 0.01
-        # Distance factor between 0.95 and 1.0 seems fine
+        # Distance factor between 0.95 and 1.0 works
         self.townhall_distance_factor = 1
 
     RACE: Race = Race.Protoss
@@ -144,7 +143,6 @@ class CompetitiveBot(BotAI):
 
        
         # train probes on nexuses that are undersaturated
-        # if nexus.assigned_harvesters < nexus.ideal_harvesters and nexus.is_idle:
         if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
             if self.can_afford(UnitTypeId.PROBE):
                 nexus.train(UnitTypeId.PROBE)
@@ -156,6 +154,7 @@ class CompetitiveBot(BotAI):
                 if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
                     nexus.train(UnitTypeId.PROBE)
         
+
         #Worker Control and Optimization
         if self.worker_to_mineral_patch_dict:
             # Quick-access cache mineral tag to mineral Unit
