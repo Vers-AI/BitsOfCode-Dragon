@@ -5,7 +5,7 @@ use the map Prion Terrace.
 
 Download the map from the following link: https://bit.ly/3UUr1bk
 """
-
+from typing import Dict, Set
 from loguru import logger
 
 from sc2.bot_ai import BotAI, Race
@@ -28,6 +28,7 @@ class CompetitiveBot(BotAI):
         super().__init__()
         self.last_expansion_index = -1
         self.first_nexus = None
+        
 
     RACE: Race = Race.Protoss
     """This bot's Starcraft 2 race.
