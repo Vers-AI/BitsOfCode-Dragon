@@ -100,16 +100,11 @@ class CompetitiveBot(BotAI):
             if self.can_afford(UnitTypeId.PYLON):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
                 print(self.time_formatted, "building pylon")
-        # When we hit 4 gateways, build an extra Pylon if we have less than 2
-        elif self.structures(UnitTypeId.PYLON).amount  < 2 and self.townhalls.amount == 10:
-            if self.can_afford(UnitTypeId.PYLON) and self.already_pending(UnitTypeId.PYLON) == 0:
-                await self.build(UnitTypeId.PYLON, near=closest.towards_with_random_angle(self.game_info.map_center, 15))
-                print(self.time_formatted, "building pylon - 2")
-        # After 13 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
+        # After 11 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 11 and self.supply_cap < 200:
-            direction = Point2((0, 3))  
+            direction = Point2((0, 2))  
             if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
-                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 10)
+                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 15)
 
        
         # train probes on nexuses that are undersaturated
