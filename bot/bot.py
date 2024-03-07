@@ -16,6 +16,7 @@ from sc2.ids.upgrade_id import UpgradeId
 from sc2.ids.buff_id import BuffId
 from sc2.position import Point2
 from sc2.unit import Unit
+from sc2.units import Units
 from sc2 import position
 from sc2.constants import UnitTypeId
 
@@ -29,6 +30,13 @@ class CompetitiveBot(BotAI):
         self.last_expansion_index = -1
         self.first_nexus = None
         
+        self.worker_to_mineral_patch_dict: Dict[int, int] = {}
+        self.mineral_patch_to_list_of_workers: Dict[int, Set[int]] = {}
+        self.minerals_sorted_by_distance: Units = Units([], self)
+        # Distance 0.01 to 0.1 seems fine
+        self.townhall_distance_threshold = 0.01
+        # Distance factor between 0.95 and 1.0 seems fine
+        self.townhall_distance_factor = 1
 
     RACE: Race = Race.Protoss
     """This bot's Starcraft 2 race.
@@ -45,7 +53,35 @@ class CompetitiveBot(BotAI):
         Do things here before the game starts
         """
         print("Game started")
-        
+
+        self.client.game_step = 1
+        await self.assign_workers()
+
+    # Assign workers to mineral patches
+    async def assign_workers(self):
+        self.minerals_sorted_by_distance = self.mineral_field.closer_than(10,
+                                                                          self.start_location).sorted_by_distance_to(
+                                                                              self.start_location
+                                                                          )
+
+        # Assign workers to mineral patch, start with the mineral patch closest to base
+        for mineral in self.minerals_sorted_by_distance:
+            # Assign workers closest to the mineral patch
+            workers = self.workers.tags_not_in(self.worker_to_mineral_patch_dict).sorted_by_distance_to(mineral)
+            for worker in workers:
+                # Assign at most 2 workers per patch
+                # This dict is not really used further down the code, but useful to keep track of how many workers are assigned to this mineral patch - important for when the mineral patch mines out or a worker dies
+                if len(self.mineral_patch_to_list_of_workers.get(mineral.tag, [])) < 2:
+                    if len(self.mineral_patch_to_list_of_workers.get(mineral.tag, [])) == 0:
+                        self.mineral_patch_to_list_of_workers[mineral.tag] = {worker.tag}
+                    else:
+                        self.mineral_patch_to_list_of_workers[mineral.tag].add(worker.tag)
+                    # Keep track of which mineral patch the worker is assigned to - if the mineral patch mines out, reassign the worker to another patch
+                    self.worker_to_mineral_patch_dict[worker.tag] = mineral.tag
+                else:
+                    break
+    #
+
     #Create a list of  all gold starting locations
     def _find_gold_expansions(self) -> list[Point2]:
             gold_mfs: list[Unit] = [
@@ -88,7 +124,6 @@ class CompetitiveBot(BotAI):
         target_base_count = 6    # Number of total bases to expand to before stoping
         expansion_loctions_list = self._find_gold_expansions()   # Define expansion locations
 
-        await self.distribute_workers()  # Distribute workers to mine minerals and gas
         nexus = self.townhalls.ready.random
         closest = self.start_location
         
@@ -121,12 +156,43 @@ class CompetitiveBot(BotAI):
                 if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
                     nexus.train(UnitTypeId.PROBE)
         
-        # move a probe 275 minerals in advance to each in advance to the next base location to cut down on travel time
-        """if self.last_expansion_index < 3:
-            if self.minerals > 275: 
-                location = expansion_loctions_list[self.last_expansion_index] 
-                worker = self.workers.closest_to(location)
-                worker.move(location, queue=False)"""
+        #Worker Control and Optimization
+        if self.worker_to_mineral_patch_dict:
+            # Quick-access cache mineral tag to mineral Unit
+            minerals: Dict[int, Unit] = {mineral.tag: mineral for mineral in self.mineral_field}
+
+            for worker in self.workers:
+                if not self.townhalls:
+                    logger.error("All townhalls died - can't return resources")
+                    break
+
+                worker: Unit
+                mineral_tag = self.worker_to_mineral_patch_dict[worker.tag]
+                mineral = minerals.get(mineral_tag, None)
+                if mineral is None:
+                    logger.error(f"Mined out mineral with tag {mineral_tag} for worker {worker.tag}")
+                    continue
+
+                # Order worker to mine at target mineral patch if isn't carrying minerals
+                if not worker.is_carrying_minerals:
+                    if not worker.is_gathering or worker.order_target != mineral.tag:
+                        worker.gather(mineral)
+                # Order worker to return minerals if carrying minerals
+                else:
+                    th = self.townhalls.closest_to(worker)
+                    # Move worker in front of the nexus to avoid deceleration until the last moment
+                    if worker.distance_to(th) > th.radius + worker.radius + self.townhall_distance_threshold:
+                        pos: Point2 = th.position
+                        worker.move(pos.towards(worker, th.radius * self.townhall_distance_factor))
+                        worker.return_resource(queue=True)
+                    else:
+                        worker.return_resource()
+                        worker.gather(mineral, queue=True)
+
+        # Print info every 30 game-seconds
+        if self.state.game_loop % (22.4 * 30) == 0:
+            logger.info(f"{self.time_formatted} Mined a total of {int(self.state.score.collected_minerals)} minerals")
+
             
                     
         # if we have less than target base count and build 5 nexuses at gold bases and then build at other locations
