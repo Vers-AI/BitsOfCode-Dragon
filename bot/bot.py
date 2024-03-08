@@ -128,27 +128,37 @@ class CompetitiveBot(BotAI):
         
     
       
+       
         
-
         # Build a pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON):
+                # Manually select a worker
+                worker = self.select_build_worker(nexus.position)
+                if worker is None:
+                    return
+                # Remove the worker from the dictionary
+                worker_tag = worker.tag
+                mineral_tag = self.worker_to_mineral_patch_dict.pop(worker_tag, None)
+                # Issue the build command
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
                 print(self.time_formatted, "building pylon")
+                # Add the worker back to the dictionary
+                #self.worker_to_mineral_patch_dict[worker_tag] = mineral_tag
         # After 11 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 11 and self.supply_cap < 200:
             direction = Point2((0, 2))  
             if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 15)
 
-       
+        
         # train probes on nexuses that are undersaturated
         if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
             if self.can_afford(UnitTypeId.PROBE):
                 nexus.train(UnitTypeId.PROBE)
         
                     
-        # Building Probes
+        # Building Probes to reach 200 supply fast
         if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14: # quick build to 200 supply with probes
             for nexus in self.townhalls.ready:
                 if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
@@ -166,6 +176,12 @@ class CompetitiveBot(BotAI):
                     break
 
                 worker: Unit
+                # Check if the worker is in the dictionary
+                if worker.tag in self.worker_to_mineral_patch_dict:
+                    mineral_tag = self.worker_to_mineral_patch_dict[worker.tag]
+                else:
+                    print(f"Worker {worker.tag} is not in the dictionary")
+                    continue  # Skip this worker and move to the next one
                 mineral_tag = self.worker_to_mineral_patch_dict[worker.tag]
                 mineral = minerals.get(mineral_tag, None)
                 if mineral is None:
