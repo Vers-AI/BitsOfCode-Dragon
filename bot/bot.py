@@ -21,7 +21,7 @@ from sc2 import position
 from sc2.constants import UnitTypeId
 
 
-class CompetitiveBot(BotAI):
+class DragonBot(BotAI):
     NAME: str = "DragonBot"
     """This bot's name"""
     #keep track of the last expansion index
@@ -32,10 +32,13 @@ class CompetitiveBot(BotAI):
         self.worker_to_mineral_patch_dict: Dict[int, int] = {}
         self.mineral_patch_to_list_of_workers: Dict[int, Set[int]] = {}
         self.minerals_sorted_by_distance: Units = Units([], self)
+        self.workers_building = {}
         # Distance 0.01 to 0.1 works
         self.townhall_distance_threshold = 0.01
         # Distance factor between 0.95 and 1.0 works
         self.townhall_distance_factor = 1
+    def get_unit(self, tag):
+        return self.units.find_by_tag(tag)
 
     RACE: Race = Race.Protoss
     """This bot's Starcraft 2 race.
@@ -115,7 +118,21 @@ class CompetitiveBot(BotAI):
                     return
                 warpgate.warp_in(UnitTypeId.ZEALOT, placement)
     
+    async def on_building_construction_complete(self, building):
+        if building.type_id == UnitTypeId.PYLON:
+            # Find the worker who built this building
+            for worker_tag, mineral_tag in self.workers_building.items():
+                worker = self.get_unit(worker_tag)
+                if worker is not None and worker.distance_to(building) < 5:
+                    # Remove the worker from the workers_building dictionary and add it back to the worker_to_mineral_patch_dict
+                    self.worker_to_mineral_patch_dict[worker_tag] = self.workers_building.pop(worker_tag)
+                    break
     
+    async def on_unit_created(self, unit):
+        if unit.type_id == UnitTypeId.PROBE:
+            # Add the worker to the dictionary
+            self.worker_to_mineral_patch_dict[unit.tag] = None
+
     async def on_step(self, iteration: int):
         """
         This code runs continually throughout the game
@@ -127,24 +144,22 @@ class CompetitiveBot(BotAI):
         closest = self.start_location
         
     
-      
+        await self.distribute_workers() # distribute workers to mine minerals and gas not ideal
        
         
         # Build a pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON):
-                # Manually select a worker
                 worker = self.select_build_worker(nexus.position)
                 if worker is None:
                     return
-                # Remove the worker from the dictionary
                 worker_tag = worker.tag
                 mineral_tag = self.worker_to_mineral_patch_dict.pop(worker_tag, None)
-                # Issue the build command
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
                 print(self.time_formatted, "building pylon")
-                # Add the worker back to the dictionary
-                #self.worker_to_mineral_patch_dict[worker_tag] = mineral_tag
+                # Add the worker to the workers_building dictionary
+                self.workers_building[worker_tag] = mineral_tag
+        
         # After 11 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 11 and self.supply_cap < 200:
             direction = Point2((0, 2))  
@@ -153,9 +168,10 @@ class CompetitiveBot(BotAI):
 
         
         # train probes on nexuses that are undersaturated
-        if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
-            if self.can_afford(UnitTypeId.PROBE):
-                nexus.train(UnitTypeId.PROBE)
+        if nexus.assigned_harvesters < nexus.ideal_harvesters and nexus.is_idle: # temporary fix probe distribution
+            if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
+                if self.can_afford(UnitTypeId.PROBE):
+                    nexus.train(UnitTypeId.PROBE)
         
                     
         # Building Probes to reach 200 supply fast
