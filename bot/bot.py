@@ -121,14 +121,14 @@ class DragonBot(BotAI):
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 11 and self.supply_cap < 200:
             direction = Point2((0, 1))  
             if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
-                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 15)
+                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 25)
 
         
         # train probes on nexuses that are undersaturated
-        if nexus.assigned_harvesters < nexus.ideal_harvesters and nexus.is_idle: # temporary fix probe distribution
-            if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
-                if self.can_afford(UnitTypeId.PROBE):
-                    nexus.train(UnitTypeId.PROBE)
+        # if nexus.assigned_harvesters < nexus.ideal_harvesters and nexus.is_idle:
+        if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
+            if self.can_afford(UnitTypeId.PROBE):
+                nexus.train(UnitTypeId.PROBE)
         
         mine(self, iteration)
                     
@@ -223,7 +223,7 @@ class DragonBot(BotAI):
             if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount >= 11:
                 await self.warp_new_units(pylon)
         elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)>= 10:
+            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)>= 12:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
