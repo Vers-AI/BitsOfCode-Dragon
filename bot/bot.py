@@ -186,7 +186,7 @@ class DragonBot(BotAI):
 
        
         # build 1 gas near the starting nexus
-        if self.townhalls.amount >= 4:
+        if self.structures(UnitTypeId.CYBERNETICSCORE):
             if self.structures(UnitTypeId.ASSIMILATOR).amount + self.already_pending(UnitTypeId.ASSIMILATOR) < 1:
                 if self.can_afford(UnitTypeId.ASSIMILATOR):
                     vgs = self.vespene_geyser.closer_than(15, closest)
