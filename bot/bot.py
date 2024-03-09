@@ -86,7 +86,7 @@ class DragonBot(BotAI):
         for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
             abililities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
-                position = pylon.position.to2.random_on_distance(4)
+                position = pylon.position.to2.towards(self.game_info.map_center, 4)
                 placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1)
                 if placement is None:
                     # return ActionResult.CantFindPlacementLocation
@@ -155,13 +155,12 @@ class DragonBot(BotAI):
         
         # Key buildings: after 4 nexuses are built, build gateways and cybernetics core once pylon is complete and keep building up to 13 warpgates after warpgate researched
         if self.structures(UnitTypeId.PYLON).ready:
-            # Select a pylon
+            # Select a pylon, get the positions around the pylon and sort them by distance to the pylon
             pylon = self.structures(UnitTypeId.PYLON).ready.random
-            # Get the positions around the pylon
-            # Get the positions around the pylon
-            positions = [Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-6, 7) for y in range(-6, 7)]
-            # Sort the positions by distance to the pylon
+            positions = [Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-6, 7, 3) for y in range(-6, 7, 3)]
             positions.sort(key=lambda pos: pylon.position.distance_to(pos))
+
+
             if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
                 for pos in positions:
                     # Check if the position is valid for building
@@ -169,6 +168,7 @@ class DragonBot(BotAI):
                     # If the position is valid, build the gateway
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
+                            break
             elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 11 and self.townhalls.amount == 6:
                 for pos in positions:
                 # Check if the position is valid for building
