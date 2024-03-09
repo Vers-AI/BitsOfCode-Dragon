@@ -110,12 +110,11 @@ class DragonBot(BotAI):
         self.resource_by_tag = {unit.tag: unit for unit in chain(self.mineral_field, self.gas_buildings)}
     
         
-        # Build a pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
+        # Build first pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON): 
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
-                print(self.time_formatted, "building pylon")
-                
+                print(self.time_formatted, "building pylon")     
         
         # After 11 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 11 and self.supply_cap < 200:
@@ -124,8 +123,7 @@ class DragonBot(BotAI):
                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 25)
 
         
-        # train probes on nexuses that are undersaturated
-        # if nexus.assigned_harvesters < nexus.ideal_harvesters and nexus.is_idle:
+        # train probes = 22 per nexus
         if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
             if self.can_afford(UnitTypeId.PROBE):
                 nexus.train(UnitTypeId.PROBE)
@@ -157,11 +155,8 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.PYLON).ready:
             # Select a pylon, get the positions around the pylon and sort them by distance to the pylon
             pylon = self.structures(UnitTypeId.PYLON).ready.random
-            center = Point2((pylon.position.x, pylon.position.y))
             positions = [Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-6, 7, 3) for y in range(-6, 7, 3)]
-            positions.sort(key=lambda pos: (pylon.position.distance_to(pos), center.distance_to(pos)))
-
-
+            positions.sort(key=lambda pos: pylon.position.distance_to(pos))
 
             if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
                 for pos in positions:
@@ -171,7 +166,7 @@ class DragonBot(BotAI):
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
                             break
-            elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 12 and self.townhalls.amount == 6:
+            elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 11 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
                 for pos in positions:
                 # Check if the position is valid for building
                     if await self.can_place_single(UnitTypeId.GATEWAY, pos):
@@ -179,7 +174,7 @@ class DragonBot(BotAI):
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
                             break
-            if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0 and self.structures(UnitTypeId.ASSIMILATOR):
+            if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0:
                 if self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.GATEWAY).ready:
                     for pos in positions:
                         # Check if the position is valid for building
@@ -222,10 +217,9 @@ class DragonBot(BotAI):
 
         # warp in zealots from warpgates near a pylon if there are 6 warpgates else build zealots
         if self.structures(UnitTypeId.WARPGATE).ready:
-            if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount >= 11:
-                await self.warp_new_units(pylon)
+            await self.warp_new_units(pylon)
         elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)>= 12:
+            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)>= 15:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
