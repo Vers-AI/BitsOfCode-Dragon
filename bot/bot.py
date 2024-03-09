@@ -8,6 +8,8 @@ Download the map from the following link: https://bit.ly/3UUr1bk
 from typing import Dict, Set
 from loguru import logger
 
+from itertools import chain
+
 from sc2.bot_ai import BotAI, Race
 from sc2.data import Result
 from sc2.ids.unit_typeid import UnitTypeId
@@ -20,6 +22,10 @@ from sc2.units import Units
 from sc2 import position
 from sc2.constants import UnitTypeId
 
+from bot.speedmining import get_speedmining_positions
+from bot.speedmining import split_workers
+from bot.speedmining import mine
+
 
 class DragonBot(BotAI):
     NAME: str = "DragonBot"
@@ -29,16 +35,11 @@ class DragonBot(BotAI):
         super().__init__()
         self.last_expansion_index = -1
         
-        self.worker_to_mineral_patch_dict: Dict[int, int] = {}
-        self.mineral_patch_to_list_of_workers: Dict[int, Set[int]] = {}
-        self.minerals_sorted_by_distance: Units = Units([], self)
-        self.workers_building = {}
-        # Distance 0.01 to 0.1 works
-        self.townhall_distance_threshold = 0.01
-        # Distance factor between 0.95 and 1.0 works
-        self.townhall_distance_factor = 1
-    def get_unit(self, tag):
-        return self.units.find_by_tag(tag)
+        self.worker_assigned_to_expand = {}          # lists workers assigned to expand /!\ not used yet
+        self.townhall_saturations = {}               # lists the mineral saturation of townhalls in queues of 40 frames, we consider the townhall saturated if max_number + 1 >= ideal_number
+        self.assimilator_age = {}                     # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
+        self.workers_building = {}                   # dictionary to keep track of workers building a building
+        
 
     RACE: Race = Race.Protoss
     """This bot's Starcraft 2 race.
@@ -55,34 +56,9 @@ class DragonBot(BotAI):
         Do things here before the game starts
         """
         print("Game started")
-
-        self.client.game_step = 1
-        await self.assign_workers()
-
-    # Assign workers to mineral patches
-    async def assign_workers(self):
-        self.minerals_sorted_by_distance = self.mineral_field.closer_than(10,
-                                                                          self.start_location).sorted_by_distance_to(
-                                                                              self.start_location
-                                                                          )
-
-        # Assign workers to mineral patch, start with the mineral patch closest to base
-        for mineral in self.minerals_sorted_by_distance:
-            # Assign workers closest to the mineral patch
-            workers = self.workers.tags_not_in(self.worker_to_mineral_patch_dict).sorted_by_distance_to(mineral)
-            for worker in workers:
-                # Assign at most 2 workers per patch
-                # This dict is not really used further down the code, but useful to keep track of how many workers are assigned to this mineral patch - important for when the mineral patch mines out or a worker dies
-                if len(self.mineral_patch_to_list_of_workers.get(mineral.tag, [])) < 2:
-                    if len(self.mineral_patch_to_list_of_workers.get(mineral.tag, [])) == 0:
-                        self.mineral_patch_to_list_of_workers[mineral.tag] = {worker.tag}
-                    else:
-                        self.mineral_patch_to_list_of_workers[mineral.tag].add(worker.tag)
-                    # Keep track of which mineral patch the worker is assigned to - if the mineral patch mines out, reassign the worker to another patch
-                    self.worker_to_mineral_patch_dict[worker.tag] = mineral.tag
-                else:
-                    break
-    #
+        self.client.game_step = 2    
+        self.speedmining_positions = get_speedmining_positions(self)
+        split_workers(self)   
 
     #Create a list of  all gold starting locations
     def _find_gold_expansions(self) -> list[Point2]:
@@ -118,20 +94,9 @@ class DragonBot(BotAI):
                     return
                 warpgate.warp_in(UnitTypeId.ZEALOT, placement)
     
-    async def on_building_construction_complete(self, building):
-        if building.type_id == UnitTypeId.PYLON:
-            # Find the worker who built this building
-            for worker_tag, mineral_tag in self.workers_building.items():
-                worker = self.get_unit(worker_tag)
-                if worker is not None and worker.distance_to(building) < 5:
-                    # Remove the worker from the workers_building dictionary and add it back to the worker_to_mineral_patch_dict
-                    self.worker_to_mineral_patch_dict[worker_tag] = self.workers_building.pop(worker_tag)
-                    break
     
-    async def on_unit_created(self, unit):
-        if unit.type_id == UnitTypeId.PROBE:
-            # Add the worker to the dictionary
-            self.worker_to_mineral_patch_dict[unit.tag] = None
+    
+    
 
     async def on_step(self, iteration: int):
         """
@@ -142,27 +107,19 @@ class DragonBot(BotAI):
 
         nexus = self.townhalls.ready.random
         closest = self.start_location
-        
+        self.resource_by_tag = {unit.tag: unit for unit in chain(self.mineral_field, self.gas_buildings)}
     
-        await self.distribute_workers() # distribute workers to mine minerals and gas not ideal
-       
         
         # Build a pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
-            if self.can_afford(UnitTypeId.PYLON):
-                worker = self.select_build_worker(nexus.position)
-                if worker is None:
-                    return
-                worker_tag = worker.tag
-                mineral_tag = self.worker_to_mineral_patch_dict.pop(worker_tag, None)
+            if self.can_afford(UnitTypeId.PYLON): 
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
                 print(self.time_formatted, "building pylon")
-                # Add the worker to the workers_building dictionary
-                self.workers_building[worker_tag] = mineral_tag
+                
         
         # After 11 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 11 and self.supply_cap < 200:
-            direction = Point2((0, 2))  
+            direction = Point2((0, 1))  
             if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 15)
 
@@ -173,57 +130,13 @@ class DragonBot(BotAI):
                 if self.can_afford(UnitTypeId.PROBE):
                     nexus.train(UnitTypeId.PROBE)
         
+        mine(self, iteration)
                     
         # Building Probes to reach 200 supply fast
         if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14: # quick build to 200 supply with probes
             for nexus in self.townhalls.ready:
                 if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
                     nexus.train(UnitTypeId.PROBE)
-        
-
-        #Worker Control and Optimization
-        if self.worker_to_mineral_patch_dict:
-            # Quick-access cache mineral tag to mineral Unit
-            minerals: Dict[int, Unit] = {mineral.tag: mineral for mineral in self.mineral_field}
-
-            for worker in self.workers:
-                if not self.townhalls:
-                    logger.error("All townhalls died - can't return resources")
-                    break
-
-                worker: Unit
-                # Check if the worker is in the dictionary
-                if worker.tag in self.worker_to_mineral_patch_dict:
-                    mineral_tag = self.worker_to_mineral_patch_dict[worker.tag]
-                else:
-                    print(f"Worker {worker.tag} is not in the dictionary")
-                    continue  # Skip this worker and move to the next one
-                mineral_tag = self.worker_to_mineral_patch_dict[worker.tag]
-                mineral = minerals.get(mineral_tag, None)
-                if mineral is None:
-                    logger.error(f"Mined out mineral with tag {mineral_tag} for worker {worker.tag}")
-                    continue
-
-                # Order worker to mine at target mineral patch if isn't carrying minerals
-                if not worker.is_carrying_minerals:
-                    if not worker.is_gathering or worker.order_target != mineral.tag:
-                        worker.gather(mineral)
-                # Order worker to return minerals if carrying minerals
-                else:
-                    th = self.townhalls.closest_to(worker)
-                    # Move worker in front of the nexus to avoid deceleration until the last moment
-                    if worker.distance_to(th) > th.radius + worker.radius + self.townhall_distance_threshold:
-                        pos: Point2 = th.position
-                        worker.move(pos.towards(worker, th.radius * self.townhall_distance_factor))
-                        worker.return_resource(queue=True)
-                    else:
-                        worker.return_resource()
-                        worker.gather(mineral, queue=True)
-
-        # Print info every 30 game-seconds
-        if self.state.game_loop % (22.4 * 30) == 0:
-            logger.info(f"{self.time_formatted} Mined a total of {int(self.state.score.collected_minerals)} minerals")
-
             
                     
         # if we have less than target base count and build 5 nexuses at gold bases and then build at other locations
@@ -292,9 +205,7 @@ class DragonBot(BotAI):
                 workers = self.workers.closer_than(10, assimilator)
                 if workers:
                     workers.random.gather(assimilator)   
-        # put idle probes to work
-        for probe in self.workers.idle:
-            probe.gather(self.mineral_field.closest_to(nexus))
+        
 
         # Research Warp Gate if Cybernetics Core is complete
         if self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.can_afford(UpgradeId.WARPGATERESEARCH) and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 0:
@@ -316,20 +227,6 @@ class DragonBot(BotAI):
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
-        
-        
-        
-        
-        # if we hit supply cap surrender if not move zealtots to the center of the map
-        zealots = self.units(UnitTypeId.ZEALOT)
-        if self.supply_used == 200:
-            print(self.time_formatted, "supply cap reached with:", self.structures(UnitTypeId.WARPGATE).ready.amount, "warpgates","+", self.structures(UnitTypeId.PYLON).ready.amount, "pylons", "and", self.townhalls.amount, "nexuses", "+", self.units(UnitTypeId.ZEALOT).amount, "zealots","and", self.workers.amount, "probes")
-            await self.chat_send("Suppy Cap Reached at:" + self.time_formatted)
-            self.client.leave
-        else:
-            for zealot in zealots:
-                zealot(AbilityId.ATTACK, nexus.position.towards(self.game_info.map_center, 5))
-        
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available         
         if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount >= 11:
@@ -351,13 +248,17 @@ class DragonBot(BotAI):
                     nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
         
     
-        
+        # if we hit supply cap surrender if not move zealtots to the center of the map
+        zealots = self.units(UnitTypeId.ZEALOT)
+        if self.supply_used == 200:
+            print(self.time_formatted, "supply cap reached with:", self.structures(UnitTypeId.WARPGATE).ready.amount, "warpgates","+", self.structures(UnitTypeId.PYLON).ready.amount, "pylons", "and", self.townhalls.amount, "nexuses", "+", self.units(UnitTypeId.ZEALOT).amount, "zealots","and", self.workers.amount, "probes")
+            await self.chat_send("Suppy Cap Reached at:" + self.time_formatted)
+            await self.client.leave()
+        else:
+            for zealot in zealots:
+                zealot(AbilityId.ATTACK, nexus.position.towards(self.game_info.map_center, 5))
 
-
-        
-
-        
-            
+           
     
     async def on_end(self, result: Result):
         """
