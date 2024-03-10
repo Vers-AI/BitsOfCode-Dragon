@@ -57,12 +57,15 @@ class DragonBot(BotAI):
         This code runs once at the start of the game
         Do things here before the game starts
         """
+        
+
         print("Game started")
         self.client.game_step = 2    
         self.speedmining_positions = get_speedmining_positions(self)
         split_workers(self)   
         
 
+        
         # Select a probe and assign the role of "expand"
         self.probe = self.workers.random
         self.unit_roles[self.probe.tag] = "expand"
@@ -127,7 +130,7 @@ class DragonBot(BotAI):
         # After 12 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 12:
             direction = Point2((-2, 0))
-            if self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
+            if self.structures(UnitTypeId.PYLON).amount < 14:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 10)
 
@@ -146,8 +149,11 @@ class DragonBot(BotAI):
                     nexus.train(UnitTypeId.PROBE)
         
 
-        # expansion logic: if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion
+        # expansion logic: if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion 
+
         if self.townhalls.amount < target_base_count:
+            if self.last_expansion_index == -1:
+                self.probe.move(expansion_loctions_list[0])
             if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
                 if self.can_afford(UnitTypeId.NEXUS): 
                     self.last_expansion_index += 1
@@ -224,6 +230,7 @@ class DragonBot(BotAI):
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
             if ccore.is_idle:
                 ccore.research(UpgradeId.WARPGATERESEARCH)
+                print(self.time_formatted, " - researching warp gate")
                         
         # Morph to warp gates when warp gate research is complete
         if self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 0 and self.structures(UnitTypeId.GATEWAY).ready:
@@ -234,10 +241,11 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)>= 3:
+            if self.structures(UnitTypeId.GATEWAY).amount >= 6:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
+                        
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available         
         if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 12:
@@ -246,17 +254,23 @@ class DragonBot(BotAI):
                 abilities = await self.get_available_abilities(warpgate)
                 if not AbilityId.WARPGATETRAIN_ZEALOT in abilities:
                     if not warpgate.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
-                        if nexus.energy >= 50:
-                            nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
+                        for nexus in self.townhalls.ready:
+                            if nexus.energy >= 50:
+                                nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
+                                break  # Stop searching after finding a nexus with enough energy
         elif self.structures(UnitTypeId.CYBERNETICSCORE).ready:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
             if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not ccore.is_idle:
-                if nexus.energy >= 50:
-                    nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
+                for nexus in self.townhalls.ready:
+                    if nexus.energy >= 50:
+                        nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
+                        break  # Stop searching after finding a nexus with enough energy
         else:
-            if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
-                if nexus.energy >= 50 and self.time > 17:
-                    nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
+            for nexus in self.townhalls.ready:
+                if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
+                    if nexus.energy >= 50 and self.time > 17:
+                        nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
+                        break  # Stop searching after finding a nexus with enough energy
         
     
         # if we hit supply cap surrender if not move zealtots to the center of the map
