@@ -170,39 +170,34 @@ class DragonBot(BotAI):
                     del self.unit_roles[self.probe.tag]
         
         
-        # Key buildings: after 4 nexuses are built, build gateways and cybernetics core once pylon is complete and keep building up to 12 warpgates after warpgate researched
         if self.structures(UnitTypeId.PYLON).ready:
-            # Select a pylon, get the positions around the pylon and sort them by distance to the pylon
             pylon = self.structures(UnitTypeId.PYLON).ready.random
+            center = Point2((pylon.position.x, pylon.position.y))
             positions = [Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-6, 7, 3) for y in range(-6, 7, 3)]
-            positions.sort(key=lambda pos: pylon.position.distance_to(pos))
+            positions.sort(key=lambda pos: (pylon.position.distance_to(pos), center.distance_to(pos)))
 
-            if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
-                for pos in positions:
-                    # Check if the position is valid for building
-                    if await self.can_place_single(UnitTypeId.GATEWAY, pos):
-                    # If the position is valid, build the gateway
+            gateway_count = 0
+            for pos in positions:
+                gateway_count += 1
+                if gateway_count == 5:  # Adjust the position for the fourth Gateway
+                    adjusted_pos = Point2((pos.x - 1, pos.y))  # Subtract 1 from the x-coordinate
+                    if await self.can_place_single(UnitTypeId.GATEWAY, adjusted_pos):
+                        pos = adjusted_pos
+                if await self.can_place_single(UnitTypeId.GATEWAY, pos):
+                    if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
                             break
-            elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 11 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
-                for pos in positions:
-                # Check if the position is valid for building
-                    if await self.can_place_single(UnitTypeId.GATEWAY, pos):
-                    # If the position is valid, build the gateway
+                    elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 11 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
                             break
-            if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0:
-                if self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.GATEWAY).ready:
-                    for pos in positions:
-                        # Check if the position is valid for building
+                if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0:
+                    if self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.GATEWAY).ready:
                         if await self.can_place_single(UnitTypeId.CYBERNETICSCORE, pos):
-                            # If the position is valid, build the Cybernetics Core
                             await self.build(UnitTypeId.CYBERNETICSCORE, near=pos)
                             print(self.time_formatted, "building cybernetics core")
                             break
-
        
         # build 1 gas near the starting nexus
         if self.townhalls.amount >= 5:
@@ -238,7 +233,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)>= 4:
+            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)>= 3:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
