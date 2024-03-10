@@ -8,6 +8,8 @@ from sc2.position import Point2
 from sc2.bot_ai import BotAI
 from typing import Dict, Iterable, List, Optional, Set
 
+from sc2.ids.upgrade_id import UpgradeId
+
 
 SPEEDMINING_DISTANCE = 1.8
 
@@ -86,19 +88,20 @@ def handle_assimilator(self : BotAI, step: int):
 
     # handle workers
     for r in self.gas_buildings.ready:
-        if r.assigned_harvesters < r.ideal_harvesters and step - self.assimilator_age[r.tag] > 6: # last check because when it is finished there are 0 workers altough the one building goes to it instantly
-            workers: Units = self.workers.closer_than(10, r)
-            if workers:
-                for w in workers:
-                    if not w.is_carrying_minerals and not w.is_carrying_vespene:
-                        w.gather(r)
-                        return
-        if r.assigned_harvesters > r.ideal_harvesters or self.workers.amount <= 6:
+        if self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 0 and self.vespene < 48:
+            if r.assigned_harvesters < r.ideal_harvesters and step - self.assimilator_age[r.tag] > 6: # last check because when it is finished there are 0 workers altough the one building goes to it instantly
+                workers: Units = self.workers.closer_than(10, r)
+                if workers:
+                    for w in workers:
+                        if not w.is_carrying_minerals and not w.is_carrying_vespene:
+                            w.gather(r)
+                            return
+        if r.assigned_harvesters > r.ideal_harvesters or self.workers.amount <= 6 or self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) > 0 or self.vespene >= 48:
             workers: Units = self.workers.closer_than(2, r)
             if workers:
                 for w in workers:
                     if w.is_carrying_vespene:
-                        w.gather(self.resources.mineral_field.closest_to(w), True)
+                        w.gather(self.resources.mineral_field.closest_to(w))
                         return
 
 

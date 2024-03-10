@@ -217,12 +217,6 @@ class DragonBot(BotAI):
                             return
                         worker.build(UnitTypeId.ASSIMILATOR, vgs.first)
         
-        # saturate the gas 
-        for assimilator in self.gas_buildings:
-            if assimilator.assigned_harvesters < assimilator.ideal_harvesters:
-                workers = self.workers.closer_than(10, assimilator)
-                if workers:
-                    workers.random.gather(assimilator)   
         
 
         # Research Warp Gate if Cybernetics Core is complete
@@ -241,7 +235,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount >= 6:
+            if self.structures(UnitTypeId.GATEWAY).amount >= 10:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
