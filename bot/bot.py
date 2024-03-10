@@ -96,7 +96,7 @@ class DragonBot(BotAI):
         for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
             abililities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
-                position = pylon.position.to2.towards(self.game_info.map_center, 4)
+                position = pylon.position.to2.towards(self.game_info.map_center, 5)
                 placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1)
                 if placement is None:
                     # return ActionResult.CantFindPlacementLocation
@@ -147,10 +147,8 @@ class DragonBot(BotAI):
                     nexus.train(UnitTypeId.PROBE)
         
 
-        # if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion
+        # expansion logic: if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion
         if self.townhalls.amount < target_base_count:
-
-
             if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
                 if self.can_afford(UnitTypeId.NEXUS): 
                     self.last_expansion_index += 1
@@ -160,6 +158,9 @@ class DragonBot(BotAI):
                     if self.last_expansion_index < 3:
                         print(self.time_formatted, "expanding to gold bases", self.last_expansion_index, "of", len(expansion_loctions_list), "total current bases=", self.townhalls.amount)
                         self.probe.move(next_location, queue=True)
+                    else:
+                        location: Point2 = await self.get_next_expansion()
+                        self.probe.move(location)
                     
             elif self.last_expansion_index == 3 and self.townhalls.amount < target_base_count:
                 if self.can_afford(UnitTypeId.NEXUS):
@@ -210,7 +211,7 @@ class DragonBot(BotAI):
 
        
         # build 1 gas near the starting nexus
-        if self.townhalls.amount >= 4:
+        if self.townhalls.amount >= 5:
             if self.structures(UnitTypeId.ASSIMILATOR).amount + self.already_pending(UnitTypeId.ASSIMILATOR) < 1:
                 if self.can_afford(UnitTypeId.ASSIMILATOR):
                     vgs = self.vespene_geyser.closer_than(15, closest)
