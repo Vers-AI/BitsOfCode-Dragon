@@ -157,7 +157,7 @@ def split_workers(self : BotAI) -> None:
         assigned.add(worker.tag)
 
 
-def mine(self : BotAI, iteration):
+def mine(self : BotAI, iteration, workers_gathering):
     dispatch_workers(self)
-    micro_worker(self)
+    micro_worker(self, workers_gathering)
     handle_assimilator(self, iteration)
