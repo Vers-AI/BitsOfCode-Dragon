@@ -52,7 +52,6 @@ def micro_worker(self : BotAI) -> None:
         return
 
     for unit in self.workers:
-        print(self.unit_roles.get(unit.tag))
         if unit.is_idle and self.unit_roles.get(unit.tag) != "expand":
             townhall = self.townhalls.ready.closest_to(unit)
             patch = self.mineral_field.closest_to(townhall)
