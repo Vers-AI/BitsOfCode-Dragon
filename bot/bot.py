@@ -25,7 +25,7 @@ from sc2.constants import UnitTypeId
 from bot.speedmining import get_speedmining_positions
 from bot.speedmining import split_workers
 from bot.speedmining import mine
-from bot.speedmining import micro_worker
+
 
 
 class DragonBot(BotAI):
@@ -40,11 +40,8 @@ class DragonBot(BotAI):
         self.assimilator_age = {}                     # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
         self.workers_building = {}                   # dictionary to keep track of workers building a building
         self.expansion_probes = {}                   # dictionary to keep track probes expanding
-        self.workers_gathering = {}                 # dictionary to keep track of workers mining minerals
-    
-    async def on_unit_created(self, unit):
-        if unit.type_id == UnitTypeId.PROBE:
-            self.workers_gathering[unit.tag] = unit
+        
+        self.unit_roles = {}
     
     RACE: Race = Race.Protoss
     """This bot's Starcraft 2 race.
@@ -63,7 +60,6 @@ class DragonBot(BotAI):
         print("Game started")
         self.client.game_step = 2    
         self.speedmining_positions = get_speedmining_positions(self)
-        self.micro_workers = micro_worker(self, self.workers_gathering)
         split_workers(self)   
 
     #Create a list of  all gold starting locations
@@ -135,7 +131,7 @@ class DragonBot(BotAI):
             if self.can_afford(UnitTypeId.PROBE):
                 nexus.train(UnitTypeId.PROBE)
         
-        mine(self, iteration, self.workers_gathering)
+        mine(self, iteration)
                     
         # Building Probes to reach 200 supply fast
         if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14: # quick build to 200 supply with probes
@@ -145,41 +141,37 @@ class DragonBot(BotAI):
         
 
         # if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion
-        
-        if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count:
+        if self.townhalls.amount < target_base_count:
             # Select a probe
-            if not self.expansion_probes:
-                probe = self.workers.random
-                self.expansion_probes[probe.tag] = probe.position
-
-                # Remove the probe from the workers_gathering dictionary
-                if probe.tag in self.workers_gathering:
-                    del self.workers_gathering[probe.tag]
+            probe = self.workers.random
+            probe.role = "builder"  # Assign the role of "builder" to the probe
+            self.expansion_probes[probe.tag] = probe.position
 
             # Use the same probe for all expansions
             probe_tag = next(iter(self.expansion_probes.keys()))
             probe = self.get_unit(probe_tag)
-    
-            if self.can_afford(UnitTypeId.NEXUS): 
-                self.last_expansion_index += 1
-                next_location = expansion_loctions_list[self.last_expansion_index + 1]
-                location = expansion_loctions_list[self.last_expansion_index]
-                probe.build(UnitTypeId.NEXUS, location, queue=True)
-                print(self.time_formatted, "expanding to gold bases", self.last_expansion_index, "of", len(expansion_loctions_list), "total current bases=", self.townhalls.amount)
-                probe.move(next_location, queue=True)
-                
-        elif self.last_expansion_index == 3 and self.townhalls.amount < target_base_count:
-            if self.can_afford(UnitTypeId.NEXUS):
-                location: Point2 = await self.get_next_expansion()
-                probe.build(UnitTypeId.NEXUS, location, queue=True)
-                print(self.time_formatted, "expanding to",self.last_expansion_index,"th location, total current bases=", self.townhalls.amount)
 
-        # if we have 6 bases, remove the probe from the expansion_probes dictionary and add it to the worker_to_mineral_patch_dict        
-        if self.townhalls.amount == 6:
-            self.on_building_construction_started(UnitTypeId.NEXUS)
-            del self.expansion_probes[probe.tag]
-            self.workers_gathering[probe.tag] = probe
-            print(self.time_formatted, "expansion complete")  
+            if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
+                if self.can_afford(UnitTypeId.NEXUS): 
+                    self.last_expansion_index += 1
+                    next_location = expansion_loctions_list[self.last_expansion_index + 1]
+                    location = expansion_loctions_list[self.last_expansion_index]
+                    probe.build(UnitTypeId.NEXUS, location, queue=True)
+                    print(self.time_formatted, "expanding to gold bases", self.last_expansion_index, "of", len(expansion_loctions_list), "total current bases=", self.townhalls.amount)
+                    probe.move(next_location, queue=True)
+                    
+            elif self.last_expansion_index == 3 and self.townhalls.amount < target_base_count:
+                if self.can_afford(UnitTypeId.NEXUS):
+                    location: Point2 = await self.get_next_expansion()
+                    probe.build(UnitTypeId.NEXUS, location, queue=True)
+                    print(self.time_formatted, "expanding to",self.last_expansion_index,"th location, total current bases=", self.townhalls.amount)
+
+            # if we have 6 bases, remove the probe from the expansion_probes dictionary and add it to the worker_to_mineral_patch_dict        
+            if self.townhalls.amount == 6:
+                self.on_building_construction_started(UnitTypeId.NEXUS)
+                del self.expansion_probes[probe.tag]
+                self.workers_gathering[probe.tag] = probe
+                print(self.time_formatted, "expansion complete")  
         
         
         # Key buildings: after 4 nexuses are built, build gateways and cybernetics core once pylon is complete and keep building up to 12 warpgates after warpgate researched

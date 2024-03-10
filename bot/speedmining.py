@@ -52,7 +52,7 @@ def micro_worker(self : BotAI) -> None:
         return
 
     for unit in self.workers:
-        if unit.is_idle:
+        if unit.is_idle and (unit.tag not in self.unit_roles or self.unit_roles[unit.tag] != "builder"):
             townhall = self.townhalls.ready.closest_to(unit)
             patch = self.mineral_field.closest_to(townhall)
             unit.gather(patch)
@@ -157,7 +157,7 @@ def split_workers(self : BotAI) -> None:
         assigned.add(worker.tag)
 
 
-def mine(self : BotAI, iteration, workers_gathering):
+def mine(self : BotAI, iteration):
     dispatch_workers(self)
-    micro_worker(self, workers_gathering)
+    micro_worker(self)
     handle_assimilator(self, iteration)
