@@ -33,7 +33,6 @@ class DragonBot(BotAI):
     """This bot's name"""
     #keep track of the last expansion index
     def __init__(self):
-        super().__init__()
         self.last_expansion_index = -1
         
         self.townhall_saturations = {}               # lists the mineral saturation of townhalls in queues of 40 frames, we consider the townhall saturated if max_number + 1 >= ideal_number
@@ -62,8 +61,7 @@ class DragonBot(BotAI):
         self.client.game_step = 2    
         self.speedmining_positions = get_speedmining_positions(self)
         split_workers(self)   
-        # Call the parent class method
-        super().on_start()
+        
 
         # Select a probe and assign the role of "expand"
         self.probe = self.workers.random
@@ -239,7 +237,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)<= 10 and self.structures(UnitTypeId.PYLON).amount == 14:
+            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)>= 4:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
