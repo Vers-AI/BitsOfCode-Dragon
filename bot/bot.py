@@ -166,14 +166,9 @@ class DragonBot(BotAI):
                 if self.can_afford(UnitTypeId.NEXUS):
                     location: Point2 = await self.get_next_expansion()
                     self.probe.build(UnitTypeId.NEXUS, location)
-                    print(self.time_formatted, "expanding to",self.last_expansion_index,"th location, total current bases=", self.townhalls.amount)
-
-            # if we have 6 bases, remove the probe from the expansion_probes dictionary and add it to the worker_to_mineral_patch_dict        
-            if self.townhalls.amount == 6:
-                if self.on_building_construction_started(UnitTypeId.NEXUS):
+                    print(self.time_formatted, "expanding to last expansion")
                     del self.expansion_probes[self.probe.tag]
                     del self.unit_roles[self.probe.tag]
-                    print(self.time_formatted, "expansion complete")  
         
         
         # Key buildings: after 4 nexuses are built, build gateways and cybernetics core once pylon is complete and keep building up to 12 warpgates after warpgate researched
@@ -244,7 +239,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)>= 15:
+            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)<= 10 and self.structures(UnitTypeId.PYLON).amount == 14:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
