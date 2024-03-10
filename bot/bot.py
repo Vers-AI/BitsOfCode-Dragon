@@ -124,11 +124,12 @@ class DragonBot(BotAI):
                 await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
                 print(self.time_formatted, "building pylon")     
         
-        # After 11 warpgates, build pylons until supply cap is 200 and we are at 6 bases - pylon explosion
-        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 11 and self.supply_cap < 200:
-            direction = Point2((0, 1))  
-            if self.can_afford(UnitTypeId.PYLON) and self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
-                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 25)
+        # After 11 warpgates, build pylons until we are at 14
+        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 11:
+            direction = Point2((-2, 0))
+            if self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON) < 14:
+                if self.can_afford(UnitTypeId.PYLON):
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 10)
 
         
         # train probes = 22 per nexus
