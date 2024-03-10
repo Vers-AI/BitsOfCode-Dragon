@@ -191,8 +191,7 @@ class DragonBot(BotAI):
                     if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
-                    elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
-                        print(f"Gateway count: {gateway_count}, Position: {pos}")
+                    elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 12 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
                 if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0:
@@ -241,7 +240,7 @@ class DragonBot(BotAI):
                         gateway.train(UnitTypeId.ZEALOT)
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available         
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount >= 11:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 12:
             warpgates = self.structures(UnitTypeId.WARPGATE).ready
             for warpgate in warpgates:
                 abilities = await self.get_available_abilities(warpgate)
