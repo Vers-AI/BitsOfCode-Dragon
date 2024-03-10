@@ -52,7 +52,8 @@ def micro_worker(self : BotAI) -> None:
         return
 
     for unit in self.workers:
-        if unit.is_idle and (unit.tag not in self.unit_roles or self.unit_roles[unit.tag] != "builder"):
+        print(self.unit_roles.get(unit.tag))
+        if unit.is_idle and self.unit_roles.get(unit.tag) != "expand":
             townhall = self.townhalls.ready.closest_to(unit)
             patch = self.mineral_field.closest_to(townhall)
             unit.gather(patch)
@@ -121,7 +122,7 @@ def dispatch_workers(self : BotAI):
         self.townhall_saturations[nexus.tag].append(nexus.assigned_harvesters)
         maxes[nexus.tag] = max(self.townhall_saturations[nexus.tag])
     
-    # dispatch workers somewhere else if command center has too much of them
+    # dispatch workers somewhere else if Nexus has too much of them
     for key in maxes.keys():
         nexus1 = self.townhalls.ready.find_by_tag(key)
         if maxes[key] + 1 > nexus1.ideal_harvesters:

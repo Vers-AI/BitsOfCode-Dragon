@@ -40,9 +40,10 @@ class DragonBot(BotAI):
         self.assimilator_age = {}                     # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
         self.workers_building = {}                   # dictionary to keep track of workers building a building
         self.expansion_probes = {}                   # dictionary to keep track probes expanding
+        self.unit_roles = {}                         # dictionary to keep track of the roles of the units
         
-        self.unit_roles = {}
-    
+        self.probe = None
+
     RACE: Race = Race.Protoss
     """This bot's Starcraft 2 race.
     Options are:
@@ -61,6 +62,13 @@ class DragonBot(BotAI):
         self.client.game_step = 2    
         self.speedmining_positions = get_speedmining_positions(self)
         split_workers(self)   
+        # Call the parent class method
+        super().on_start()
+
+        # Select a probe and assign the role of "expand"
+        self.probe = self.workers.random
+        self.unit_roles[self.probe.tag] = "expand"
+        self.expansion_probes[self.probe.tag] = self.probe.position
 
     #Create a list of  all gold starting locations
     def _find_gold_expansions(self) -> list[Point2]:
@@ -112,7 +120,6 @@ class DragonBot(BotAI):
         self.resource_by_tag = {unit.tag: unit for unit in chain(self.mineral_field, self.gas_buildings)}
         
         
-        
         # Build first pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON): 
@@ -142,36 +149,30 @@ class DragonBot(BotAI):
 
         # if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion
         if self.townhalls.amount < target_base_count:
-            # Select a probe
-            probe = self.workers.random
-            probe.role = "builder"  # Assign the role of "builder" to the probe
-            self.expansion_probes[probe.tag] = probe.position
 
-            # Use the same probe for all expansions
-            probe_tag = next(iter(self.expansion_probes.keys()))
-            probe = self.get_unit(probe_tag)
 
             if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
                 if self.can_afford(UnitTypeId.NEXUS): 
                     self.last_expansion_index += 1
                     next_location = expansion_loctions_list[self.last_expansion_index + 1]
                     location = expansion_loctions_list[self.last_expansion_index]
-                    probe.build(UnitTypeId.NEXUS, location, queue=True)
-                    print(self.time_formatted, "expanding to gold bases", self.last_expansion_index, "of", len(expansion_loctions_list), "total current bases=", self.townhalls.amount)
-                    probe.move(next_location, queue=True)
+                    self.probe.build(UnitTypeId.NEXUS, location)
+                    if self.last_expansion_index < 3:
+                        print(self.time_formatted, "expanding to gold bases", self.last_expansion_index, "of", len(expansion_loctions_list), "total current bases=", self.townhalls.amount)
+                        self.probe.move(next_location, queue=True)
                     
             elif self.last_expansion_index == 3 and self.townhalls.amount < target_base_count:
                 if self.can_afford(UnitTypeId.NEXUS):
                     location: Point2 = await self.get_next_expansion()
-                    probe.build(UnitTypeId.NEXUS, location, queue=True)
+                    self.probe.build(UnitTypeId.NEXUS, location)
                     print(self.time_formatted, "expanding to",self.last_expansion_index,"th location, total current bases=", self.townhalls.amount)
 
             # if we have 6 bases, remove the probe from the expansion_probes dictionary and add it to the worker_to_mineral_patch_dict        
             if self.townhalls.amount == 6:
-                self.on_building_construction_started(UnitTypeId.NEXUS)
-                del self.expansion_probes[probe.tag]
-                self.workers_gathering[probe.tag] = probe
-                print(self.time_formatted, "expansion complete")  
+                if self.on_building_construction_started(UnitTypeId.NEXUS):
+                    del self.expansion_probes[self.probe.tag]
+                    del self.unit_roles[self.probe.tag]
+                    print(self.time_formatted, "expansion complete")  
         
         
         # Key buildings: after 4 nexuses are built, build gateways and cybernetics core once pylon is complete and keep building up to 12 warpgates after warpgate researched
@@ -209,7 +210,7 @@ class DragonBot(BotAI):
 
        
         # build 1 gas near the starting nexus
-        if self.structures(UnitTypeId.CYBERNETICSCORE):
+        if self.townhalls.amount >= 4:
             if self.structures(UnitTypeId.ASSIMILATOR).amount + self.already_pending(UnitTypeId.ASSIMILATOR) < 1:
                 if self.can_afford(UnitTypeId.ASSIMILATOR):
                     vgs = self.vespene_geyser.closer_than(15, closest)
