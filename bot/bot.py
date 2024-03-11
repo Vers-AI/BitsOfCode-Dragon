@@ -244,7 +244,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
-            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY) >= 12:
+            if self.time > 4 * 60 + 31:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
@@ -285,6 +285,7 @@ class DragonBot(BotAI):
         
         if self.time == 4 * 60 + 55:
             print(self.supply_used, "supply used at 4:55")
+        
         if self.time == 5 * 60 + 39:
             print(self.supply_used, "supply used at 5:39")
 
