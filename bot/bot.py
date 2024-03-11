@@ -124,12 +124,13 @@ class DragonBot(BotAI):
         # Build first pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON): 
-                await self.build(UnitTypeId.PYLON, near=nexus.position.towards(self.game_info.map_center, 10))
-                print(self.time_formatted, "building pylon")     
+                self.probe.build(UnitTypeId.PYLON, nexus.position.towards(self.game_info.map_center, 10))
+                self.probe.move(expansion_loctions_list[0], queue=True)
+                 
         
         # After 12 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 12:
-            direction = Point2((-2, 0))
+            direction = Point2((-3, 0))
             if self.structures(UnitTypeId.PYLON).amount < 14:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
@@ -143,16 +144,18 @@ class DragonBot(BotAI):
         mine(self, iteration)
                     
         #Building Probes to reach 200 supply fast
-        if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14: 
+        if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14:
+            if self.probe.tag in self.expansion_probes:
+                del self.expansion_probes[self.probe.tag]
+            if self.probe.tag in self.unit_roles:
+                del self.unit_roles[self.probe.tag]
             for nexus in self.townhalls.ready:
                 if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
                     nexus.train(UnitTypeId.PROBE)
-        
 
         # expansion logic: if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion 
         if self.townhalls.amount < target_base_count:
-            if self.last_expansion_index == -1:
-                self.probe.move(expansion_loctions_list[0])
+                
             if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
                 if self.can_afford(UnitTypeId.NEXUS): 
                     self.last_expansion_index += 1
@@ -171,8 +174,8 @@ class DragonBot(BotAI):
                     location: Point2 = await self.get_next_expansion()
                     self.probe.build(UnitTypeId.NEXUS, location)
                     print(self.time_formatted, "expanding to last expansion")
-                    del self.expansion_probes[self.probe.tag]
-                    del self.unit_roles[self.probe.tag]
+                    self.probe.move(self.start_location)
+                    
         
         # key buildings, build 1 cybernetics core and 12 gateways
         if self.structures(UnitTypeId.PYLON).ready:
