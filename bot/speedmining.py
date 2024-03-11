@@ -101,7 +101,8 @@ def handle_assimilator(self : BotAI, step: int):
             if workers:
                 for w in workers:
                     if w.is_carrying_vespene:
-                        w.gather(self.resources.mineral_field.closest_to(w))
+                        w.return_resource()
+                        w.gather(self.resources.mineral_field.closest_to(w), queue=True)
                         return
 
 
