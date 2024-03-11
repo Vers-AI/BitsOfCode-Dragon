@@ -285,6 +285,8 @@ class DragonBot(BotAI):
         
         if self.time == 4 * 60 + 55:
             print(self.supply_used, "supply used at 4:55")
+        if self.time == 5 * 60 + 39:
+            print(self.supply_used, "supply used at 5:39")
 
         # if we hit supply cap surrender if not move zealots to the center of the map
         zealots = self.units(UnitTypeId.ZEALOT)
