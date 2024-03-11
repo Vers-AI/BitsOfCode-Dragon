@@ -142,15 +142,14 @@ class DragonBot(BotAI):
         
         mine(self, iteration)
                     
-        # Building Probes to reach 200 supply fast
-        if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14: # quick build to 200 supply with probes
+        #Building Probes to reach 200 supply fast
+        if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14: 
             for nexus in self.townhalls.ready:
                 if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
                     nexus.train(UnitTypeId.PROBE)
         
 
         # expansion logic: if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion 
-
         if self.townhalls.amount < target_base_count:
             if self.last_expansion_index == -1:
                 self.probe.move(expansion_loctions_list[0])
@@ -235,7 +234,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount >= 11:
+            if self.structures(UnitTypeId.GATEWAY).amount >= 10:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
@@ -259,6 +258,12 @@ class DragonBot(BotAI):
                     if nexus.energy >= 50:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
                         break  # Stop searching after finding a nexus with enough energy
+        elif self.townhalls.ready.amount == 3:
+            nexus = self.townhalls.ready[2]
+            if nexus.energy >= 50 and AbilityId.EFFECT_MASSRECALL_NEXUS in await self.get_available_abilities(nexus):
+                mineral_patch = self.mineral_field.closest_to(self.start_location)
+                nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, mineral_patch.position)
+
         else:
             for nexus in self.townhalls.ready:
                 if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
