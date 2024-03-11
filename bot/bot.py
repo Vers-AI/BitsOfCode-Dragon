@@ -70,6 +70,7 @@ class DragonBot(BotAI):
         self.probe = self.workers.random
         self.unit_roles[self.probe.tag] = "expand"
         self.expansion_probes[self.probe.tag] = self.probe.position
+        self.built_cybernetics_core = False
 
     #Create a list of  all gold starting locations
     def _find_gold_expansions(self) -> list[Point2]:
@@ -125,13 +126,18 @@ class DragonBot(BotAI):
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON): 
                 self.probe.build(UnitTypeId.PYLON, nexus.position.towards(self.game_info.map_center, 10))
-                self.probe.move(expansion_loctions_list[0], queue=True)
-                 
+                self.probe.move(expansion_loctions_list[0], queue=True)       
         
         # After 12 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 12:
             direction = Point2((-3, 0))
-            if self.structures(UnitTypeId.PYLON).amount < 14:
+            if self.structures(UnitTypeId.PYLON).amount < 5 and self.already_pending(UnitTypeId.PYLON) < 4 and self.supply_used >= 76:
+                if self.can_afford(UnitTypeId.PYLON):
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
+            if self.structures(UnitTypeId.PYLON).amount  < 10 and self.already_pending(UnitTypeId.PYLON) < 5 and self.supply_used >= 90:
+                if self.can_afford(UnitTypeId.PYLON):
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
+            if self.structures(UnitTypeId.PYLON).amount < 14 and self.already_pending(UnitTypeId.PYLON) < 4  and self.supply_used >= 110 and self.supply_used < 200:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
 
@@ -170,7 +176,7 @@ class DragonBot(BotAI):
                         self.probe.move(location)
                     
             elif self.last_expansion_index == 3 and self.townhalls.amount < target_base_count:
-                if self.can_afford(UnitTypeId.NEXUS):
+                if self.can_afford(UnitTypeId.NEXUS) and self.built_cybernetics_core == True:
                     location: Point2 = await self.get_next_expansion()
                     self.probe.build(UnitTypeId.NEXUS, location)
                     print(self.time_formatted, "expanding to last expansion")
@@ -196,15 +202,16 @@ class DragonBot(BotAI):
                     if await self.can_place_single(UnitTypeId.GATEWAY, adjusted_pos):
                         pos = adjusted_pos
                 if await self.can_place_single(UnitTypeId.GATEWAY, pos):
-                    if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
+                    if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
-                    elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 12 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
+                    elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 12 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
-                if self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0:
+                if not self.built_cybernetics_core and self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0:
                     if self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.GATEWAY).ready:
                         if await self.can_place_single(UnitTypeId.CYBERNETICSCORE, pos):
+                            self.built_cybernetics_core = True
                             await self.build(UnitTypeId.CYBERNETICSCORE, near=pos)
                             print(self.time_formatted, "building cybernetics core")
        
@@ -236,8 +243,8 @@ class DragonBot(BotAI):
         # warp in zealots if warpgates is ready else build zealots
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
-        elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount == 12:
+        elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
+            if self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY) >= 12:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
@@ -260,7 +267,7 @@ class DragonBot(BotAI):
                 for nexus in self.townhalls.ready:
                     if nexus.energy >= 50:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
-                        break  # Stop searching after finding a nexus with enough energy
+                         
         elif self.townhalls.ready.amount == 3:
             nexus = self.townhalls.ready[2]
             if nexus.energy >= 50 and AbilityId.EFFECT_MASSRECALL_NEXUS in await self.get_available_abilities(nexus):
@@ -276,12 +283,14 @@ class DragonBot(BotAI):
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
                         break  # Stop searching after finding a nexus with enough energy
         
-    
-        # if we hit supply cap surrender if not move zealtots to the center of the map
+        if self.time == 4 * 60 + 55:
+            print(self.supply_used, "supply used at 4:55")
+
+        # if we hit supply cap surrender if not move zealots to the center of the map
         zealots = self.units(UnitTypeId.ZEALOT)
         if self.supply_used == 200:
-            print(self.time_formatted, "supply cap reached with:", self.structures(UnitTypeId.WARPGATE).ready.amount, "warpgates","+", self.structures(UnitTypeId.PYLON).ready.amount, "pylons", "and", self.townhalls.amount, "nexuses", "+", self.units(UnitTypeId.ZEALOT).amount, "zealots","and", self.workers.amount, "probes")
-            await self.chat_send("Suppy Cap Reached at:" + self.time_formatted)
+            print(self.time_formatted, "supply cap reached with:", self.structures(UnitTypeId.WARPGATE).ready.amount, "warpgates", "+", self.structures(UnitTypeId.PYLON).ready.amount, "pylons", "and", self.townhalls.amount, "nexuses", "+", self.units(UnitTypeId.ZEALOT).amount, "zealots", "and", self.workers.amount, "probes")
+            await self.chat_send("Supply Cap Reached at:" + self.time_formatted)
             await self.client.leave()
         else:
             for zealot in zealots:
