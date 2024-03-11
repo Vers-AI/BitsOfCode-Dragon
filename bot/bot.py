@@ -230,17 +230,17 @@ class DragonBot(BotAI):
             for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                 gateway(AbilityId.MORPH_WARPGATE)
 
-        # warp in zealots from warpgates near a pylon if there are 6 warpgates else build zealots
+        # warp in zealots if warpgates is ready else build zealots
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount >= 10:
+            if self.structures(UnitTypeId.GATEWAY).amount == 12:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
                         
 
-        # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available         
+        # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
         if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 12:
             warpgates = self.structures(UnitTypeId.WARPGATE).ready
             for warpgate in warpgates:
@@ -261,8 +261,10 @@ class DragonBot(BotAI):
         elif self.townhalls.ready.amount == 3:
             nexus = self.townhalls.ready[2]
             if nexus.energy >= 50 and AbilityId.EFFECT_MASSRECALL_NEXUS in await self.get_available_abilities(nexus):
-                mineral_patch = self.mineral_field.closest_to(self.start_location)
-                nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, mineral_patch.position)
+                vespene_geyser = self.vespene_geyser.closest_to(self.start_location)
+                mineral_patch = self.mineral_field.closest_to(vespene_geyser)
+                midpoint = Point2(((mineral_patch.position.x + self.start_location.x) / 2, (mineral_patch.position.y + self.start_location.y) / 2))
+                nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, midpoint)
 
         else:
             for nexus in self.townhalls.ready:
