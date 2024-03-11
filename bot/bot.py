@@ -137,7 +137,7 @@ class DragonBot(BotAI):
             if self.structures(UnitTypeId.PYLON).amount  < 10 and self.already_pending(UnitTypeId.PYLON) < 5 and self.supply_used >= 90:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
-            if self.structures(UnitTypeId.PYLON).amount < 14 and self.already_pending(UnitTypeId.PYLON) < 4  and self.supply_used >= 110 and self.supply_used < 200:
+            if self.structures(UnitTypeId.PYLON).amount < 14 and self.already_pending(UnitTypeId.PYLON) < 4  and self.supply_used >= 125 and self.supply_used < 200:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
 
@@ -263,7 +263,7 @@ class DragonBot(BotAI):
                                 break  # Stop searching after finding a nexus with enough energy
         elif self.structures(UnitTypeId.CYBERNETICSCORE).ready:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
-            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not ccore.is_idle:
+            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1:
                 for nexus in self.townhalls.ready:
                     if nexus.energy >= 50:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
