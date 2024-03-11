@@ -132,7 +132,7 @@ class DragonBot(BotAI):
             direction = Point2((-2, 0))
             if self.structures(UnitTypeId.PYLON).amount < 14:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 10)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
 
         
         # train probes = 22 per nexus
@@ -175,7 +175,7 @@ class DragonBot(BotAI):
                     del self.expansion_probes[self.probe.tag]
                     del self.unit_roles[self.probe.tag]
         
-        # Key buildings, build 1 cybernetics core and 12 gateways
+        # key buildings, build 1 cybernetics core and 12 gateways
         if self.structures(UnitTypeId.PYLON).ready:
             pylon = self.structures(UnitTypeId.PYLON).ready.random
             center = Point2((pylon.position.x, pylon.position.y))
@@ -194,7 +194,7 @@ class DragonBot(BotAI):
                     if await self.can_place_single(UnitTypeId.GATEWAY, adjusted_pos):
                         pos = adjusted_pos
                 if await self.can_place_single(UnitTypeId.GATEWAY, pos):
-                    if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0 and not self.structures(UnitTypeId.CYBERNETICSCORE):
+                    if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
                         if self.can_afford(UnitTypeId.GATEWAY):
                             await self.build(UnitTypeId.GATEWAY, near=pos)
                     elif self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount < 12 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
@@ -235,7 +235,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.structures(UnitTypeId.WARPGATE).ready: 
-            if self.structures(UnitTypeId.GATEWAY).amount >= 10:
+            if self.structures(UnitTypeId.GATEWAY).amount >= 11:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
