@@ -16,11 +16,12 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.ability_id import AbilityId
 from sc2.ids.upgrade_id import UpgradeId
 from sc2.ids.buff_id import BuffId
-from sc2.position import Point2
+from sc2.position import Point2, Point3
 from sc2.unit import Unit
 from sc2.units import Units
 from sc2 import position
 from sc2.constants import UnitTypeId
+
 
 from bot.speedmining import get_speedmining_positions
 from bot.speedmining import split_workers
@@ -40,8 +41,16 @@ class DragonBot(BotAI):
         self.workers_building = {}                   # dictionary to keep track of workers building a building
         self.expansion_probes = {}                   # dictionary to keep track probes expanding
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
+        self.positions = {}                          # dictionary to keep track of the positions around the pylon
         
         self.probe = None
+
+    # Put this inside your bot AI class
+    def _draw_debug_sphere_at_point(self, point: Point2):
+        height = self.get_terrain_z_height(point)  # get the height in world coordinates
+        radius = 1                                 # set the radius of the sphere
+        point3 = Point3((point.x, point.y, height))  # convert the 2D point to a 3D point
+        self._client.debug_sphere_out(point3, radius, color=Point3((255, 0, 0)))
 
     RACE: Race = Race.Protoss
     """This bot's Starcraft 2 race.
@@ -51,7 +60,7 @@ class DragonBot(BotAI):
         Race.Protoss
         Race.Random
     """
-
+    
     async def on_start(self):
         """
         This code runs once at the start of the game
@@ -72,6 +81,27 @@ class DragonBot(BotAI):
         self.expansion_probes[self.probe.tag] = self.probe.position
         self.built_cybernetics_core = False
 
+        # Check if the positions dictionary is already created
+        
+        self.positions = {
+            Point2((103 + 1, 33)): None,
+            Point2((106 + 1, 33)): None,
+            Point2((109 + 1, 33)): None,
+            Point2((112 + 1, 33)): None,
+            Point2((102 + 1, 30)): None,
+            Point2((105 + 1, 30)): None,
+            Point2((110 + 1, 30)): None,
+            Point2((113 + 1, 30)): None,
+            Point2((102 + 1, 27)): None,
+            Point2((105 + 1, 27)): None,
+            Point2((108 + 1, 27)): None,
+            Point2((111 + 1, 27)): None,
+            Point2((105 + 1, 24)): None,
+            Point2((108 + 1, 24)): None,
+        }           
+    
+    
+    
     #Create a list of  all gold starting locations
     def _find_gold_expansions(self) -> list[Point2]:
             gold_mfs: list[Unit] = [
@@ -121,15 +151,19 @@ class DragonBot(BotAI):
         closest = self.start_location
         self.resource_by_tag = {unit.tag: unit for unit in chain(self.mineral_field, self.gas_buildings)}
         
-        
+        for point in self.positions:
+            self._draw_debug_sphere_at_point(point)
+
         # Build first pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON): 
-                self.probe.build(UnitTypeId.PYLON, nexus.position.towards(self.game_info.map_center, 10))
+                pylon_position = nexus.position.towards(self.game_info.map_center, 10)
+                self.probe.build(UnitTypeId.PYLON, pylon_position)
+                print(f"Pylon position: {pylon_position}")
                 self.probe.move(expansion_loctions_list[0], queue=True)       
         
         # After 12 warpgates, build an explosion of pylons until we are at 14
-        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 12:
+        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
             direction = Point2((-3, 0))
             if self.structures(UnitTypeId.PYLON).amount < 5 and self.already_pending(UnitTypeId.PYLON) < 4 and self.supply_used >= 76:
                 if self.can_afford(UnitTypeId.PYLON):
@@ -181,42 +215,30 @@ class DragonBot(BotAI):
                     self.probe.build(UnitTypeId.NEXUS, location)
                     print(self.time_formatted, "expanding to last expansion")
                     self.probe.move(self.start_location)
-                    
+         
         
         # key buildings, build 1 cybernetics core and 12 gateways
         if self.structures(UnitTypeId.PYLON).ready:
             pylon = self.structures(UnitTypeId.PYLON).ready.first
-            center = Point2((pylon.position.x, pylon.position.y))
-            positions = [Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-6, 7, 3) for y in range(-6, 7, 3)]
-            positions.sort(key=lambda pos: (pylon.position.distance_to(pos), center.distance_to(pos)))
-
-            gateway_count = 0
-            for pos in positions:
-                gateway_count += 1
-                
-                if gateway_count == 5:  # Adjust the position for the fifth Gateway
-                    adjusted_pos = Point2((pos.x - 1, pos.y))  # Subtract 1 from the x-coordinate                   
-                    if await self.can_place_single(UnitTypeId.GATEWAY, adjusted_pos):
-                        pos = adjusted_pos
-                    
-                if gateway_count == 13:  # Adjust the position for the thirteenth Gateway
-                    adjusted_pos = Point2((pos.x - 1, pos.y))  # Subtract 1 from the x-coordinate
-                    if await self.can_place_single(UnitTypeId.GATEWAY, adjusted_pos):
-                        pos = adjusted_pos
-                if await self.can_place_single(UnitTypeId.GATEWAY, pos):
-                    if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
-                        if self.can_afford(UnitTypeId.GATEWAY):
-                            await self.build(UnitTypeId.GATEWAY, near=pos)
-                    elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 12 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
-                        if self.can_afford(UnitTypeId.GATEWAY):
-                            await self.build(UnitTypeId.GATEWAY, near=pos)
+            probe2 = self.workers.closest_to(pylon)
+            # Now you can iterate over the positions dictionary and build the structures
+            for pos in self.positions.keys():
+                if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
+                    if self.can_afford(UnitTypeId.GATEWAY):
+                        probe2.build(UnitTypeId.GATEWAY, pos)
+                        self.positions[pos] = UnitTypeId.GATEWAY
+                elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
+                    if self.can_afford(UnitTypeId.GATEWAY):
+                        probe2.build(UnitTypeId.GATEWAY, pos)
+                        self.positions[pos] = UnitTypeId.GATEWAY
                 if not self.built_cybernetics_core and self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0:
                     if self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.GATEWAY).ready:
                         if await self.can_place_single(UnitTypeId.CYBERNETICSCORE, pos):
                             self.built_cybernetics_core = True
-                            await self.build(UnitTypeId.CYBERNETICSCORE, near=pos)
+                            probe2.build(UnitTypeId.CYBERNETICSCORE, pos)
+                            self.positions[pos] = UnitTypeId.CYBERNETICSCORE
                             print(self.time_formatted, "building cybernetics core")
-       
+        
         # build 1 gas near the starting nexus
         if self.townhalls.amount >= 5:
             if self.structures(UnitTypeId.ASSIMILATOR).amount + self.already_pending(UnitTypeId.ASSIMILATOR) < 1:
