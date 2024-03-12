@@ -168,13 +168,13 @@ class DragonBot(BotAI):
             direction = Point2((-3, 0))
             if self.structures(UnitTypeId.PYLON).amount < 5 and self.already_pending(UnitTypeId.PYLON) < 4 and self.supply_used >= 76:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount  < 10 and self.already_pending(UnitTypeId.PYLON) < 5 and self.supply_used >= 90:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 14 and self.already_pending(UnitTypeId.PYLON) < 4  and self.supply_used >= 120 and self.supply_used < 200:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
 
         
         # train probes = 22 per nexus
