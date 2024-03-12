@@ -185,7 +185,7 @@ class DragonBot(BotAI):
         
         # key buildings, build 1 cybernetics core and 12 gateways
         if self.structures(UnitTypeId.PYLON).ready:
-            pylon = self.structures(UnitTypeId.PYLON).ready.random
+            pylon = self.structures(UnitTypeId.PYLON).ready.first
             center = Point2((pylon.position.x, pylon.position.y))
             positions = [Point2((pylon.position.x + x, pylon.position.y + y)) for x in range(-6, 7, 3) for y in range(-6, 7, 3)]
             positions.sort(key=lambda pos: (pylon.position.distance_to(pos), center.distance_to(pos)))
@@ -195,17 +195,14 @@ class DragonBot(BotAI):
                 gateway_count += 1
                 
                 if gateway_count == 5:  # Adjust the position for the fifth Gateway
-                    adjusted_pos = Point2((pos.x - 1, pos.y))  # Subtract 1 from the x-coordinate
-                    
+                    adjusted_pos = Point2((pos.x - 1, pos.y))  # Subtract 1 from the x-coordinate                   
                     if await self.can_place_single(UnitTypeId.GATEWAY, adjusted_pos):
                         pos = adjusted_pos
-                        print(pos, "5th gateway position")
                     
                 if gateway_count == 13:  # Adjust the position for the thirteenth Gateway
                     adjusted_pos = Point2((pos.x - 1, pos.y))  # Subtract 1 from the x-coordinate
                     if await self.can_place_single(UnitTypeId.GATEWAY, adjusted_pos):
                         pos = adjusted_pos
-                        print(pos, "13th gateway position")
                 if await self.can_place_single(UnitTypeId.GATEWAY, pos):
                     if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
                         if self.can_afford(UnitTypeId.GATEWAY):
@@ -297,7 +294,7 @@ class DragonBot(BotAI):
         
         if self.time == 4 * 60 + 55:
             print(self.supply_used, "supply used at 4:55")
-        
+    
         if self.time == 5 * 60 + 39:
             print(self.supply_used, "supply used at 5:39")
 
