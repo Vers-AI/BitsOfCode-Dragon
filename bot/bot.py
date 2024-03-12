@@ -90,10 +90,10 @@ class DragonBot(BotAI):
             Point2((108 + 1, 27)): None,
             Point2((105 + 1, 27)): None,
             Point2((102 + 1, 27)): None,
-            Point2((113 + 1, 30)): None,
-            Point2((110 + 1, 30)): None,
-            Point2((105 + 1, 30)): None,
             Point2((102 + 1, 30)): None,
+            Point2((105 + 1, 30)): None,
+            Point2((110 + 1, 30)): None,
+            Point2((113 + 1, 30)): None,      
             Point2((112 + 1, 33)): None,
             Point2((109 + 1, 33)): None,
             Point2((106 + 1, 33)): None,
@@ -165,18 +165,18 @@ class DragonBot(BotAI):
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
             direction = Point2((-4, 0))
-            if self.time == 4 * 60 + 26  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
+            if self.time >= 4 * 60 + 26  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 6, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 5 and self.already_pending(UnitTypeId.PYLON) < 4 and self.supply_used >= 76:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 4, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount  < 10 and self.already_pending(UnitTypeId.PYLON) < 5 and self.supply_used >= 90:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 14 and self.already_pending(UnitTypeId.PYLON) < 4  and self.supply_used >= 120 and self.supply_used < 200:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
 
         
         # train probes = 22 per nexus
@@ -294,7 +294,7 @@ class DragonBot(BotAI):
                                 
         elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
-            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and self.time <= 4 * 60 + 38:
+            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and self.time <= 4 * 60 + 40:
                 for nexus in self.townhalls.ready:
                     if nexus.energy >= 50:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
