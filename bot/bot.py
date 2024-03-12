@@ -37,12 +37,13 @@ class DragonBot(BotAI):
         self.last_expansion_index = -1
         
         self.townhall_saturations = {}               # lists the mineral saturation of townhalls in queues of 40 frames, we consider the townhall saturated if max_number + 1 >= ideal_number
-        self.assimilator_age = {}                     # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
+        self.assimilator_age = {}                    # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
         self.workers_building = {}                   # dictionary to keep track of workers building a building
         self.expansion_probes = {}                   # dictionary to keep track probes expanding
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
         self.positions = {}                          # dictionary to keep track of the positions around the pylon
-        
+        self.built_positions = set()         # Keep track of positions where a Gateway has been built
+
         self.probe = None
 
     # Put this inside your bot AI class
@@ -223,21 +224,30 @@ class DragonBot(BotAI):
             probe2 = self.workers.closest_to(pylon)
             # Now you can iterate over the positions dictionary and build the structures
             for pos in self.positions.keys():
+                if pos in self.built_positions:  # Skip positions where a Gateway has already been built
+                    continue
                 if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
                     if self.can_afford(UnitTypeId.GATEWAY):
                         probe2.build(UnitTypeId.GATEWAY, pos)
                         self.positions[pos] = UnitTypeId.GATEWAY
+                        self.built_positions.add(pos)  # Remember this position
+                        print(f"Building Gateway at {pos}")
                 elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
                     if self.can_afford(UnitTypeId.GATEWAY):
-                        probe2.build(UnitTypeId.GATEWAY, pos)
+                        probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
                         self.positions[pos] = UnitTypeId.GATEWAY
+                        self.built_positions.add(pos)  # Remember this position
+                        print(f"Building Gateway at {pos}")
                 if not self.built_cybernetics_core and self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0:
                     if self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.GATEWAY).ready:
-                        if await self.can_place_single(UnitTypeId.CYBERNETICSCORE, pos):
+                        can_place = await self.can_place_single(UnitTypeId.CYBERNETICSCORE, pos)
+                        print(f"Can place Cybernetics Core at {pos}: {can_place}")
+                        if can_place:
                             self.built_cybernetics_core = True
                             probe2.build(UnitTypeId.CYBERNETICSCORE, pos)
                             self.positions[pos] = UnitTypeId.CYBERNETICSCORE
-                            print(self.time_formatted, "building cybernetics core")
+                            self.built_positions.add(pos)  # Remember this position
+                            print(f"Building Cybernetics Core at {pos}")
         
         # build 1 gas near the starting nexus
         if self.townhalls.amount >= 5:
