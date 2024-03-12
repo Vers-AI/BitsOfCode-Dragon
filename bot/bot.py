@@ -273,7 +273,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
-            if self.time > 4 * 60 + 17 and self.time < 4 * 60 + 20:
+            if self.time > 4 * 60 + 19 and self.time < 4 * 60 + 22:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
@@ -292,7 +292,7 @@ class DragonBot(BotAI):
                                 
         elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
-            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and self.time <= 4 * 60 + 35:
+            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and self.time <= 4 * 60 + 38:
                 for nexus in self.townhalls.ready:
                     if nexus.energy >= 50:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
@@ -308,7 +308,7 @@ class DragonBot(BotAI):
         elif self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1:
             for nexus in self.townhalls.ready:
                 if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
-                    if nexus.energy >= 50 and self.time > 17:
+                    if nexus.energy >= 50:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
                         
         
