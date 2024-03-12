@@ -137,7 +137,7 @@ class DragonBot(BotAI):
             if self.structures(UnitTypeId.PYLON).amount  < 10 and self.already_pending(UnitTypeId.PYLON) < 5 and self.supply_used >= 90:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
-            if self.structures(UnitTypeId.PYLON).amount < 14 and self.already_pending(UnitTypeId.PYLON) < 4  and self.supply_used >= 125 and self.supply_used < 200:
+            if self.structures(UnitTypeId.PYLON).amount < 14 and self.already_pending(UnitTypeId.PYLON) < 4  and self.supply_used >= 120 and self.supply_used < 200:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5)
 
@@ -193,14 +193,19 @@ class DragonBot(BotAI):
             gateway_count = 0
             for pos in positions:
                 gateway_count += 1
+                
                 if gateway_count == 5:  # Adjust the position for the fifth Gateway
                     adjusted_pos = Point2((pos.x - 1, pos.y))  # Subtract 1 from the x-coordinate
+                    
                     if await self.can_place_single(UnitTypeId.GATEWAY, adjusted_pos):
                         pos = adjusted_pos
+                        print(pos, "5th gateway position")
+                    
                 if gateway_count == 13:  # Adjust the position for the thirteenth Gateway
                     adjusted_pos = Point2((pos.x - 1, pos.y))  # Subtract 1 from the x-coordinate
                     if await self.can_place_single(UnitTypeId.GATEWAY, adjusted_pos):
                         pos = adjusted_pos
+                        print(pos, "13th gateway position")
                 if await self.can_place_single(UnitTypeId.GATEWAY, pos):
                     if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
                         if self.can_afford(UnitTypeId.GATEWAY):
@@ -244,14 +249,14 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
-            if self.time > 4 * 60 + 31:
+            if self.time > 4 * 60 + 31 and self.time < 4 * 60 + 35:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
                         
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 12:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13:
             warpgates = self.structures(UnitTypeId.WARPGATE).ready
             for warpgate in warpgates:
                 abilities = await self.get_available_abilities(warpgate)
@@ -260,10 +265,10 @@ class DragonBot(BotAI):
                         for nexus in self.townhalls.ready:
                             if nexus.energy >= 50:
                                 nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
-                                break  # Stop searching after finding a nexus with enough energy
-        elif self.structures(UnitTypeId.CYBERNETICSCORE).ready:
+                                
+        elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
-            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1:
+            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
                 for nexus in self.townhalls.ready:
                     if nexus.energy >= 50:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
@@ -275,13 +280,20 @@ class DragonBot(BotAI):
                 mineral_patch = self.mineral_field.closest_to(vespene_geyser)
                 midpoint = Point2(((mineral_patch.position.x + self.start_location.x) / 2, (mineral_patch.position.y + self.start_location.y) / 2))
                 nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, midpoint)
-
+        
+        elif self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1:
+            for nexus in self.townhalls.ready:
+                if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
+                    if nexus.energy >= 50 and self.time > 17:
+                        nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
+                        
+        
         else:
             for nexus in self.townhalls.ready:
                 if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
                     if nexus.energy >= 50 and self.time > 17:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
-                        break  # Stop searching after finding a nexus with enough energy
+                        
         
         if self.time == 4 * 60 + 55:
             print(self.supply_used, "supply used at 4:55")
