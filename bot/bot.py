@@ -41,8 +41,7 @@ class DragonBot(BotAI):
         self.workers_building = {}                   # dictionary to keep track of workers building a building
         self.expansion_probes = {}                   # dictionary to keep track probes expanding
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
-        self.positions = {}                          # dictionary to keep track of the positions around the pylon
-        self.built_positions = set()         # Keep track of positions where a Gateway has been built
+        self.built_positions = set()                 # Keep track of positions where a Gateway has been built
 
         self.probe = None
 
@@ -165,16 +164,19 @@ class DragonBot(BotAI):
         
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
-            direction = Point2((-3, 0))
+            direction = Point2((-4, 0))
+            if self.time > 4 * 60 + 28 and self.time < 4 * 60 + 30 and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
+                if self.can_afford(UnitTypeId.PYLON):
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 5 and self.already_pending(UnitTypeId.PYLON) < 4 and self.supply_used >= 76:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 4, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount  < 10 and self.already_pending(UnitTypeId.PYLON) < 5 and self.supply_used >= 90:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 14 and self.already_pending(UnitTypeId.PYLON) < 4  and self.supply_used >= 120 and self.supply_used < 200:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
 
         
         # train probes = 22 per nexus
