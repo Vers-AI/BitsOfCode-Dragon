@@ -34,6 +34,7 @@ class DragonBot(BotAI):
     """This bot's name"""
     #keep track of the last expansion index
     def __init__(self):
+        super().__init__()
         self.last_expansion_index = -1
         
         self.townhall_saturations = {}               # lists the mineral saturation of townhalls in queues of 40 frames, we consider the townhall saturated if max_number + 1 >= ideal_number
@@ -42,9 +43,10 @@ class DragonBot(BotAI):
         self.expansion_probes = {}                   # dictionary to keep track probes expanding
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
         self.built_positions = set()                 # Keep track of positions where a Gateway has been built
-
+        self.pylons = []                             # List to keep track of Pylons
         self.probe = None
 
+    
     # Put this inside your bot AI class
     def _draw_debug_sphere_at_point(self, point: Point2):
         height = self.get_terrain_z_height(point)  # get the height in world coordinates
@@ -123,19 +125,25 @@ class DragonBot(BotAI):
 
             return gold_expansions        
     
+    async def on_building_construction_complete(self, building):
+        if building.type_id == UnitTypeId.PYLON:
+            self.pylons.append(building)  # Add Pylon to list when it's created
+
+    
     async def warp_new_units(self, pylon):
+        if pylon not in self.pylons or self.pylons.index(pylon) != 1:  # Only warp in at the second Pylon
+            return
         #warp in zealots from warpgates near a pylon if below supply cap
         for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
             abililities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
-                direction = self.start_location.towards(self.game_info.map_center, 5)
-                for x_offset in range(-2, 3):
-                    for y_offset in range(0, 5):  # Only create grid in front of the pylon
-                        position = pylon.position.to2.offset((x_offset, y_offset)).towards(direction, 5)
-                        placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=2)
-                        if placement is not None:
-                            warpgate.warp_in(UnitTypeId.ZEALOT, placement)
-                            return
+                direction = pylon.position.towards(self.game_info.map_center, 1)
+                positions = [pylon.position.to2.offset((x, y)).towards(direction, 5) for x in range(-6, 7) for y in range(0, 5)]  # Create a grid of positions in front of the Pylon
+                for position in positions:
+                    placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1)
+                    if placement is not None:
+                        warpgate.warp_in(UnitTypeId.ZEALOT, placement)
+                        # Removed the break statement
     
     
     def get_unit(self, tag):
@@ -168,7 +176,7 @@ class DragonBot(BotAI):
             direction = Point2((-4, 0))
             if self.time >= 4 * 60 + 28  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 6, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 5  and self.supply_used >= 76:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 4, build_worker=self.probe)
