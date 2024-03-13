@@ -179,13 +179,13 @@ class DragonBot(BotAI):
                     await self.build(UnitTypeId.PYLON, near=west_most_gateway.position + direction, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 5  and self.supply_used >= 76:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 4, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 6, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount  < 10  and self.supply_used >= 88:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 4, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 122:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 14  and self.supply_used >= 150:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
@@ -267,6 +267,7 @@ class DragonBot(BotAI):
                         if worker is None:
                             return
                         worker.build(UnitTypeId.ASSIMILATOR, vgs.first)
+                        print(f"Building Assimilator at {self.time_formatted}")
         
         # train probes = 22 per nexus
         if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
@@ -331,7 +332,7 @@ class DragonBot(BotAI):
         else:
             for nexus in self.townhalls.ready:
                 if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
-                    if nexus.energy >= 50 and self.time > 17:
+                    if nexus.energy >= 50 and self.time > 33:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
                         
         
