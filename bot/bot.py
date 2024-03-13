@@ -22,11 +22,9 @@ from sc2.units import Units
 from sc2 import position
 from sc2.constants import UnitTypeId
 
-
 from bot.speedmining import get_speedmining_positions
 from bot.speedmining import split_workers
 from bot.speedmining import mine
-
 
 
 class DragonBot(BotAI):
@@ -137,13 +135,11 @@ class DragonBot(BotAI):
         for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
             abililities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
-                direction = pylon.position.towards(self.game_info.map_center, 1)
-                positions = [pylon.position.to2.offset((x, y)).towards(direction, 5) for x in range(-6, 7) for y in range(0, 5)]  # Create a grid of positions in front of the Pylon
+                positions = [pylon.position.to2.offset((x, y)) for x in range(-3, 4) for y in range(-3, 4)]  # Create a grid of positions around the Pylon
                 for position in positions:
                     placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1)
                     if placement is not None:
                         warpgate.warp_in(UnitTypeId.ZEALOT, placement)
-                        # Removed the break statement
     
     
     def get_unit(self, tag):
