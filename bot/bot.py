@@ -128,13 +128,14 @@ class DragonBot(BotAI):
         for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
             abililities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
-                position = pylon.position.to2.random_on_distance(4)
-                placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=2)
-                if placement is None:
-                    # return ActionResult.CantFindPlacementLocation
-                    logger.info("can't place")
-                    return
-                warpgate.warp_in(UnitTypeId.ZEALOT, placement)
+                direction = self.start_location.towards(self.game_info.map_center, 5)
+                for x_offset in range(-2, 3):
+                    for y_offset in range(0, 5):  # Only create grid in front of the pylon
+                        position = pylon.position.to2.offset((x_offset, y_offset)).towards(direction, 5)
+                        placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=2)
+                        if placement is not None:
+                            warpgate.warp_in(UnitTypeId.ZEALOT, placement)
+                            return
     
     
     def get_unit(self, tag):
