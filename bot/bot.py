@@ -174,9 +174,13 @@ class DragonBot(BotAI):
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
             direction = Point2((-4, 0))
-            if self.time >= 4 * 60 + 28  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
+            if self.time >= 4 * 60 + 25  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
+                direction = Point2((-5, 0))
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction, build_worker=self.probe)
+                    # Find the west most Gateway
+                    west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x)
+                    # Build the Pylon slightly to the left of the west most Gateway
+                    await self.build(UnitTypeId.PYLON, near=west_most_gateway.position + direction, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 5  and self.supply_used >= 76:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 4, build_worker=self.probe)
