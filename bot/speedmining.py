@@ -97,7 +97,7 @@ def handle_assimilator(self : BotAI, step: int):
                             w.gather(r)
                             return
         if r.assigned_harvesters > r.ideal_harvesters or self.workers.amount <= 6 or self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) > 0 or self.vespene >= 48:
-            workers: Units = self.workers.closer_than(2, r)
+            workers: Units = self.workers.closer_than(6, r)
             if workers:
                 for w in workers:
                     if w.is_carrying_vespene:
