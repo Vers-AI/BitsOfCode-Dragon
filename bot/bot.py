@@ -170,7 +170,7 @@ class DragonBot(BotAI):
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
             direction = Point2((-4, 0))
-            if self.time >= 4 * 60 + 25  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
+            if self.time >= 4 * 60 + 26  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
                 direction = Point2((-5, 0))
                 if self.can_afford(UnitTypeId.PYLON):
                     # Find the west most Gateway
@@ -290,7 +290,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
-            if self.time > 4 * 60 + 19 and self.time < 4 * 60 + 24 and self.structures(UnitTypeId.GATEWAY).amount == 13:
+            if self.time > 4 * 60 + 31 and self.time < 4 * 60 + 32 and self.structures(UnitTypeId.GATEWAY).amount == 13:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
@@ -317,10 +317,15 @@ class DragonBot(BotAI):
         elif self.townhalls.ready.amount == 3:
             nexus = self.townhalls.ready[2]
             if nexus.energy >= 50 and AbilityId.EFFECT_MASSRECALL_NEXUS in await self.get_available_abilities(nexus):
-                vespene_geyser = self.vespene_geyser.closest_to(self.start_location)
-                mineral_patch = self.mineral_field.closest_to(vespene_geyser)
-                midpoint = Point2(((mineral_patch.position.x + self.start_location.x) / 2, (mineral_patch.position.y + self.start_location.y) / 2))
-                nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, midpoint)
+                best_location = None
+                max_probes = 0
+                for resource in self.mineral_field.closer_than(10, self.start_location) | self.vespene_geyser.closer_than(10, self.start_location):
+                    probes_near_resource = self.units(UnitTypeId.PROBE).closer_than(2.5, resource.position)
+                    if len(probes_near_resource) > max_probes:
+                        max_probes = len(probes_near_resource)
+                        best_location = resource.position
+                if best_location is not None:
+                    nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, best_location)
         
         elif self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1:
             for nexus in self.townhalls.ready:
