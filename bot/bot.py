@@ -135,11 +135,10 @@ class DragonBot(BotAI):
         for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
             abililities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
-                positions = [pylon.position.to2.offset((x, y)) for x in range(-3, 4) for y in range(-3, 4)]  # Create a grid of positions around the Pylon
-                for position in positions:
-                    placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1)
-                    if placement is not None:
-                        warpgate.warp_in(UnitTypeId.ZEALOT, placement)
+                positions = [pylon.position.to2.offset((x, y)) for x in range(-2, 3) for y in range(-2, 3)]  # Create a smaller grid of positions around the Pylon
+                valid_positions = [p for p in positions if self.in_placement_grid(p)]  # Use in_placement_grid instead of can_place_single
+                for position in valid_positions:
+                    warpgate.warp_in(UnitTypeId.ZEALOT, position)  # Warp in the Zealot directly at the valid position
     
     
     def get_unit(self, tag):
@@ -170,7 +169,7 @@ class DragonBot(BotAI):
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
             direction = Point2((-4, 0))
-            if self.time >= 4 * 60 + 26  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
+            if self.time >= 4 * 60 + 28  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
                 direction = Point2((-5, 0))
                 if self.can_afford(UnitTypeId.PYLON):
                     # Find the west most Gateway
@@ -290,7 +289,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
-            if self.time > 4 * 60 + 27 and self.time < 4 * 60 + 30 and self.structures(UnitTypeId.GATEWAY).amount == 13:
+            if self.time > 4 * 60 + 26 and self.time < 4 * 60 + 29 and self.structures(UnitTypeId.GATEWAY).amount == 13:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
