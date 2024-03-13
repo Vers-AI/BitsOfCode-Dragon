@@ -170,19 +170,19 @@ class DragonBot(BotAI):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 6, build_worker=self.probe)
             if self.structures(UnitTypeId.PYLON).amount < 5  and self.supply_used >= 76:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
-            if self.structures(UnitTypeId.PYLON).amount  < 10 and self.already_pending(UnitTypeId.PYLON) < 5 and self.supply_used >= 90:
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 4, build_worker=self.probe)
+            if self.structures(UnitTypeId.PYLON).amount  < 10  and self.supply_used >= 88:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
-            if self.structures(UnitTypeId.PYLON).amount < 14 and self.already_pending(UnitTypeId.PYLON) < 4  and self.supply_used >= 118 and self.supply_used < 200:
+            if self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 122:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
+            if self.structures(UnitTypeId.PYLON).amount < 14  and self.supply_used >= 150:
+                if self.can_afford(UnitTypeId.PYLON):
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
 
         
-        # train probes = 22 per nexus
-        if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
-            if self.can_afford(UnitTypeId.PROBE):
-                nexus.train(UnitTypeId.PROBE)
+        
         
         mine(self, iteration)
                     
@@ -259,7 +259,10 @@ class DragonBot(BotAI):
                             return
                         worker.build(UnitTypeId.ASSIMILATOR, vgs.first)
         
-        
+        # train probes = 22 per nexus
+        if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
+            if self.can_afford(UnitTypeId.PROBE):
+                nexus.train(UnitTypeId.PROBE)
 
         # Research Warp Gate if Cybernetics Core is complete
         if self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.can_afford(UpgradeId.WARPGATERESEARCH) and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 0:
@@ -284,7 +287,7 @@ class DragonBot(BotAI):
                         
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 14:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH)  == 1:
             warpgates = self.structures(UnitTypeId.WARPGATE).ready
             for warpgate in warpgates:
                 abilities = await self.get_available_abilities(warpgate)
