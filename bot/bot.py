@@ -172,11 +172,11 @@ class DragonBot(BotAI):
                 print(f"Pylon position: {pylon_position}")
                 del self.unit_roles[self.probe.tag]  
 
-        if self.time == 49 and not any(role == "expand" for role in self.unit_roles.values()):
+        if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
             self.unit_roles[self.probe.tag] = "expand"
             self.expansion_probes[self.probe.tag] = self.probe.position
-            self.probe.move(expansion_loctions_list[0], queue=True)               
+            self.probe.move(expansion_loctions_list[0], queue=True)              
         
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
@@ -210,12 +210,15 @@ class DragonBot(BotAI):
         
         mine(self, iteration)
                     
-        #Removing roles from the expansion probes and the unit roles dictionary
-        """if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14:
-             if self.probe_to_remove_role.tag in self.expansion_probes:
-                del self.expansion_probes[self.probe_to_remove_role.tag]
-            if self.probe_to_remove_role.tag in self.unit_roles:
-                del self.unit_roles[self.probe_to_remove_role.tag]"""
+        #Building Probes to reach 200 supply fast
+        if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14:
+            if self.probe.tag in self.expansion_probes:
+                del self.expansion_probes[self.probe.tag]
+            if self.probe.tag in self.unit_roles:
+                del self.unit_roles[self.probe.tag]
+            """for nexus in self.townhalls.ready:
+                if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
+                    nexus.train(UnitTypeId.PROBE)"""
 
         # expansion logic: if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion 
         if self.townhalls.amount < target_base_count:
