@@ -35,6 +35,7 @@ class DragonBot(BotAI):
         super().__init__()
         self.last_expansion_index = -1
         
+        self.warpgate_positions = {}                 # dictionary to keep track of the positions around a Pylon where we can warp in units
         self.townhall_saturations = {}               # lists the mineral saturation of townhalls in queues of 40 frames, we consider the townhall saturated if max_number + 1 >= ideal_number
         self.assimilator_age = {}                    # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
         self.workers_building = {}                   # dictionary to keep track of workers building a building
@@ -135,10 +136,16 @@ class DragonBot(BotAI):
         for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
             abililities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
-                positions = [pylon.position.to2.offset((x, y)) for x in range(-2, 3) for y in range(-2, 3)]  # Create a smaller grid of positions around the Pylon
-                valid_positions = [p for p in positions if self.in_placement_grid(p)]  # Use in_placement_grid instead of can_place_single
-                for position in valid_positions:
-                    warpgate.warp_in(UnitTypeId.ZEALOT, position)  # Warp in the Zealot directly at the valid position
+                if warpgate not in self.warpgate_positions:
+                    self.warpgate_positions[warpgate] = [(x, y) for x in range(-2, 3) for y in range(-2, 3)]  # Create a 4x4 grid of positions around the Pylon
+                positions = self.warpgate_positions[warpgate]
+                for position in positions:
+                    try:
+                        warpgate.warp_in(UnitTypeId.ZEALOT, pylon.position.to2.offset(position))  # Warp in the Zealot directly at the position
+                        self.warpgate_positions[warpgate].remove(position)
+                        break
+                    except Exception as e:
+                        print(f"Failed to warp in Zealot at {position}: {e}")  # Log any exceptions that occur during warp-in
     
     
     def get_unit(self, tag):
@@ -170,7 +177,7 @@ class DragonBot(BotAI):
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
             direction = Point2((-4, 0))
             if self.time >= 4 * 60 + 28  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
-                direction = Point2((-5, 0))
+                direction = Point2((-6, 0))
                 if self.can_afford(UnitTypeId.PYLON):
                     # Find the west most Gateway
                     west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x)
