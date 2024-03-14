@@ -5,10 +5,14 @@ use the map Prion Terrace.
 
 Download the map from the following link: https://bit.ly/3UUr1bk
 """
+
+import random
+
 from typing import Dict, Set
 from loguru import logger
 
 from itertools import chain
+
 
 from sc2.bot_ai import BotAI, Race
 from sc2.data import Result
@@ -132,21 +136,22 @@ class DragonBot(BotAI):
     async def warp_new_units(self, pylon):
         if pylon not in self.pylons or self.pylons.index(pylon) != 1:  # Only warp in at the second Pylon
             return
-        #warp in zealots from warpgates near a pylon if below supply cap
+
+        # Create a 5x5 grid of positions around the Pylon
+        positions = [(x, y) for x in range(-2, 3) for y in range(-2, 3)]
+        random.shuffle(positions)  # Randomize the order of the positions
+
+        # Warp in Zealots from Warpgates near a Pylon if below supply cap
         for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
-            abililities = await self.get_available_abilities(warpgate)
-            if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
-                if warpgate not in self.warpgate_positions:
-                    self.warpgate_positions[warpgate] = [(x, y) for x in range(-2, 3) for y in range(-2, 3)]  # Create a 4x4 grid of positions around the Pylon
-                positions = self.warpgate_positions[warpgate]
+            abilities = await self.get_available_abilities(warpgate)
+            if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abilities and self.supply_used < 200:
                 for position in positions:
                     try:
                         warpgate.warp_in(UnitTypeId.ZEALOT, pylon.position.to2.offset(position))  # Warp in the Zealot directly at the position
-                        self.warpgate_positions[warpgate].remove(position)
-                        break
+                        positions.remove(position)  # Remove the position from the list
+                        break  # If the warp-in succeeds, break out of the loop and move on to the next Warpgate
                     except Exception as e:
-                        print(f"Failed to warp in Zealot at {position}: {e}")  # Log any exceptions that occur during warp-in
-    
+                        print(f"Failed to warp in Zealot at {position}: {e}")  # Log any exceptions that occur during warp-in    
     
     def get_unit(self, tag):
         return self.units.find_by_tag(tag)
