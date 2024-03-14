@@ -176,25 +176,29 @@ class DragonBot(BotAI):
                     west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x)
                     # Build the Pylon slightly to the left of the west most Gateway
                     await self.build(UnitTypeId.PYLON, near=west_most_gateway.position + direction, build_worker=self.probe)
-            if self.structures(UnitTypeId.PYLON).amount < 5  and self.supply_used >= 78:
+            if self.structures(UnitTypeId.PYLON).amount < 5 and self.supply_used >= 78:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 6, build_worker=self.probe)
-            if self.structures(UnitTypeId.PYLON).amount  < 10  and self.supply_used >= 88:
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
+                    return  
+            elif self.structures(UnitTypeId.PYLON).amount < 10 and self.supply_used >= 88:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 4, build_worker=self.probe)
-            if self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 122:
+                    return  
+            elif self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 122:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
-            if self.structures(UnitTypeId.PYLON).amount < 14  and self.supply_used >= 150:
+                    return  
+            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 150:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
+                    return  
 
         
         
         
         mine(self, iteration)
                     
-        #Building Probes to reach 200 supply fast
+        #Removing roles from the expansion probes and the unit roles dictionary
         if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14:
             if self.probe.tag in self.expansion_probes:
                 del self.expansion_probes[self.probe.tag]
@@ -227,7 +231,6 @@ class DragonBot(BotAI):
                     print(self.time_formatted, "expanding to last expansion")
                     self.probe.move(self.start_location.towards(self.game_info.map_center, 10))
 
-         
         
         # key buildings, build 1 cybernetics core and 13 gateways
         if self.structures(UnitTypeId.PYLON).ready:
@@ -289,14 +292,14 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
-            if self.time > 4 * 60 + 25 and self.time < 4 * 60 + 28 and self.structures(UnitTypeId.GATEWAY).amount == 13:
+            if self.time > 4 * 60 + 23 and self.time < 4 * 60 + 25 and self.structures(UnitTypeId.GATEWAY).amount == 13:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
                         
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 15 and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH)  == 1:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH)  == 1:
             warpgates = self.structures(UnitTypeId.WARPGATE).ready
             for warpgate in warpgates:
                 abilities = await self.get_available_abilities(warpgate)
