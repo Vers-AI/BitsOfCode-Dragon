@@ -175,9 +175,9 @@ class DragonBot(BotAI):
         
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
-            direction = Point2((-4, 0))
+            direction = Point2((-4, -2))
             if self.time >= 4 * 60 + 28  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
-                direction = Point2((-6, 0))
+                direction = Point2((-6, -1))
                 if self.can_afford(UnitTypeId.PYLON):
                     # Find the west most Gateway
                     west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x)
