@@ -6,8 +6,6 @@ use the map Prion Terrace.
 Download the map from the following link: https://bit.ly/3UUr1bk
 """
 
-import random
-
 from typing import Dict, Set
 from loguru import logger
 
@@ -136,20 +134,18 @@ class DragonBot(BotAI):
     async def warp_new_units(self, pylon):
         if pylon not in self.pylons or self.pylons.index(pylon) != 1:  # Only warp in at the second Pylon
             return
-
-        # Create a 5x5 grid of positions around the Pylon
-        positions = [(x, y) for x in range(-2, 3) for y in range(-2, 3)]
-        random.shuffle(positions)  # Randomize the order of the positions
-
-        # Warp in Zealots from Warpgates near a Pylon if below supply cap
+        #warp in zealots from warpgates near a pylon if below supply cap
         for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
-            abilities = await self.get_available_abilities(warpgate)
-            if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abilities and self.supply_used < 200:
+            abililities = await self.get_available_abilities(warpgate)
+            if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
+                if warpgate not in self.warpgate_positions:
+                    self.warpgate_positions[warpgate] = [(x, y) for x in range(-2, 3) for y in range(-2, 3)]  # Create a 4x4 grid of positions around the Pylon
+                positions = self.warpgate_positions[warpgate]
                 for position in positions:
                     try:
                         warpgate.warp_in(UnitTypeId.ZEALOT, pylon.position.to2.offset(position))  # Warp in the Zealot directly at the position
-                        positions.remove(position)  # Remove the position from the list
-                        break  # If the warp-in succeeds, break out of the loop and move on to the next Warpgate
+                        self.warpgate_positions[warpgate].remove(position)
+                        break
                     except Exception as e:
                         print(f"Failed to warp in Zealot at {position}: {e}")  # Log any exceptions that occur during warp-in    
     
@@ -181,7 +177,7 @@ class DragonBot(BotAI):
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
             direction = Point2((-4, -2))
-            if self.time >= 4 * 60 + 28  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
+            if self.time >= 4 * 60 + 31  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
                 direction = Point2((-6, -1))
                 if self.can_afford(UnitTypeId.PYLON):
                     # Find the west most Gateway
@@ -258,6 +254,7 @@ class DragonBot(BotAI):
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
                         print(f"Building 1st Gateway at {self.time_formatted}")
+
                 elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE):
                     if self.can_afford(UnitTypeId.GATEWAY):
                         probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
@@ -294,7 +291,7 @@ class DragonBot(BotAI):
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
             if ccore.is_idle:
                 ccore.research(UpgradeId.WARPGATERESEARCH)
-                print(self.time_formatted, " - researching warp gate")
+                print(self.time_formatted, " - researching warp gate - Supply: ", self.supply_used)
                         
         # Morph to warp gates when warp gate research is complete
         if self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 0 and self.structures(UnitTypeId.GATEWAY).ready:
@@ -354,10 +351,10 @@ class DragonBot(BotAI):
                 if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
                     if nexus.energy >= 50 and self.time > 33:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
-                        
-        
+
+        #Benchmarks
         if self.time == 4 * 60 + 55:
-            print(self.supply_used, "supply used at 4:55")
+            print(self.supply_used, "supply used at 4:55 with " , self.units(UnitTypeId.ZEALOT).amount, "zealots", "and", self.workers.amount, "probes")
     
         if self.time == 5 * 60 + 40:
             print(self.supply_used, "supply used at 5:39")
