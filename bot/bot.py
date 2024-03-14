@@ -78,14 +78,11 @@ class DragonBot(BotAI):
         
 
         
-        # Select a probe and assign the role of "expand"
-        self.probe = self.workers.random
-        self.unit_roles[self.probe.tag] = "expand"
-        self.expansion_probes[self.probe.tag] = self.probe.position
+        
+        
         self.built_cybernetics_core = False
 
         # Check if the positions dictionary is already created
-        
         self.positions = {
             Point2((108 + 1, 24)): None,
             Point2((105 + 1, 24)): None,
@@ -166,13 +163,23 @@ class DragonBot(BotAI):
         for point in self.positions:
             self._draw_debug_sphere_at_point(point)
 
+        
+
         # Build first pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON): 
                 pylon_position = nexus.position.towards(self.game_info.map_center, 10)
-                self.probe.build(UnitTypeId.PYLON, pylon_position)
+                self.probe = self.workers.random
+                self.unit_roles[self.probe.tag] = "expand"
+                self.probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
                 print(f"Pylon position: {pylon_position}")
-                self.probe.move(expansion_loctions_list[0], queue=True)       
+                del self.unit_roles[self.probe.tag]  
+
+        if self.time > 49 and not any(role == "expand" for role in self.unit_roles.values()):
+            self.probe = self.workers.random
+            self.unit_roles[self.probe.tag] = "expand"
+            self.expansion_probes[self.probe.tag] = self.probe.position
+            self.probe.move(expansion_loctions_list[0], queue=True)               
         
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
