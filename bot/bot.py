@@ -133,21 +133,18 @@ class DragonBot(BotAI):
         if pylon not in self.pylons or self.pylons.index(pylon) != 1:  # Only warp in at the second Pylon
             return
 
-        # Create a 5x5 grid of positions around the Pylon
+        # Create a 4x4 grid of positions around the Pylon
         positions = [(x, y) for x in range(-2, 3) for y in range(-2, 3)]
-        random.shuffle(positions)  # Randomize the order of the positions
 
         # Warp in Zealots from Warpgates near a Pylon if below supply cap
-        for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
+        for i, warpgate in enumerate(self.structures(UnitTypeId.WARPGATE).ready.idle):
             abilities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abilities and self.supply_used < 200:
-                for position in positions:
-                    try:
-                        warpgate.warp_in(UnitTypeId.ZEALOT, pylon.position.to2.offset(position))  # Warp in the Zealot directly at the position
-                        positions.remove(position)  # Remove the position from the list
-                        break  # If the warp-in succeeds, break out of the loop and move on to the next Warpgate
-                    except Exception as e:
-                        print(f"Failed to warp in Zealot at {position}: {e}")  # Log any exceptions that occur during warp-in    
+                position = positions[i % len(positions)]  # Assign each Warpgate a unique position from the grid
+                try:
+                    warpgate.warp_in(UnitTypeId.ZEALOT, pylon.position.to2.offset(position))  # Warp in the Zealot directly at the position
+                except Exception as e:
+                    print(f"Failed to warp in Zealot at {position}: {e}")  # Log any exceptions that occur during warp-in    
     
     def get_unit(self, tag):
         return self.units.find_by_tag(tag)
