@@ -281,6 +281,7 @@ class DragonBot(BotAI):
                         if worker is None:
                             return
                         worker.build(UnitTypeId.ASSIMILATOR, vgs.first)
+                        worker.gather(self.mineral_field.closest_to(vgs.first), queue=True)
                         print(f"Building Assimilator at {self.time_formatted}")
         
         # train probes = 22 per nexus
@@ -369,8 +370,7 @@ class DragonBot(BotAI):
             await self.client.leave()
         else:
             for zealot in zealots:
-                zealot(AbilityId.ATTACK, nexus.position.towards(self.game_info.map_center, 5))
-
+                zealot(AbilityId.ATTACK, self.game_info.map_center)
            
     
     async def on_end(self, result: Result):
