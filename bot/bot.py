@@ -135,16 +135,13 @@ class DragonBot(BotAI):
         for warpgate in self.structures(UnitTypeId.WARPGATE).ready.idle:
             abililities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abililities and self.supply_used < 200:
-                if warpgate not in self.warpgate_positions:
-                    self.warpgate_positions[warpgate] = [(x, y) for x in range(-2, 3) for y in range(-2, 3)]  # Create a 4x4 grid of positions around the Pylon
-                positions = self.warpgate_positions[warpgate]
+                direction = pylon.position.towards(self.game_info.map_center, 3)
+                positions = [pylon.position.to2.offset((x, y)).towards(direction, 5) for x in range(-6, 7) for y in range(0, 5)]  # Create a grid of positions in front of the Pylon
                 for position in positions:
-                    try:
-                        warpgate.warp_in(UnitTypeId.ZEALOT, pylon.position.to2.offset(position))  # Warp in the Zealot directly at the position
-                        self.warpgate_positions[warpgate].remove(position)
-                        break
-                    except Exception as e:
-                        print(f"Failed to warp in Zealot at {position}: {e}")  # Log any exceptions that occur during warp-in    
+                    placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1)
+                    if placement is not None:
+                        warpgate.warp_in(UnitTypeId.ZEALOT, placement)
+                        # Removed the break statement    
     
     def get_unit(self, tag):
         return self.units.find_by_tag(tag)
@@ -175,7 +172,7 @@ class DragonBot(BotAI):
                 print(f"Pylon position: {pylon_position}")
                 del self.unit_roles[self.probe.tag]  
 
-        if self.time > 49 and not any(role == "expand" for role in self.unit_roles.values()):
+        if self.time == 49 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
             self.unit_roles[self.probe.tag] = "expand"
             self.expansion_probes[self.probe.tag] = self.probe.position
@@ -183,9 +180,9 @@ class DragonBot(BotAI):
         
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
-            direction = Point2((-4, -2))
+            direction = Point2((-4, -1))
             if self.time >= 4 * 60 + 31  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
-                direction = Point2((-6, -1))
+                direction = Point2((-6, -2))
                 if self.can_afford(UnitTypeId.PYLON):
                     # Find the west most Gateway
                     west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x)
@@ -197,11 +194,11 @@ class DragonBot(BotAI):
                     return  
             elif self.structures(UnitTypeId.PYLON).amount < 10 and self.supply_used >= 88:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 4, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
                     return  
             elif self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 122:
                 if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
+                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
                     return  
             elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 150:
                 if self.can_afford(UnitTypeId.PYLON):
@@ -214,14 +211,11 @@ class DragonBot(BotAI):
         mine(self, iteration)
                     
         #Removing roles from the expansion probes and the unit roles dictionary
-        if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14:
-            if self.probe.tag in self.expansion_probes:
-                del self.expansion_probes[self.probe.tag]
-            if self.probe.tag in self.unit_roles:
-                del self.unit_roles[self.probe.tag]
-            """for nexus in self.townhalls.ready:
-                if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
-                    nexus.train(UnitTypeId.PROBE)"""
+        """if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14:
+             if self.probe_to_remove_role.tag in self.expansion_probes:
+                del self.expansion_probes[self.probe_to_remove_role.tag]
+            if self.probe_to_remove_role.tag in self.unit_roles:
+                del self.unit_roles[self.probe_to_remove_role.tag]"""
 
         # expansion logic: if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion 
         if self.townhalls.amount < target_base_count:
