@@ -182,18 +182,22 @@ class DragonBot(BotAI):
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON): 
                 pylon_position = nexus.position.towards(self.game_info.map_center, 10)
-                self.probe = self.workers.random
-                self.unit_roles[self.probe.tag] = "expand"
-                self.probe.return_resource()
-                self.probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
-                del self.unit_roles[self.probe.tag]  
+                # Select a worker that isn't gathering resources
+                idle_workers = [worker for worker in self.workers if not worker.is_gathering]
+                if idle_workers:
+                    self.probe = idle_workers[0]
+                    self.unit_roles[self.probe.tag] = "expand"
+                    self.probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
+                    del self.unit_roles[self.probe.tag]  
 
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
-            self.probe = self.workers.random
-            self.unit_roles[self.probe.tag] = "expand"
-            self.probe.return_resource()
-            self.expansion_probes[self.probe.tag] = self.probe.position
-            self.probe.move(expansion_loctions_list[0], queue=True)
+            # Select a worker that isn't gathering resources
+            idle_workers = [worker for worker in self.workers if not worker.is_gathering]
+            if idle_workers:
+                self.probe = idle_workers[0]
+                self.unit_roles[self.probe.tag] = "expand"
+                self.expansion_probes[self.probe.tag] = self.probe.position
+                self.probe.move(expansion_loctions_list[0], queue=True)
 
                           
         
@@ -219,7 +223,7 @@ class DragonBot(BotAI):
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
                       
-            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 157:
+            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 155:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
@@ -261,11 +265,13 @@ class DragonBot(BotAI):
                     self.probe.move(self.start_location.towards(self.game_info.map_center, 10))
 
         
-        # key buildings, build 1 cybernetics core and 13 gateways
         if self.structures(UnitTypeId.PYLON).ready:
             pylon = self.structures(UnitTypeId.PYLON).ready.first
-            probe2 = self.workers.closest_to(pylon)
-            # iterate over the positions dictionary and build the structures
+            # Filter workers that are not gathering gas
+            non_gas_workers = [worker for worker in self.workers if not (worker.is_gathering and worker.is_carrying_vespene)]
+            if non_gas_workers:
+                # Select the worker that is closest to the pylon
+                probe2 = min(non_gas_workers, key=lambda worker: worker.distance_to(pylon))
             for pos in self.positions.keys():
                 if pos in self.built_positions:  # Skip positions where a Gateway has already been built
                     continue
