@@ -130,9 +130,9 @@ class DragonBot(BotAI):
 
     
     async def warp_new_units(self, pylon):
-        pylon= self.pylons[1]
-        # Create a 4x4 grid of positions around the Pylon
-        positions = [pylon.position.to2.offset((x, y)) for x in range(-2, 3) for y in range(-2, 3)]
+        pylon = self.pylons[1]
+        # Create a 6x6 grid of positions around the Pylon
+        positions = [pylon.position.to2.offset((x, y)) for x in range(-3, 4) for y in range(-3, 4)]
         positions = [pos for pos in positions if pos not in self.occupied_positions]  # Exclude already occupied positions
 
         random.shuffle(positions)  # Randomize the order of the positions
@@ -146,7 +146,7 @@ class DragonBot(BotAI):
                     break
                 
                 position = positions.pop(0)  # Take the first available position
-                placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=2)
+                placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1, random_alternative=True, max_distance=10)
                 if placement is None:
                     print(f"Can't find placement location for {position}")
                     continue
@@ -200,14 +200,14 @@ class DragonBot(BotAI):
                 direction = Point2((-6, -2))
                 if self.can_afford(UnitTypeId.PYLON):
                     # Find the west most Gateway
-                    west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x)
+                    west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x,)
                     # Build the Pylon slightly to the left of the west most Gateway
                     await self.build(UnitTypeId.PYLON, near=west_most_gateway.position + direction, build_worker=self.probe)
-            if self.structures(UnitTypeId.PYLON).amount < 5 and self.supply_used >= 88:
+            if self.structures(UnitTypeId.PYLON).amount >= 2 and self.structures(UnitTypeId.PYLON).amount < 5 and self.supply_used >= 88:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
                       
-            elif self.structures(UnitTypeId.PYLON).amount < 10 and self.supply_used >= 94:
+            elif self.structures(UnitTypeId.PYLON).amount >= 5 and self.structures(UnitTypeId.PYLON).amount < 10 and self.supply_used >= 94:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
                       
