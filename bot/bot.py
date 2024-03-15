@@ -183,12 +183,13 @@ class DragonBot(BotAI):
                 pylon_position = nexus.position.towards(self.game_info.map_center, 10)
                 self.probe = self.workers.random
                 self.unit_roles[self.probe.tag] = "expand"
+                self.probe(AbilityId.HARVEST_RETURN_PROBE, queue=True)
                 self.probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
-                print(f"Pylon position: {pylon_position}")
                 del self.unit_roles[self.probe.tag]  
 
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
+            self.probe(AbilityId.HARVEST_RETURN_PROBE, queue=True)
             self.unit_roles[self.probe.tag] = "expand"
             self.expansion_probes[self.probe.tag] = self.probe.position
             self.probe.move(expansion_loctions_list[0], queue=True)              
@@ -211,11 +212,11 @@ class DragonBot(BotAI):
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
                       
-            elif self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 122:
+            elif self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 123:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
                       
-            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 150:
+            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 160:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
@@ -231,9 +232,7 @@ class DragonBot(BotAI):
                 del self.expansion_probes[self.probe.tag]
             if self.probe.tag in self.unit_roles:
                 del self.unit_roles[self.probe.tag]
-            """for nexus in self.townhalls.ready:
-                if self.can_afford(UnitTypeId.PROBE) and nexus.is_idle:
-                    nexus.train(UnitTypeId.PROBE)"""
+            
 
         # expansion logic: if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion 
         if self.townhalls.amount < target_base_count:
