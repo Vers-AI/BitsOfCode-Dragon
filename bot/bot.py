@@ -47,7 +47,7 @@ class DragonBot(BotAI):
         self.built_positions = set()                 # Keep track of positions where a Gateway has been built
         self.pylons = []                             # List to keep track of Pylons
         self.probe = None
-
+        self.occupied_positions = []
     
     # Put this inside your bot AI class
     def _draw_debug_sphere_at_point(self, point: Point2):
@@ -78,7 +78,8 @@ class DragonBot(BotAI):
         split_workers(self)   
         
 
-        
+        print(self.start_location)
+
         
         
         self.built_cybernetics_core = False
@@ -100,7 +101,6 @@ class DragonBot(BotAI):
             Point2((106 + 1, 33)): None,
             Point2((103 + 1, 33)): None,
         }           
-    
     
     
     #Create a list of  all gold starting locations
@@ -130,21 +130,34 @@ class DragonBot(BotAI):
 
     
     async def warp_new_units(self, pylon):
-        if pylon not in self.pylons or self.pylons.index(pylon) != 1:  # Only warp in at the second Pylon
-            return
-
+        pylon= self.pylons[1]
         # Create a 4x4 grid of positions around the Pylon
-        positions = [(x, y) for x in range(-2, 3) for y in range(-2, 3)]
+        positions = [pylon.position.to2.offset((x, y)) for x in range(-2, 3) for y in range(-2, 3)]
+        positions = [pos for pos in positions if pos not in self.occupied_positions]  # Exclude already occupied positions
+
+        random.shuffle(positions)  # Randomize the order of the positions
 
         # Warp in Zealots from Warpgates near a Pylon if below supply cap
-        for i, warpgate in enumerate(self.structures(UnitTypeId.WARPGATE).ready.idle):
+        for i, warpgate in enumerate(self.structures(UnitTypeId.WARPGATE)):
+            print(f"Warping in Zealot {i + 1} of {len(self.structures(UnitTypeId.WARPGATE))}")
             abilities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abilities and self.supply_used < 200:
-                position = positions[i % len(positions)]  # Assign each Warpgate a unique position from the grid
+                if not positions:  # If all positions are occupied, break the loop
+                    print("All positions are occupied")
+                    break
+                
+                position = positions.pop(0)  # Take the first available position
+                placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1)
+                if placement is None:
+                    print(f"Can't find placement location for {position}")
+                    continue
+                self.occupied_positions.append(placement)  # Add the placement to the list of occupied positions
+                self._draw_debug_sphere_at_point(Point3((position.x, position.y, pylon.position3d.z)))  # Draw a debug sphere at the placement location
+
                 try:
-                    warpgate.warp_in(UnitTypeId.ZEALOT, pylon.position.to2.offset(position))  # Warp in the Zealot directly at the position
+                    warpgate.warp_in(UnitTypeId.ZEALOT, placement)  # Warp in the Zealot at the found placement
                 except Exception as e:
-                    print(f"Failed to warp in Zealot at {position}: {e}")  # Log any exceptions that occur during warp-in    
+                    print(f"Failed to warp in Zealot at {placement}: {e}")  # Log any exceptions that occur during warp-in    
     
     def get_unit(self, tag):
         return self.units.find_by_tag(tag)
@@ -306,7 +319,7 @@ class DragonBot(BotAI):
                 gateway(AbilityId.MORPH_WARPGATE)
 
         # warp in zealots if warpgates is ready else build zealots
-        if self.structures(UnitTypeId.WARPGATE).ready:
+        if self.structures(UnitTypeId.WARPGATE):
             await self.warp_new_units(pylon)
         elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
             if self.time > 4 * 60 + 23 and self.time < 4 * 60 + 25 and self.structures(UnitTypeId.GATEWAY).amount == 13:
