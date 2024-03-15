@@ -182,22 +182,22 @@ class DragonBot(BotAI):
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON): 
                 pylon_position = nexus.position.towards(self.game_info.map_center, 10)
-                # Select a worker that isn't gathering resources
-                idle_workers = [worker for worker in self.workers if not worker.is_gathering]
-                if idle_workers:
-                    self.probe = idle_workers[0]
-                    self.unit_roles[self.probe.tag] = "expand"
-                    self.probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
-                    del self.unit_roles[self.probe.tag]  
+                self.probe = self.workers.random
+                self.unit_roles[self.probe.tag] = "expand"
+                if self.probe.is_carrying_resource:
+                    print("returning resource")
+                    self.probe.return_resource()
+                self.probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
+                del self.unit_roles[self.probe.tag]  
 
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
-            # Select a worker that isn't gathering resources
-            idle_workers = [worker for worker in self.workers if not worker.is_gathering]
-            if idle_workers:
-                self.probe = idle_workers[0]
-                self.unit_roles[self.probe.tag] = "expand"
-                self.expansion_probes[self.probe.tag] = self.probe.position
-                self.probe.move(expansion_loctions_list[0], queue=True)
+            self.probe = self.workers.random
+            self.unit_roles[self.probe.tag] = "expand"
+            if self.probe.is_carrying_resource:
+                print("returning resource")
+                self.probe.return_resource()
+            self.expansion_probes[self.probe.tag] = self.probe.position
+            self.probe.move(expansion_loctions_list[0], queue=True)
 
                           
         
@@ -264,11 +264,11 @@ class DragonBot(BotAI):
                     print(self.time_formatted, "expanding to last expansion")
                     self.probe.move(self.start_location.towards(self.game_info.map_center, 10))
 
-        
+        # Building Key
         if self.structures(UnitTypeId.PYLON).ready:
             pylon = self.structures(UnitTypeId.PYLON).ready.first
-            # Filter workers that are not gathering gas
-            non_gas_workers = [worker for worker in self.workers if not (worker.is_gathering and worker.is_carrying_vespene)]
+            # Filter workers that are not assigned to gather vespene gas
+            non_gas_workers = [worker for worker in self.workers if worker.order_target is None or worker.order_target not in self.vespene_geyser]
             if non_gas_workers:
                 # Select the worker that is closest to the pylon
                 probe2 = min(non_gas_workers, key=lambda worker: worker.distance_to(pylon))
