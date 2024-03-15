@@ -340,7 +340,7 @@ class DragonBot(BotAI):
                                 
         elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
-            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and self.time <= 4 * 60 + 40:
+            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and self.time >= 4 * 60 + 15 and self.time <= 4 * 60 + 40:
                 for nexus in self.townhalls.ready:
                     if nexus.energy >= 50:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
