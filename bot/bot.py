@@ -203,11 +203,11 @@ class DragonBot(BotAI):
                     west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x)
                     # Build the Pylon slightly to the left of the west most Gateway
                     await self.build(UnitTypeId.PYLON, near=west_most_gateway.position + direction, build_worker=self.probe)
-            if self.structures(UnitTypeId.PYLON).amount < 5 and self.supply_used >= 78:
+            if self.structures(UnitTypeId.PYLON).amount < 5 and self.supply_used >= 88:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
                       
-            elif self.structures(UnitTypeId.PYLON).amount < 10 and self.supply_used >= 88:
+            elif self.structures(UnitTypeId.PYLON).amount < 10 and self.supply_used >= 94:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
                       
@@ -318,17 +318,17 @@ class DragonBot(BotAI):
                 gateway(AbilityId.MORPH_WARPGATE)
 
         # warp in zealots if warpgates is ready else build zealots
-        if self.structures(UnitTypeId.WARPGATE):
+        if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
-            if self.time > 4 * 60 + 29 and self.time < 4 * 60 + 30 and self.structures(UnitTypeId.GATEWAY).amount == 13:
+            if self.time > 4 * 60 + 30 and self.time < 4 * 60 + 33 and self.structures(UnitTypeId.GATEWAY).amount == 13:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
                         
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH)  == 1:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 14 and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH)  == 1:
             warpgates = self.structures(UnitTypeId.WARPGATE).ready
             for warpgate in warpgates:
                 abilities = await self.get_available_abilities(warpgate)
