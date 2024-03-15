@@ -49,6 +49,8 @@ class DragonBot(BotAI):
         self.pylons = []                             # List to keep track of Pylons
         self.probe = None
         self.occupied_positions = []
+        self.warpgates = []                         # List to keep track of Warpgates
+
     
     # Put this inside your bot AI class
     def _draw_debug_sphere_at_point(self, point: Point2):
@@ -182,13 +184,14 @@ class DragonBot(BotAI):
         if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
             if self.can_afford(UnitTypeId.PYLON): 
                 pylon_position = nexus.position.towards(self.game_info.map_center, 10)
-                self.probe = self.workers.random
-                self.unit_roles[self.probe.tag] = "expand"
-                if self.probe.is_carrying_resource:
+                probe = self.workers.random
+                self.probe_tag = probe.tag
+                self.unit_roles[self.probe_tag] = "expand"
+                if probe.is_carrying_resource:
                     print("returning resource")
-                    self.probe.return_resource()
-                self.probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
-                del self.unit_roles[self.probe.tag]  
+                    probe.return_resource()
+                probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
+                del self.unit_roles[self.probe_tag]    
 
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
@@ -223,11 +226,14 @@ class DragonBot(BotAI):
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
                       
-            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 155:
+            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 153:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
-
+        # Update the list of WarpGates
+        current_warpgates = self.structures(UnitTypeId.WARPGATE).ready
+        new_warpgates = [warpgate for warpgate in current_warpgates if warpgate not in self.warpgates]
+        self.warpgates.extend(new_warpgates)
         
         
         
@@ -268,7 +274,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.PYLON).ready:
             pylon = self.structures(UnitTypeId.PYLON).ready.first
             # Filter workers that are not assigned to gather vespene gas
-            non_gas_workers = [worker for worker in self.workers if worker.order_target is None or worker.order_target not in self.vespene_geyser]
+            non_gas_workers = [worker for worker in self.workers if worker.order_target is None or worker.order_target not in self.vespene_geyser and not worker.is_carrying_vespene]
             if non_gas_workers:
                 # Select the worker that is closest to the pylon
                 probe2 = min(non_gas_workers, key=lambda worker: worker.distance_to(pylon))
@@ -336,8 +342,9 @@ class DragonBot(BotAI):
                         
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 14 and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH)  == 1:
-            warpgates = self.structures(UnitTypeId.WARPGATE).ready
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and self.time > 5 * 60 + 10 and self.time < 5 * 60 + 33:
+            # Sort the WarpGates by their tag and select the last two
+            warpgates = sorted(self.warpgates, key=lambda wg: wg.tag)[-2:]
             for warpgate in warpgates:
                 abilities = await self.get_available_abilities(warpgate)
                 if not AbilityId.WARPGATETRAIN_ZEALOT in abilities:
