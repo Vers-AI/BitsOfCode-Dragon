@@ -139,7 +139,6 @@ class DragonBot(BotAI):
 
         # Warp in Zealots from Warpgates near a Pylon if below supply cap
         for i, warpgate in enumerate(self.structures(UnitTypeId.WARPGATE)):
-            print(f"Warping in Zealot {i + 1} of {len(self.structures(UnitTypeId.WARPGATE))}")
             abilities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abilities and self.supply_used < 200:
                 if not positions:  # If all positions are occupied, break the loop
@@ -207,19 +206,19 @@ class DragonBot(BotAI):
             if self.structures(UnitTypeId.PYLON).amount < 5 and self.supply_used >= 78:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
-                    return  
+                      
             elif self.structures(UnitTypeId.PYLON).amount < 10 and self.supply_used >= 88:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
-                    return  
+                      
             elif self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 122:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
-                    return  
+                      
             elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 150:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
-                    return  
+                      
 
         
         
