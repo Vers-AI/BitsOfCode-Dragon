@@ -24,6 +24,7 @@ from sc2.unit import Unit
 from sc2.units import Units
 from sc2 import position
 from sc2.constants import UnitTypeId
+from sc2.constants import AbilityId
 
 from bot.speedmining import get_speedmining_positions
 from bot.speedmining import split_workers
@@ -183,16 +184,17 @@ class DragonBot(BotAI):
                 pylon_position = nexus.position.towards(self.game_info.map_center, 10)
                 self.probe = self.workers.random
                 self.unit_roles[self.probe.tag] = "expand"
-                self.probe(AbilityId.HARVEST_RETURN_PROBE, queue=True)
+                self.probe(AbilityId.HARVEST_RETURN_PROBE)
                 self.probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
                 del self.unit_roles[self.probe.tag]  
 
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
-            self.probe(AbilityId.HARVEST_RETURN_PROBE, queue=True)
             self.unit_roles[self.probe.tag] = "expand"
             self.expansion_probes[self.probe.tag] = self.probe.position
-            self.probe.move(expansion_loctions_list[0], queue=True)              
+            self.probe(AbilityId.HARVEST_RETURN_PROBE)
+            self.probe.move(expansion_loctions_list[0], queue=True)
+                          
         
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
