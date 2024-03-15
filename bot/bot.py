@@ -196,7 +196,7 @@ class DragonBot(BotAI):
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
             direction = Point2((-4, -1))
-            if self.time >= 4 * 60 + 31  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
+            if self.time >= 4 * 60 + 36  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
                 direction = Point2((-6, -2))
                 if self.can_afford(UnitTypeId.PYLON):
                     # Find the west most Gateway
@@ -321,7 +321,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE):
             await self.warp_new_units(pylon)
         elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
-            if self.time > 4 * 60 + 23 and self.time < 4 * 60 + 25 and self.structures(UnitTypeId.GATEWAY).amount == 13:
+            if self.time > 4 * 60 + 29 and self.time < 4 * 60 + 30 and self.structures(UnitTypeId.GATEWAY).amount == 13:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
@@ -338,9 +338,9 @@ class DragonBot(BotAI):
                             if nexus.energy >= 50:
                                 nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
                                 
-        elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1:
+        elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1 and self.time >= 4 * 60 + 15 and self.time <= 4 * 60 + 40:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
-            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and self.time >= 4 * 60 + 15 and self.time <= 4 * 60 + 40:
+            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
                 for nexus in self.townhalls.ready:
                     if nexus.energy >= 50:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
