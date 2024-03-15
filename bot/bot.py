@@ -184,16 +184,17 @@ class DragonBot(BotAI):
                 pylon_position = nexus.position.towards(self.game_info.map_center, 10)
                 self.probe = self.workers.random
                 self.unit_roles[self.probe.tag] = "expand"
-                self.probe(AbilityId.HARVEST_RETURN_PROBE)
+                self.probe.return_resource()
                 self.probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
                 del self.unit_roles[self.probe.tag]  
 
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
             self.unit_roles[self.probe.tag] = "expand"
+            self.probe.return_resource()
             self.expansion_probes[self.probe.tag] = self.probe.position
-            self.probe(AbilityId.HARVEST_RETURN_PROBE)
             self.probe.move(expansion_loctions_list[0], queue=True)
+
                           
         
         # After 13 warpgates, build an explosion of pylons until we are at 14
@@ -218,7 +219,7 @@ class DragonBot(BotAI):
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
                       
-            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 160:
+            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 157:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
