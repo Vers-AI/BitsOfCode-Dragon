@@ -191,49 +191,50 @@ class DragonBot(BotAI):
                 pylon_position = nexus.position.towards(self.game_info.map_center, 10)
                 probe = self.workers.random
                 probe.build(UnitTypeId.PYLON, pylon_position)
-                    
+
+           
 
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
             self.unit_roles[self.probe.tag] = "expand"
             print(f"Assigned 'expand' role to probe with tag {self.probe.tag}")  # Print statement to confirm the role assignment
+            print(f"Role of probe with tag {self.probe.tag}: {self.unit_roles.get(self.probe.tag)}")  # Print the role of the probe
             if self.probe.is_carrying_resource:
                 print("returning resource")
                 self.probe.return_resource()
             self.expansion_probes[self.probe.tag] = self.probe.position
             self.probe.move(expansion_loctions_list[0], queue=True)
-            
-
+            print(f"Orders of probe with tag {self.probe.tag}: {[order.ability.id.name for order in self.probe.orders]}")  # Print the orders of the probe            
+        
                           
         
         # After 13 warpgates, build an explosion of pylons until we are at 14
         elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
             direction = Point2((-4, -1))
-            if self.time >= 4 * 60 + 36  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
-                direction = Point2((-6, -2))
-                if self.can_afford(UnitTypeId.PYLON):
-                    # Find the west most Gateway
-                    west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x,)
-                    # Build the Pylon slightly to the left of the west most Gateway
-                    await self.build(UnitTypeId.PYLON, near=west_most_gateway.position + direction, build_worker=self.probe)
-            if self.structures(UnitTypeId.PYLON).amount >= 2 and self.structures(UnitTypeId.PYLON).amount < 5 and self.supply_used >= 88:
-                if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
+            # Retrieve the current state of the probe using its tag
+            expand_probe_tags = [tag for tag, role in self.unit_roles.items() if role == "expand"]
+            if expand_probe_tags:
+                for tag in expand_probe_tags:
+                    self.probe = self.units.find_by_tag(tag)
+                    if self.probe and not self.probe.orders:  # Check if the probe exists and is not currently executing an order
+                        if self.time >= 4 * 60 + 36  and self.structures(UnitTypeId.PYLON).amount < 2 and self.already_pending(UnitTypeId.PYLON) < 1:
+                            direction = Point2((-6, -2))
+                            if self.can_afford(UnitTypeId.PYLON):
+                                west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x,)
+                                await self.build(UnitTypeId.PYLON, near=west_most_gateway.position + direction, build_worker=self.probe)
+                        if self.structures(UnitTypeId.PYLON).amount >= 2 and self.structures(UnitTypeId.PYLON).amount < 5 and self.supply_used >= 88:
+                            if self.can_afford(UnitTypeId.PYLON):
+                                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
+                        elif self.structures(UnitTypeId.PYLON).amount >= 5 and self.structures(UnitTypeId.PYLON).amount < 10 and self.supply_used >= 94:
+                            if self.can_afford(UnitTypeId.PYLON):
+                                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
+                        elif self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 123:
+                            if self.can_afford(UnitTypeId.PYLON):
+                                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
+                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 153:
+                            if self.can_afford(UnitTypeId.PYLON):
+                                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
-            elif self.structures(UnitTypeId.PYLON).amount >= 5 and self.structures(UnitTypeId.PYLON).amount < 10 and self.supply_used >= 94:
-                if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
-                      
-            elif self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 122:
-                if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
-                      
-            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 150:
-                if self.can_afford(UnitTypeId.PYLON):
-                    await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
-                      
-        
-        
         
         
         mine(self, iteration)
