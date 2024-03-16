@@ -49,7 +49,8 @@ class DragonBot(BotAI):
         self.pylons = []                             # List to keep track of Pylons
         self.probe = None
         self.occupied_positions = []
-        self.gateways = {}                         # List to keep track of Warpgates
+        self.gateway_queue = []                      # Queue to keep track of the order of building Gateways
+        self.warpgate_list = []
 
     
     # Put this inside your bot AI class
@@ -130,7 +131,7 @@ class DragonBot(BotAI):
     
     async def on_building_construction_complete(self, building):
         if building.type_id == UnitTypeId.GATEWAY:
-            self.gateways[building.tag] = building  # Add the Gateway to the dictionary of created Gateways
+            self.gateway_queue.append(building.tag)  # Add the Gateway to the queue
         elif building.type_id == UnitTypeId.PYLON:
             self.pylons.append(building)  # Add Pylon to list when it's created
 
@@ -350,21 +351,30 @@ class DragonBot(BotAI):
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
                         
-
+        # When a Gateway is transformed into a Warpgate, remove it from the queue and add it to the list
+        if self.structures(UnitTypeId.WARPGATE).ready:
+            for warpgate in self.structures(UnitTypeId.WARPGATE).ready:
+                if warpgate.tag in self.gateway_queue:
+                    self.gateway_queue.remove(warpgate.tag)
+                    self.warpgate_list.append(warpgate.tag)
+        
+        
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and self.time > 5 * 60 + 10 and self.time < 5 * 60 + 20:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and self.time > 5 * 60 + 10 and self.time < 5 * 60 + 25:
             # Sort the WarpGates by their tag and select the last two
-            warpgates = [gw for gw in self.gateways.values() if gw.type_id == UnitTypeId.WARPGATE]
-            for warpgate in warpgates:
-                abilities = await self.get_available_abilities(warpgate)
-                if not AbilityId.WARPGATETRAIN_ZEALOT in abilities:
-                    if not warpgate.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
-                        for nexus in self.townhalls.ready:
-                            if nexus.energy >= 50:
-                                print(f"Applying Chrono Boost to WarpGate {warpgate.tag}")
-                                nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
-                    else:
-                        print(f"WarpGate {warpgate.tag} already has Chrono Boost")
+            last_two_warpgates = self.warpgate_list[-2:]
+            for warpgate_tag in last_two_warpgates:
+                warpgate = self.structures(UnitTypeId.WARPGATE).find_by_tag(warpgate_tag)
+                if warpgate:
+                    abilities = await self.get_available_abilities(warpgate)
+                    if not AbilityId.WARPGATETRAIN_ZEALOT in abilities:
+                        if not warpgate.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
+                            for nexus in self.townhalls.ready:
+                                if nexus.energy >= 50:
+                                    print(f"Applying Chrono Boost to WarpGate {warpgate.tag}")
+                                    nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
+            else:
+                print(f"WarpGate {warpgate.tag} already has Chrono Boost")
                                 
         elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1 and self.time >= 4 * 60 + 15 and self.time <= 4 * 60 + 40:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
