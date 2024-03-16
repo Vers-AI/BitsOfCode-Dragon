@@ -82,7 +82,6 @@ class DragonBot(BotAI):
         split_workers(self)   
         
 
-        print(self.start_location)
 
         
         
@@ -196,15 +195,11 @@ class DragonBot(BotAI):
 
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
-            self.unit_roles[self.probe.tag] = "expand"
-            print(f"Assigned 'expand' role to probe with tag {self.probe.tag}")  # Print statement to confirm the role assignment
-            print(f"Role of probe with tag {self.probe.tag}: {self.unit_roles.get(self.probe.tag)}")  # Print the role of the probe
+            self.unit_roles[self.probe.tag] = "expand" 
             if self.probe.is_carrying_resource:
-                print("returning resource")
                 self.probe.return_resource()
             self.expansion_probes[self.probe.tag] = self.probe.position
             self.probe.move(expansion_loctions_list[0], queue=True)
-            print(f"Orders of probe with tag {self.probe.tag}: {[order.ability.id.name for order in self.probe.orders]}")  # Print the orders of the probe            
         
                           
         
@@ -231,7 +226,7 @@ class DragonBot(BotAI):
                         elif self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 123:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 153:
+                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 24 and self.time < 5 * 60 + 30:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
