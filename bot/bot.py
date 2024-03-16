@@ -190,22 +190,19 @@ class DragonBot(BotAI):
             if self.can_afford(UnitTypeId.PYLON): 
                 pylon_position = nexus.position.towards(self.game_info.map_center, 10)
                 probe = self.workers.random
-                self.probe_tag = probe.tag
-                self.unit_roles[self.probe_tag] = "expand"
-                if probe.is_carrying_resource:
-                    print("returning resource")
-                    probe.return_resource()
-                probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
-                del self.unit_roles[self.probe_tag]    
+                probe.build(UnitTypeId.PYLON, pylon_position)
+                    
 
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
             self.unit_roles[self.probe.tag] = "expand"
+            print(f"Assigned 'expand' role to probe with tag {self.probe.tag}")  # Print statement to confirm the role assignment
             if self.probe.is_carrying_resource:
                 print("returning resource")
                 self.probe.return_resource()
             self.expansion_probes[self.probe.tag] = self.probe.position
             self.probe.move(expansion_loctions_list[0], queue=True)
+            
 
                           
         
@@ -227,11 +224,11 @@ class DragonBot(BotAI):
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
                       
-            elif self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 123:
+            elif self.structures(UnitTypeId.PYLON).amount < 12 and self.supply_used >= 122:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
                       
-            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 153:
+            elif self.structures(UnitTypeId.PYLON).amount < 14 and self.supply_used >= 150:
                 if self.can_afford(UnitTypeId.PYLON):
                     await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
