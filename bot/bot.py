@@ -124,6 +124,7 @@ class DragonBot(BotAI):
                             break
             # sort gold_expansions by proximity to the bot's starting location
             gold_expansions.sort(key=lambda x: x.distance_to(self.start_location))
+            gold_expansions.insert(1, gold_expansions.pop(2))
 
             return gold_expansions        
     
@@ -314,10 +315,19 @@ class DragonBot(BotAI):
                         worker.gather(self.mineral_field.closest_to(vgs.first), queue=True)
                         print(f"Building Assimilator at {self.time_formatted}")
         
-        # train probes = 22 per nexus
-        if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
-            if self.can_afford(UnitTypeId.PROBE):
-                nexus.train(UnitTypeId.PROBE)
+        # Determine the maximum number of probes based on the number of bases
+        if len(self.townhalls) < 3:
+            max_probes = 21
+        elif len(self.townhalls) < 4:
+            max_probes = 22
+        else:
+            max_probes = 200
+
+        # Train probes up to the maximum number for each Nexus
+        if self.supply_workers + self.already_pending(UnitTypeId.PROBE) < max_probes:
+            if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
+                if self.can_afford(UnitTypeId.PROBE):
+                    nexus.train(UnitTypeId.PROBE)
 
         # Research Warp Gate if Cybernetics Core is complete
         if self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.can_afford(UpgradeId.WARPGATERESEARCH) and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 0:
