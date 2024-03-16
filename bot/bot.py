@@ -360,21 +360,23 @@ class DragonBot(BotAI):
         
         
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and self.time > 5 * 60 + 10 and self.time < 5 * 60 + 25:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 10 < self.time < 5 * 60 + 25:
             # Sort the WarpGates by their tag and select the last two
             last_two_warpgates = self.warpgate_list[-2:]
-            for warpgate_tag in last_two_warpgates:
-                warpgate = self.structures(UnitTypeId.WARPGATE).find_by_tag(warpgate_tag)
-                if warpgate:
+            for warpgate in list(self.structures(UnitTypeId.WARPGATE).ready):  # Create a copy of the list
+                if warpgate.tag in last_two_warpgates:
                     abilities = await self.get_available_abilities(warpgate)
-                    if not AbilityId.WARPGATETRAIN_ZEALOT in abilities:
+                    if AbilityId.WARPGATETRAIN_ZEALOT not in abilities:
+                        print(f"WarpGate {warpgate.tag} buffs: {warpgate.buffs}")  # Print out the buffs of the WarpGate
                         if not warpgate.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
                             for nexus in self.townhalls.ready:
                                 if nexus.energy >= 50:
                                     print(f"Applying Chrono Boost to WarpGate {warpgate.tag}")
                                     nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
-            else:
-                print(f"WarpGate {warpgate.tag} already has Chrono Boost")
+                                    if warpgate.tag in last_two_warpgates:  # Check if the WarpGate is still in the list before trying to remove it
+                                        last_two_warpgates.remove(warpgate.tag)  # Remove the WarpGate from the list after applying the Chrono Boost
+                                    print(f"Applying Chrono Boost to WarpGate {warpgate.tag}")
+                                    nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
                                 
         elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1 and self.time >= 4 * 60 + 15 and self.time <= 4 * 60 + 40:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
