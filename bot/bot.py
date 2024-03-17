@@ -300,7 +300,7 @@ class DragonBot(BotAI):
                         elif self.structures(UnitTypeId.PYLON).amount < 12 and self.time > 5 * 60 + 2:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 22:
+                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 21:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
@@ -483,7 +483,8 @@ class DragonBot(BotAI):
 
         #Benchmarks
         if self.time == 4 * 60 + 55:
-            print(self.supply_used, "supply used at 4:55 with " , self.units(UnitTypeId.ZEALOT).amount, "zealots", "and", self.workers.amount, "probes")
+            warpgate_status = "completed" if UpgradeId.WARPGATERESEARCH in self.state.upgrades else "not completed"
+            print(self.supply_used, "supply used at 4:55 with", self.units(UnitTypeId.ZEALOT).amount, "zealots", "and", self.workers.amount, "probes. Warpgate is", warpgate_status)
     
         if self.time == 5 * 60 + 40:
             print(self.supply_used, "supply used at 5:39")
