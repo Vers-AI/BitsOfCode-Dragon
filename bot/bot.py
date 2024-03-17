@@ -300,7 +300,7 @@ class DragonBot(BotAI):
                         elif self.structures(UnitTypeId.PYLON).amount < 12 and self.time > 5 * 60 + 2:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 24:
+                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 22:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
@@ -466,6 +466,7 @@ class DragonBot(BotAI):
                 best_location = self.find_aoe_position(2.5, probes)  # 2.5 is the radius of the Mass Recall effect
                 if best_location is not None:
                     nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, best_location)
+                    print(self.time_formatted, " - mass recalling probes to 3rd nexus")
         
         elif self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1:
             for nexus in self.townhalls.ready:
