@@ -174,7 +174,7 @@ class DragonBot(BotAI):
         self,
         effect_radius: float,
         targets: Units,
-) -> Point2:
+    ) -> Point2:
         """
 
         @param effect_radius: radius of the effect we're trying to place
@@ -185,6 +185,13 @@ class DragonBot(BotAI):
             return None
         elif len(targets) == 1:
             return targets.first.position
+
+        # Sort the targets by their distance to the center of your base
+        targets = sorted(targets, key=lambda unit: unit.distance_to(self.start_location))
+
+        # Select the closest 12 units
+        targets = targets[:12]
+
         x_min, x_max, y_min, y_max = self.get_bounding_box(targets)
         boundaries = ((x_min, x_max), (y_min, y_max))
 
