@@ -195,10 +195,13 @@ class DragonBot(BotAI):
 
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
-            self.unit_roles[self.probe.tag] = "expand" 
-            if self.probe.is_carrying_resource:
-                self.probe.return_resource()
+            self.unit_roles[self.probe.tag] = "expand"
             self.expansion_probes[self.probe.tag] = self.probe.position
+            # Retrieve the probe by its tag
+            probe_by_tag = self.units.find_by_tag(self.probe.tag)
+            if probe_by_tag and probe_by_tag.is_carrying_resource:  # Check if the probe exists and is carrying a resource
+                probe_by_tag(AbilityId.HARVEST_RETURN_PROBE) 
+                print(self.time_formatted, " - returning minerals")
             self.probe.move(expansion_loctions_list[0], queue=True)
         
                           
