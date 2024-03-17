@@ -332,7 +332,7 @@ class DragonBot(BotAI):
                     print(self.time_formatted, "expanding to last expansion")
                     self.probe.move(self.start_location.towards(self.game_info.map_center, 10))
 
-        # Building Key
+        # Key Buildings
         if self.structures(UnitTypeId.PYLON).ready:
             pylon = self.structures(UnitTypeId.PYLON).ready.first
             # Filter workers that are not assigned to gather vespene gas
