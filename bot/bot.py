@@ -6,6 +6,7 @@ use the map Prion Terrace.
 Download the map from the following link: https://bit.ly/3UUr1bk
 """
 import random
+import math
 
 from typing import Dict, Set
 from loguru import logger
@@ -29,6 +30,9 @@ from sc2.constants import AbilityId
 from bot.speedmining import get_speedmining_positions
 from bot.speedmining import split_workers
 from bot.speedmining import mine
+
+from scipy.optimize import OptimizeResult, differential_evolution
+
 
 
 class DragonBot(BotAI):
@@ -165,6 +169,64 @@ class DragonBot(BotAI):
                     warpgate.warp_in(UnitTypeId.ZEALOT, placement)  # Warp in the Zealot at the found placement
                 except Exception as e:
                     print(f"Failed to warp in Zealot at {placement}: {e}")  # Log any exceptions that occur during warp-in    
+    
+    def find_aoe_position(
+        self,
+        effect_radius: float,
+        targets: Units,
+) -> Point2:
+        """
+
+        @param effect_radius: radius of the effect we're trying to place
+        @param targets: the units we're trying to hit with the effect
+        @return Point2: where to place the effect
+        """
+        if len(targets) == 0:
+            return None
+        elif len(targets) == 1:
+            return targets.first.position
+        x_min, x_max, y_min, y_max = self.get_bounding_box(targets)
+        boundaries = ((x_min, x_max), (y_min, y_max))
+
+        def f(params: tuple[float, float]) -> float:
+            """Function for optimization."""
+            # the (x, y) coordinate being checked
+            x, y = params
+            # we're going to store the hits here- this is what we optimize
+            all_evals: list[float] = []
+            for unit in targets:
+                i, j = unit.position
+                # this is needed for adjusting what's considered a "hit"
+                y_offset: float = math.log(1 + effect_radius + unit.radius)
+                # the full equation is complicated so it's split up for legibility
+                dist: float = math.sqrt(((x - i) ** 2 + (y - j) ** 2))
+                exponent: float = 100 * (math.log(dist + 1) - y_offset)
+                denominator: float = 1 + math.e ** exponent
+                fraction: float = 2 / denominator
+                # if the value is positive, the effect missed. If the value is negative, it hit. Since we want to
+                # maximize the hits, it's important that misses don't affect how good a particular position is.
+                append_value = (
+                        min([-1 * (fraction - 1), 0]) * 1
+                )
+                all_evals.append(append_value)
+            return sum(all_evals)
+
+        result: OptimizeResult = differential_evolution(f, bounds=boundaries, tol=1e-10)
+        return Point2(result.x)
+    
+    # noinspection PyMethodMayBeStatic
+    def get_bounding_box(self, units: Units) -> tuple[float, float, float, float]:
+        """
+        Given some units, form a rectangle around them.
+        Returns minimum x, maximum x, minimum y, maximum y
+        """
+        x_coords: list[float] = []
+        y_coords: list[float] = []
+        for unit in units:
+            x_coords.append(unit.position.x)
+            y_coords.append(unit.position.y)
+        return min(x_coords), max(x_coords), min(y_coords), max(y_coords)
+        
     
     def get_unit(self, tag):
         return self.units.find_by_tag(tag)
@@ -387,13 +449,8 @@ class DragonBot(BotAI):
         elif self.townhalls.ready.amount == 3:
             nexus = self.townhalls.ready[2]
             if nexus.energy >= 50 and AbilityId.EFFECT_MASSRECALL_NEXUS in await self.get_available_abilities(nexus):
-                best_location = None
-                max_probes = 0
-                for resource in self.mineral_field.closer_than(10, self.start_location) | self.vespene_geyser.closer_than(10, self.start_location):
-                    probes_near_resource = self.units(UnitTypeId.PROBE).closer_than(2.5, resource.position)
-                    if len(probes_near_resource) > max_probes:
-                        max_probes = len(probes_near_resource)
-                        best_location = resource.position
+                probes = self.units(UnitTypeId.PROBE).closer_than(10, self.start_location)
+                best_location = self.find_aoe_position(2.5, probes)  # 2.5 is the radius of the Mass Recall effect
                 if best_location is not None:
                     nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, best_location)
         
