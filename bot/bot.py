@@ -361,7 +361,7 @@ class DragonBot(BotAI):
                     self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 10 < self.time < 5 * 60 + 22:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 12 < self.time < 5 * 60 + 22:
             print(f"Last two warpgates: {self.last_two_warpgates}")
             for warpgate in list(self.structures(UnitTypeId.WARPGATE).ready):  # Create a copy of the list
                 if warpgate.tag in self.last_two_warpgates:
@@ -377,7 +377,7 @@ class DragonBot(BotAI):
                                         self.last_two_warpgates.remove(warpgate.tag)  # Remove the WarpGate from the list after applying the Chrono Boost
                                     nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
                                 
-        elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1 and self.time >= 4 * 60 + 15 and self.time <= 4 * 60 + 40:
+        elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1 and self.time >= 4 * 60 + 13 and self.time <= 4 * 60 + 40:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
             if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
                 for nexus in self.townhalls.ready:
