@@ -51,8 +51,9 @@ class DragonBot(BotAI):
         self.occupied_positions = []
         self.gateway_queue = []                      # Queue to keep track of the order of building Gateways
         self.warpgate_list = []
+        
+        self.last_two_warpgates = None
 
-    
     # Put this inside your bot AI class
     def _draw_debug_sphere_at_point(self, point: Point2):
         height = self.get_terrain_z_height(point)  # get the height in world coordinates
@@ -178,7 +179,8 @@ class DragonBot(BotAI):
         nexus = self.townhalls.ready.random
         closest = self.start_location
         self.resource_by_tag = {unit.tag: unit for unit in chain(self.mineral_field, self.gas_buildings)}
-        
+
+
         for point in self.positions:
             self._draw_debug_sphere_at_point(point)
 
@@ -353,22 +355,26 @@ class DragonBot(BotAI):
                 if warpgate.tag in self.gateway_queue:
                     self.gateway_queue.remove(warpgate.tag)
                     self.warpgate_list.append(warpgate.tag)
-        
-        
+                    print(f"Warpgate {warpgate.tag} added to warpgate_list")
+
+                    # Update last_two_warpgates every time a new warpgate is added
+                    self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
+
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
         if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 10 < self.time < 5 * 60 + 22:
-            # Sort the WarpGates by their tag and select the last two
-            last_two_warpgates = self.warpgate_list[-2:]
+            print(f"Last two warpgates: {self.last_two_warpgates}")
             for warpgate in list(self.structures(UnitTypeId.WARPGATE).ready):  # Create a copy of the list
-                if warpgate.tag in last_two_warpgates:
+                if warpgate.tag in self.last_two_warpgates:
                     abilities = await self.get_available_abilities(warpgate)
                     if AbilityId.WARPGATETRAIN_ZEALOT not in abilities:
+                        print(f"Warpgate: {warpgate}, ID: {warpgate.tag}, Has Buff: {warpgate.has_buff(BuffId.CHRONOBOOSTENERGYCOST)}")  # Print the warpgate, its ID, and its has_buff status
                         if not warpgate.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
                             for nexus in self.townhalls.ready:
                                 if nexus.energy >= 50:
+                                    print(f"Applying Chrono Boost to warpgate {warpgate.tag}")
                                     nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
-                                    if warpgate.tag in last_two_warpgates:  # Check if the WarpGate is still in the list before trying to remove it
-                                        last_two_warpgates.remove(warpgate.tag)  # Remove the WarpGate from the list after applying the Chrono Boost
+                                    if warpgate.tag in self.last_two_warpgates:  # Check if the WarpGate is still in the list before trying to remove it
+                                        self.last_two_warpgates.remove(warpgate.tag)  # Remove the WarpGate from the list after applying the Chrono Boost
                                     nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
                                 
         elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1 and self.time >= 4 * 60 + 15 and self.time <= 4 * 60 + 40:
