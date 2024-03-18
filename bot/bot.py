@@ -387,8 +387,6 @@ class DragonBot(BotAI):
                     vgs = self.vespene_geyser.closer_than(15, closest)
                     if vgs:
                         worker = self.select_build_worker(vgs.first.position)
-                        if worker is None:
-                            return
                         worker.build(UnitTypeId.ASSIMILATOR, vgs.first)
                         worker.gather(self.mineral_field.closest_to(vgs.first), queue=True)
                         print(f"Building Assimilator at {self.time_formatted}")
