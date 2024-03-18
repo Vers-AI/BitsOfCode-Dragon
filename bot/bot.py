@@ -190,7 +190,7 @@ class DragonBot(BotAI):
         targets = sorted(targets, key=lambda unit: unit.distance_to(self.start_location))
 
         # Select the closest 12 units
-        targets = targets[:12]
+        targets = targets[:11]
 
         x_min, x_max, y_min, y_max = self.get_bounding_box(targets)
         boundaries = ((x_min, x_max), (y_min, y_max))
@@ -294,7 +294,10 @@ class DragonBot(BotAI):
                         if self.structures(UnitTypeId.PYLON).amount >= 2 and self.structures(UnitTypeId.PYLON).amount < 5 and self.time > 4 * 60 + 42:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount >= 5 and self.structures(UnitTypeId.PYLON).amount < 10 and self.time > 4 * 60 + 50:
+                        elif self.structures(UnitTypeId.PYLON).amount >= 5 and self.structures(UnitTypeId.PYLON).amount < 8 and self.time > 4 * 60 + 48:
+                            if self.can_afford(UnitTypeId.PYLON):
+                                await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
+                        elif self.structures(UnitTypeId.PYLON).amount >= 8 and self.structures(UnitTypeId.PYLON).amount < 10 and self.time > 4 * 60 + 52:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
                         elif self.structures(UnitTypeId.PYLON).amount < 12 and self.time > 5 * 60 + 4:
