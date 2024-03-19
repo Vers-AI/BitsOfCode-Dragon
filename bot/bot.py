@@ -153,11 +153,7 @@ class DragonBot(BotAI):
         for i, warpgate in enumerate(self.structures(UnitTypeId.WARPGATE)):
             abilities = await self.get_available_abilities(warpgate)
             if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abilities and self.supply_used < 200:
-                if not positions:  # If all positions are occupied, break the loop
-                    print("All positions are occupied")
-                    break
-                
-                position = positions.pop(0)  # Take the first available position
+                position = positions.pop(0) if positions else None  # Take the first available position, or None if all positions are occupied
                 placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1, max_distance=10)
                 if placement is None:
                     print(f"Can't find placement location for {position}")
@@ -168,7 +164,7 @@ class DragonBot(BotAI):
                 try:
                     warpgate.warp_in(UnitTypeId.ZEALOT, placement)  # Warp in the Zealot at the found placement
                 except Exception as e:
-                    print(f"Failed to warp in Zealot at {placement}: {e}")  # Log any exceptions that occur during warp-in    
+                    print(f"Failed to warp in Zealot at {placement}: {e}")  # Log any exceptions that occur during warp-in  
     
     def find_aoe_position(
         self,
@@ -190,7 +186,7 @@ class DragonBot(BotAI):
         targets = sorted(targets, key=lambda unit: unit.distance_to(self.start_location))
 
         # Select the closest 12 units
-        targets = targets[:7]
+        targets = targets[:8]
 
         x_min, x_max, y_min, y_max = self.get_bounding_box(targets)
         boundaries = ((x_min, x_max), (y_min, y_max))
