@@ -158,7 +158,7 @@ class DragonBot(BotAI):
                     break
                 
                 position = positions.pop(0)  # Take the first available position
-                placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1, random_alternative=True, max_distance=10)
+                placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1, max_distance=10)
                 if placement is None:
                     print(f"Can't find placement location for {position}")
                     continue
