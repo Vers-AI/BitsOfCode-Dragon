@@ -323,7 +323,7 @@ class DragonBot(BotAI):
         if self.townhalls.amount < target_base_count:
                 
             if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
-                if self.can_afford(UnitTypeId.NEXUS): 
+                if self.can_afford(UnitTypeId.NEXUS) and self.minerals >= 450: 
                     self.last_expansion_index += 1
                     next_location = expansion_loctions_list[self.last_expansion_index + 1]
                     location = expansion_loctions_list[self.last_expansion_index]
@@ -336,7 +336,7 @@ class DragonBot(BotAI):
                         self.probe.move(location)
                     
             elif self.last_expansion_index == 3 and self.townhalls.amount < target_base_count:
-                if self.can_afford(UnitTypeId.NEXUS) and self.built_cybernetics_core == True:
+                if self.can_afford(UnitTypeId.NEXUS) and self.built_cybernetics_core == True and self.minerals >= 450:
                     location: Point2 = await self.get_next_expansion()
                     self.probe.build(UnitTypeId.NEXUS, location)
                     print(self.time_formatted, "expanding to last expansion")
@@ -356,20 +356,20 @@ class DragonBot(BotAI):
                 if pos in self.built_positions:  # Skip positions where a Gateway has already been built
                     continue
                 if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
-                    if self.can_afford(UnitTypeId.GATEWAY):
+                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
                         probe2.build(UnitTypeId.GATEWAY, pos)
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
                         print(f"Building 1st Gateway at {self.time_formatted}")
 
                 elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 5 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE) and self.time > 3 * 60 + 34:
-                    if self.can_afford(UnitTypeId.GATEWAY):
+                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
                         probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
                         print(f" Next Gateways built at {self.time_formatted}")  # Print the current game time
                 elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.time > 4 * 60 + 1:
-                    if self.can_afford(UnitTypeId.GATEWAY):
+                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
                         probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
