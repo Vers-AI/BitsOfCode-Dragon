@@ -440,7 +440,7 @@ class DragonBot(BotAI):
                     self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 12 < self.time < 5 * 60 + 25:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 13 < self.time < 5 * 60 + 25:
             for warpgate_tag in self.last_two_warpgates:
                 warpgate = self.structures.ready.find_by_tag(warpgate_tag)
                 if warpgate is not None:
