@@ -256,6 +256,7 @@ class DragonBot(BotAI):
             if self.can_afford(UnitTypeId.PYLON): 
                 pylon_position = nexus.position.towards(self.game_info.map_center, 10)
                 probe = self.workers.random
+                probe(AbilityId.HARVEST_RETURN)
                 probe.build(UnitTypeId.PYLON, pylon_position)
 
            
@@ -263,12 +264,9 @@ class DragonBot(BotAI):
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
             self.unit_roles[self.probe.tag] = "expand"
-            self.expansion_probes[self.probe.tag] = self.probe.position
-            # Retrieve the probe by its tag
-            probe_by_tag = self.units.find_by_tag(self.probe.tag)
-            if probe_by_tag and probe_by_tag.is_carrying_resource:  # Check if the probe exists and is carrying a resource
-                probe_by_tag(AbilityId.HARVEST_RETURN_PROBE) 
-                print(self.time_formatted, " - returning minerals")
+            
+            self.probe(AbilityId.HARVEST_RETURN)
+             
             self.probe.move(expansion_loctions_list[0], queue=True)
         
                           
@@ -353,6 +351,7 @@ class DragonBot(BotAI):
                     continue
                 if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
                     if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
+                        probe2.return_resource()
                         probe2.build(UnitTypeId.GATEWAY, pos)
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
@@ -374,6 +373,7 @@ class DragonBot(BotAI):
                 if not self.built_cybernetics_core and self.structures(UnitTypeId.CYBERNETICSCORE).amount < 1 and self.already_pending(UnitTypeId.CYBERNETICSCORE) == 0:
                     if self.can_afford(UnitTypeId.CYBERNETICSCORE) and self.structures(UnitTypeId.GATEWAY).ready:
                         self.built_cybernetics_core = True
+                        probe2.return_resource()
                         probe2.build(UnitTypeId.CYBERNETICSCORE, pos)
                         self.positions[pos] = UnitTypeId.CYBERNETICSCORE
                         self.built_positions.add(pos)  # Remember this position
@@ -436,7 +436,7 @@ class DragonBot(BotAI):
                     self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 13 < self.time < 5 * 60 + 25:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 15 < self.time < 5 * 60 + 25:
             for warpgate_tag in self.last_two_warpgates:
                 warpgate = self.structures.ready.find_by_tag(warpgate_tag)
                 if warpgate is not None:
