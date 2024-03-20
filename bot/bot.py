@@ -159,7 +159,7 @@ class DragonBot(BotAI):
         # Warp in Zealots from Warpgates near a Pylon if below supply cap
         for i, warpgate in enumerate(self.structures(UnitTypeId.WARPGATE)):
             abilities = await self.get_available_abilities(warpgate)
-            if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abilities and self.supply_used < 200:
+            if self.can_afford(UnitTypeId.ZEALOT) and AbilityId.WARPGATETRAIN_ZEALOT in abilities:
                 position = positions.pop(0) if positions else None  # Take the first available position, or None if all positions are occupied
                 placement = await self.find_placement(AbilityId.WARPGATETRAIN_ZEALOT, position, placement_step=1, max_distance=10)
                 if placement is None:
@@ -292,19 +292,19 @@ class DragonBot(BotAI):
                             if self.can_afford(UnitTypeId.PYLON):
                                 west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x,)
                                 await self.build(UnitTypeId.PYLON, near=west_most_gateway.position + direction, build_worker=self.probe)
-                        if self.structures(UnitTypeId.PYLON).amount >= 2 and self.structures(UnitTypeId.PYLON).amount < 5 and self.time > 4 * 60 + 35:
-                            if self.can_afford(UnitTypeId.PYLON):
+                        if self.structures(UnitTypeId.PYLON).amount >= 2 and self.structures(UnitTypeId.PYLON).amount < 5 and self.time > 4 * 60 + 39:
+                            if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount >= 5 and self.structures(UnitTypeId.PYLON).amount < 8 and self.time > 4 * 60 + 48:
-                            if self.can_afford(UnitTypeId.PYLON):
+                        elif self.structures(UnitTypeId.PYLON).amount >= 5 and self.structures(UnitTypeId.PYLON).amount < 8 and self.time > 4 * 60 + 50:
+                            if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
                         elif self.structures(UnitTypeId.PYLON).amount >= 8 and self.structures(UnitTypeId.PYLON).amount < 10 and self.time > 4 * 60 + 52:
-                            if self.can_afford(UnitTypeId.PYLON):
+                            if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount < 12 and self.time > 5 * 60 + 5:
-                            if self.can_afford(UnitTypeId.PYLON):
+                        elif self.structures(UnitTypeId.PYLON).amount < 12 and self.time > 5 * 60 + 8:
+                            if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 21:
+                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 25:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
@@ -324,7 +324,7 @@ class DragonBot(BotAI):
         if self.townhalls.amount < target_base_count:
                 
             if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
-                if self.can_afford(UnitTypeId.NEXUS): 
+                if self.can_afford(UnitTypeId.NEXUS) and self.minerals >= 450: 
                     self.last_expansion_index += 1
                     if self.last_expansion_index == 1:
                         self.worker_transfer_delay = self.time + 79  # Nexus build time + mass recall duration
@@ -360,7 +360,7 @@ class DragonBot(BotAI):
                 if pos in self.built_positions:  # Skip positions where a Gateway has already been built
                     continue
                 if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
-                    if self.can_afford(UnitTypeId.GATEWAY):
+                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
                         probe2.return_resource()
                         probe2.build(UnitTypeId.GATEWAY, pos)
                         self.positions[pos] = UnitTypeId.GATEWAY
@@ -368,13 +368,13 @@ class DragonBot(BotAI):
                         print(f"Building 1st Gateway at {self.time_formatted}")
 
                 elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 5 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE) and self.time > 3 * 60 + 34:
-                    if self.can_afford(UnitTypeId.GATEWAY):
+                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
                         probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
                         print(f" Next Gateways built at {self.time_formatted}")  # Print the current game time
                 elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.time > 4 * 60 + 1:
-                    if self.can_afford(UnitTypeId.GATEWAY):
+                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
                         probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
