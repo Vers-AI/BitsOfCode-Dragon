@@ -58,6 +58,8 @@ class DragonBot(BotAI):
         self.warpgate_list = []
         
         self.last_two_warpgates = None
+        self.mass_recall_in_progress = False
+        self.mass_recall_end_time = 0
 
     # Put this inside your bot AI class
     def _draw_debug_sphere_at_point(self, point: Point2):
@@ -90,6 +92,8 @@ class DragonBot(BotAI):
         
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
         self.built_cybernetics_core = False
+        
+
 
         # Check if the positions dictionary is already created
         self.positions = {
@@ -319,7 +323,7 @@ class DragonBot(BotAI):
         if self.townhalls.amount < target_base_count:
                 
             if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
-                if self.can_afford(UnitTypeId.NEXUS) and self.minerals >= 450: 
+                if self.can_afford(UnitTypeId.NEXUS): 
                     self.last_expansion_index += 1
                     next_location = expansion_loctions_list[self.last_expansion_index + 1]
                     location = expansion_loctions_list[self.last_expansion_index]
@@ -332,7 +336,7 @@ class DragonBot(BotAI):
                         self.probe.move(location)
                     
             elif self.last_expansion_index == 3 and self.townhalls.amount < target_base_count:
-                if self.can_afford(UnitTypeId.NEXUS) and self.built_cybernetics_core == True and self.minerals >= 450:
+                if self.can_afford(UnitTypeId.NEXUS) and self.built_cybernetics_core == True:
                     location: Point2 = await self.get_next_expansion()
                     self.probe.build(UnitTypeId.NEXUS, location)
                     print(self.time_formatted, "expanding to last expansion")
@@ -352,7 +356,7 @@ class DragonBot(BotAI):
                 if pos in self.built_positions:  # Skip positions where a Gateway has already been built
                     continue
                 if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
-                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
+                    if self.can_afford(UnitTypeId.GATEWAY):
                         probe2.return_resource()
                         probe2.build(UnitTypeId.GATEWAY, pos)
                         self.positions[pos] = UnitTypeId.GATEWAY
@@ -360,13 +364,13 @@ class DragonBot(BotAI):
                         print(f"Building 1st Gateway at {self.time_formatted}")
 
                 elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 5 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE) and self.time > 3 * 60 + 34:
-                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
+                    if self.can_afford(UnitTypeId.GATEWAY):
                         probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
                         print(f" Next Gateways built at {self.time_formatted}")  # Print the current game time
                 elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.time > 4 * 60 + 1:
-                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
+                    if self.can_afford(UnitTypeId.GATEWAY):
                         probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
@@ -464,8 +468,12 @@ class DragonBot(BotAI):
                 probes = self.units(UnitTypeId.PROBE).closer_than(10, self.start_location)
                 best_location = self.find_aoe_position(2.5, probes)  # 2.5 is the radius of the Mass Recall effect
                 if best_location is not None:
+                    self.mass_recall_in_progress = True
                     nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, best_location)
                     print(self.time_formatted, " - mass recalling probes to 3rd nexus")
+                    self.mass_recall_end_time = self.time + 4
+                    
+
         
         elif self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1:
             for nexus in self.townhalls.ready:
@@ -479,6 +487,10 @@ class DragonBot(BotAI):
                 if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
                     if nexus.energy >= 50 and self.time > 33:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
+
+        #Checks if mass recall is finished
+        if self.time > self.mass_recall_end_time:
+            self.mass_recall_in_progress = False
 
         #Benchmarks
         if self.time == 4 * 60 + 55:
