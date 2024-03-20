@@ -58,8 +58,9 @@ class DragonBot(BotAI):
         self.warpgate_list = []
         
         self.last_two_warpgates = None
-        self.mass_recall_in_progress = False
-        self.mass_recall_end_time = 0
+        self.worker_transfer_delay = 0
+
+      
 
     # Put this inside your bot AI class
     def _draw_debug_sphere_at_point(self, point: Point2):
@@ -139,6 +140,9 @@ class DragonBot(BotAI):
     async def on_building_construction_complete(self, building):
         if building.type_id == UnitTypeId.NEXUS:
             self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
+            if self.last_expansion_index == 0:  # second Nexus
+                # Set the delay to the current time plus the time until the third Nexus starts
+                self.worker_transfer_delay = self.time + 15
         if building.type_id == UnitTypeId.GATEWAY:
             self.gateway_queue.append(building.tag)  # Add the Gateway to the queue
         if building.type_id == UnitTypeId.PYLON:
@@ -325,6 +329,8 @@ class DragonBot(BotAI):
             if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
                 if self.can_afford(UnitTypeId.NEXUS): 
                     self.last_expansion_index += 1
+                    if self.last_expansion_index == 1:
+                        self.worker_transfer_delay = self.time + 71 + 4  # Nexus build time + mass recall duration
                     next_location = expansion_loctions_list[self.last_expansion_index + 1]
                     location = expansion_loctions_list[self.last_expansion_index]
                     self.probe.build(UnitTypeId.NEXUS, location)
@@ -468,10 +474,8 @@ class DragonBot(BotAI):
                 probes = self.units(UnitTypeId.PROBE).closer_than(10, self.start_location)
                 best_location = self.find_aoe_position(2.5, probes)  # 2.5 is the radius of the Mass Recall effect
                 if best_location is not None:
-                    self.mass_recall_in_progress = True
                     nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, best_location)
                     print(self.time_formatted, " - mass recalling probes to 3rd nexus")
-                    self.mass_recall_end_time = self.time + 4
                     
 
         
@@ -488,9 +492,6 @@ class DragonBot(BotAI):
                     if nexus.energy >= 50 and self.time > 33:
                         nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
 
-        #Checks if mass recall is finished
-        if self.time > self.mass_recall_end_time:
-            self.mass_recall_in_progress = False
 
         #Benchmarks
         if self.time == 4 * 60 + 55:
