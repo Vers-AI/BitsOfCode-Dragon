@@ -193,7 +193,7 @@ class DragonBot(BotAI):
         targets = sorted(targets, key=lambda unit: unit.distance_to(self.start_location))
 
         # Select the closest 12 units
-        targets = targets[:8]
+        targets = targets[:7]
 
         x_min, x_max, y_min, y_max = self.get_bounding_box(targets)
         boundaries = ((x_min, x_max), (y_min, y_max))
@@ -295,7 +295,7 @@ class DragonBot(BotAI):
                         if self.structures(UnitTypeId.PYLON).amount >= 2 and self.structures(UnitTypeId.PYLON).amount < 5 and self.time > 4 * 60 + 39:
                             if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount >= 5 and self.structures(UnitTypeId.PYLON).amount < 8 and self.time > 4 * 60 + 50:
+                        elif self.structures(UnitTypeId.PYLON).amount >= 5 and self.structures(UnitTypeId.PYLON).amount < 8 and self.time > 4 * 60 + 48:
                             if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
                         elif self.structures(UnitTypeId.PYLON).amount >= 8 and self.structures(UnitTypeId.PYLON).amount < 10 and self.time > 4 * 60 + 52:
@@ -304,7 +304,7 @@ class DragonBot(BotAI):
                         elif self.structures(UnitTypeId.PYLON).amount < 12 and self.time > 5 * 60 + 8:
                             if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 25:
+                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 23:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
@@ -324,7 +324,7 @@ class DragonBot(BotAI):
         if self.townhalls.amount < target_base_count:
                 
             if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
-                if self.can_afford(UnitTypeId.NEXUS) and self.minerals >= 450: 
+                if self.can_afford(UnitTypeId.NEXUS): 
                     self.last_expansion_index += 1
                     if self.last_expansion_index == 1:
                         self.worker_transfer_delay = self.time + 79  # Nexus build time + mass recall duration
@@ -446,7 +446,7 @@ class DragonBot(BotAI):
                     self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 15 < self.time < 5 * 60 + 25:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 10 < self.time < 5 * 60 + 20:
             for warpgate_tag in self.last_two_warpgates:
                 warpgate = self.structures.ready.find_by_tag(warpgate_tag)
                 if warpgate is not None:
