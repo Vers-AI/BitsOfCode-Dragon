@@ -126,17 +126,15 @@ def dispatch_workers(self : BotAI):
         maxes[nexus.tag] = max(self.townhall_saturations[nexus.tag])
     
     # dispatch workers somewhere else if Nexus has too much of them
-    buffer = 3  # number of extra workers to allow before moving workers
-    transfer_buffer = 3  # minimum difference in worker counts for a worker to be moved
     nexus_priority = sorted([key for key in maxes.keys() if key in self.nexus_creation_times], key=lambda x: self.nexus_creation_times[x])
     for key in nexus_priority:
         nexus1 = self.townhalls.ready.find_by_tag(key)
-        if maxes[key] > nexus1.ideal_harvesters - buffer and self.time <= 2 * 60 + 38 or self.time >= self.worker_transfer_delay:
+        if maxes[key] > nexus1.ideal_harvesters and (self.time <= 2 * 60 + 38 or self.time >= self.worker_transfer_delay):
             for key2 in nexus_priority:
                 if key2 == key:
                     continue
                 nexus2 = self.townhalls.ready.find_by_tag(key2)
-                if maxes[key2] + transfer_buffer < maxes[key]: # only move workers if the difference in worker counts is greater than transfer_buffer
+                if maxes[key2] < nexus2.ideal_harvesters and maxes[key] > nexus1.ideal_harvesters: 
                     for w in self.workers.closer_than(10, nexus1).gathering:
                         if self.mineral_field.closer_than(10, nexus1).find_by_tag(w.order_target) is not None:
                             w.gather(w.position.closest(self.mineral_field.closer_than(10, nexus2)))
