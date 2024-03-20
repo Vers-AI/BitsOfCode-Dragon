@@ -140,9 +140,6 @@ class DragonBot(BotAI):
     async def on_building_construction_complete(self, building):
         if building.type_id == UnitTypeId.NEXUS:
             self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
-            if self.last_expansion_index == 0:  # second Nexus
-                # Set the delay to the current time plus the time until the third Nexus starts
-                self.worker_transfer_delay = self.time + 15
         if building.type_id == UnitTypeId.GATEWAY:
             self.gateway_queue.append(building.tag)  # Add the Gateway to the queue
         if building.type_id == UnitTypeId.PYLON:
@@ -330,7 +327,8 @@ class DragonBot(BotAI):
                 if self.can_afford(UnitTypeId.NEXUS): 
                     self.last_expansion_index += 1
                     if self.last_expansion_index == 1:
-                        self.worker_transfer_delay = self.time + 71 + 4  # Nexus build time + mass recall duration
+                        self.worker_transfer_delay = self.time + 79  # Nexus build time + mass recall duration
+                        print("Worker transfer delay set to", self.worker_transfer_delay)
                     next_location = expansion_loctions_list[self.last_expansion_index + 1]
                     location = expansion_loctions_list[self.last_expansion_index]
                     self.probe.build(UnitTypeId.NEXUS, location)
@@ -475,7 +473,7 @@ class DragonBot(BotAI):
                 best_location = self.find_aoe_position(2.5, probes)  # 2.5 is the radius of the Mass Recall effect
                 if best_location is not None:
                     nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, best_location)
-                    print(self.time_formatted, " - mass recalling probes to 3rd nexus")
+                    print(self.time_formatted, " - mass recalling probes to 3rd nexus and probes delayed untill", self.worker_transfer_delay)
                     
 
         
