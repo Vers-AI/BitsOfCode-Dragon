@@ -193,7 +193,7 @@ class DragonBot(BotAI):
         targets = sorted(targets, key=lambda unit: unit.distance_to(self.start_location))
 
         # Select the closest 12 units
-        targets = targets[:7]
+        targets = targets[:8]
 
         x_min, x_max, y_min, y_max = self.get_bounding_box(targets)
         boundaries = ((x_min, x_max), (y_min, y_max))
@@ -204,6 +204,7 @@ class DragonBot(BotAI):
             x, y = params
             # we're going to store the hits here- this is what we optimize
             all_evals: list[float] = []
+            hits = 0  # Counter for the number of hits
             for unit in targets:
                 i, j = unit.position
                 # this is needed for adjusting what's considered a "hit"
@@ -219,7 +220,14 @@ class DragonBot(BotAI):
                         min([-1 * (fraction - 1), 0]) * 1
                 )
                 all_evals.append(append_value)
-            return sum(all_evals)
+                if append_value < 0:  # If the effect hit the unit
+                    hits += 1
+
+            # Prioritize positions that hit exactly 8 units
+            if hits == 8:
+                return float('inf')  # High value for 8 hits
+            else:
+                return sum(all_evals)  # Lower value for not 8 hits
 
         result: OptimizeResult = differential_evolution(f, bounds=boundaries, tol=1e-10)
         return Point2(result.x)
