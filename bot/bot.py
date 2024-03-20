@@ -53,6 +53,7 @@ class DragonBot(BotAI):
         self.pylons = []                             # List to keep track of Pylons
         self.probe = None
         self.occupied_positions = []
+        
         self.gateway_queue = []                      # Queue to keep track of the order of building Gateways
         self.warpgate_list = []
         
@@ -86,10 +87,8 @@ class DragonBot(BotAI):
         self.speedmining_positions = get_speedmining_positions(self)
         split_workers(self)   
         
-
-
         
-        
+        self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
         self.built_cybernetics_core = False
 
         # Check if the positions dictionary is already created
@@ -134,10 +133,13 @@ class DragonBot(BotAI):
             return gold_expansions        
     
     async def on_building_construction_complete(self, building):
+        if building.type_id == UnitTypeId.NEXUS:
+            self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
         if building.type_id == UnitTypeId.GATEWAY:
             self.gateway_queue.append(building.tag)  # Add the Gateway to the queue
-        elif building.type_id == UnitTypeId.PYLON:
+        if building.type_id == UnitTypeId.PYLON:
             self.pylons.append(building)  # Add Pylon to list when it's created
+        
 
     
     
