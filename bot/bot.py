@@ -320,7 +320,7 @@ class DragonBot(BotAI):
         
         mine(self, iteration)
                     
-        #Building Probes to reach 200 supply fast
+        #Remove the probe from the expansion_probes and unit_roles dictionary if max pylons are built
         if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14:
             if self.probe.tag in self.expansion_probes:
                 del self.expansion_probes[self.probe.tag]
@@ -438,7 +438,7 @@ class DragonBot(BotAI):
         if self.structures(UnitTypeId.WARPGATE).ready:
             await self.warp_new_units(pylon)
         elif not self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1: 
-            if self.time > 4 * 60 + 25 and self.time < 4 * 60 + 33 and self.structures(UnitTypeId.GATEWAY).amount == 13:
+            if self.time > 4 * 60 + 25 and self.time < 4 * 60 + 32 and self.structures(UnitTypeId.GATEWAY).amount == 13:
                 for gateway in self.structures(UnitTypeId.GATEWAY).ready.idle:
                     if self.can_afford(UnitTypeId.ZEALOT):
                         gateway.train(UnitTypeId.ZEALOT)
@@ -454,7 +454,7 @@ class DragonBot(BotAI):
                     self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 10 < self.time < 5 * 60 + 20:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 16 < self.time < 5 * 60 + 22:
             for warpgate_tag in self.last_two_warpgates:
                 warpgate = self.structures.ready.find_by_tag(warpgate_tag)
                 if warpgate is not None:
