@@ -312,7 +312,7 @@ class DragonBot(BotAI):
                         elif self.structures(UnitTypeId.PYLON).amount < 12 and self.time > 5 * 60 + 8:
                             if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 23:
+                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 24:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
@@ -368,7 +368,7 @@ class DragonBot(BotAI):
                 if pos in self.built_positions:  # Skip positions where a Gateway has already been built
                     continue
                 if self.townhalls.amount >= 4 and self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount < 1 and self.already_pending(UnitTypeId.GATEWAY) == 0:
-                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
+                    if self.can_afford(UnitTypeId.GATEWAY):
                         probe2.return_resource()
                         probe2.build(UnitTypeId.GATEWAY, pos)
                         self.positions[pos] = UnitTypeId.GATEWAY
@@ -376,13 +376,13 @@ class DragonBot(BotAI):
                         print(f"Building 1st Gateway at {self.time_formatted}")
 
                 elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 5 and self.townhalls.amount == 6 and self.structures(UnitTypeId.CYBERNETICSCORE) and self.time > 3 * 60 + 34:
-                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
+                    if self.can_afford(UnitTypeId.GATEWAY):
                         probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
                         print(f" Next Gateways built at {self.time_formatted}")  # Print the current game time
                 elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.time > 4 * 60 + 1:
-                    if self.can_afford(UnitTypeId.GATEWAY) and self.minerals >= 200:
+                    if self.can_afford(UnitTypeId.GATEWAY):
                         probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
@@ -454,7 +454,7 @@ class DragonBot(BotAI):
                     self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 16 < self.time < 5 * 60 + 22:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 14 < self.time < 5 * 60 + 23:
             for warpgate_tag in self.last_two_warpgates:
                 warpgate = self.structures.ready.find_by_tag(warpgate_tag)
                 if warpgate is not None:
