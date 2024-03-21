@@ -57,7 +57,7 @@ class DragonBot(BotAI):
         self.gateway_queue = []                      # Queue to keep track of the order of building Gateways
         self.warpgate_list = []
         
-        self.last_two_warpgates = None
+        self.last_two_warpgates = []
         self.worker_transfer_delay = 0
 
       
@@ -336,7 +336,6 @@ class DragonBot(BotAI):
                     self.last_expansion_index += 1
                     if self.last_expansion_index == 1:
                         self.worker_transfer_delay = self.time + 79  # Nexus build time + mass recall duration
-                        print("Worker transfer delay set to", self.worker_transfer_delay)
                     next_location = expansion_loctions_list[self.last_expansion_index + 1]
                     location = expansion_loctions_list[self.last_expansion_index]
                     self.probe.build(UnitTypeId.NEXUS, location)
@@ -381,7 +380,7 @@ class DragonBot(BotAI):
                         self.positions[pos] = UnitTypeId.GATEWAY
                         self.built_positions.add(pos)  # Remember this position
                         print(f" Next Gateways built at {self.time_formatted}")  # Print the current game time
-                elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.time > 4 * 60 + 1:
+                elif not self.structures(UnitTypeId.WARPGATE) and self.structures(UnitTypeId.GATEWAY).amount < 13 and self.townhalls.amount == 6 and self.time > 4 * 60 + 3:
                     if self.can_afford(UnitTypeId.GATEWAY):
                         probe2.build(UnitTypeId.GATEWAY, pos, queue=True)
                         self.positions[pos] = UnitTypeId.GATEWAY
@@ -454,7 +453,7 @@ class DragonBot(BotAI):
                     self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 14 < self.time < 5 * 60 + 23:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 14 < self.time < 5 * 60 + 22:
             for warpgate_tag in self.last_two_warpgates:
                 warpgate = self.structures.ready.find_by_tag(warpgate_tag)
                 if warpgate is not None:
@@ -481,7 +480,7 @@ class DragonBot(BotAI):
                 best_location = self.find_aoe_position(2.5, probes)  # 2.5 is the radius of the Mass Recall effect
                 if best_location is not None:
                     nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, best_location)
-                    print(self.time_formatted, " - mass recalling probes to 3rd nexus and probes delayed untill", self.worker_transfer_delay)
+                    print(self.time_formatted, " - mass recalling probes to 3rd nexus")
                     
 
         
