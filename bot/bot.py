@@ -193,7 +193,7 @@ class DragonBot(BotAI):
         targets = sorted(targets, key=lambda unit: unit.distance_to(self.start_location))
 
         # Select the closest 12 units
-        targets = targets[:8]
+        targets = targets[:6]
 
         x_min, x_max, y_min, y_max = self.get_bounding_box(targets)
         boundaries = ((x_min, x_max), (y_min, y_max))
@@ -424,11 +424,6 @@ class DragonBot(BotAI):
             self.probe.move(expansion_loctions_list[0], queue=True)
 
 
-        # moving probe to build cybernetics core
-        """if self.time > 2 * 60 + 54 and self.time < 2 * 60 + 58:
-            pylon_position = nexus.position.towards(self.game_info.map_center, 10)
-            probe = self.workers.closest_to(pylon_position)
-            probe.move(pylon_position)"""
            
         
         #Remove the probe from the expansion_probes and unit_roles dictionary if max pylons are built
@@ -450,10 +445,13 @@ class DragonBot(BotAI):
 
         # Train probes up to the maximum number for each Nexus
         if self.supply_workers + self.already_pending(UnitTypeId.PROBE) < max_probes:
-            if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22 and nexus.is_idle:
-                if self.can_afford(UnitTypeId.PROBE):
-                    nexus.train(UnitTypeId.PROBE)
-
+            for nexus in self.townhalls.ready:  # Iterate over all Nexus buildings
+                if self.supply_workers + self.already_pending(UnitTypeId.PROBE) <  self.townhalls.amount * 22:
+                    if self.can_afford(UnitTypeId.PROBE):
+                        # Check if the Nexus is idle or about to finish training its current probe
+                        if (nexus.is_idle or (nexus.orders and nexus.orders[0].progress > 0.95)) and len(nexus.orders) <= 1:
+                            nexus.train(UnitTypeId.PROBE)
+                            
         # Research Warp Gate if Cybernetics Core is complete
         if self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.can_afford(UpgradeId.WARPGATERESEARCH) and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 0:
             ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
