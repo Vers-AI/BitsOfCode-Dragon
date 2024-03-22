@@ -92,11 +92,11 @@ class DragonBot(BotAI):
         
         
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
-        self.built_cybernetics_core = False
+        self.built_cybernetics_core = False # Flag to indicate if the Cybernetics Core has been built
         
 
 
-        # Check if the positions dictionary is already created
+        # Positions for Key Buildings
         self.positions = {
             Point2((108 + 1, 24)): None,
             Point2((105 + 1, 24)): None,
@@ -266,28 +266,12 @@ class DragonBot(BotAI):
 
         
 
-        # Build first pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
-        if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
-            if self.can_afford(UnitTypeId.PYLON): 
-                pylon_position = nexus.position.towards(self.game_info.map_center, 10)
-                probe = self.workers.random
-                probe(AbilityId.HARVEST_RETURN)
-                probe.build(UnitTypeId.PYLON, pylon_position)
-
-           
-
-        if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
-            self.probe = self.workers.random
-            self.unit_roles[self.probe.tag] = "expand"
-            
-            self.probe(AbilityId.HARVEST_RETURN)
-             
-            self.probe.move(expansion_loctions_list[0], queue=True)
+        
         
                           
         
         # After 13 warpgates, build an explosion of pylons until we are at 14
-        elif self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
+        if self.structures(UnitTypeId.GATEWAY).amount + self.structures(UnitTypeId.WARPGATE).amount >= 13:
             direction = Point2((-4, -1))
             # Retrieve the current state of the probe using its tag
             expand_probe_tags = [tag for tag, role in self.unit_roles.items() if role == "expand"]
@@ -301,16 +285,16 @@ class DragonBot(BotAI):
                                 west_most_gateway = min(self.structures(UnitTypeId.GATEWAY), key=lambda gateway: gateway.position.x,)
                                 await self.build(UnitTypeId.PYLON, near=west_most_gateway.position + direction, build_worker=self.probe)
                         if self.structures(UnitTypeId.PYLON).amount >= 2 and self.structures(UnitTypeId.PYLON).amount < 5 and self.time > 4 * 60 + 39:
-                            if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
+                            if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 5, build_worker=self.probe)
                         elif self.structures(UnitTypeId.PYLON).amount >= 5 and self.structures(UnitTypeId.PYLON).amount < 8 and self.time > 4 * 60 + 48:
-                            if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
+                            if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
                         elif self.structures(UnitTypeId.PYLON).amount >= 8 and self.structures(UnitTypeId.PYLON).amount < 10 and self.time > 4 * 60 + 52:
-                            if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
+                            if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 3, build_worker=self.probe)
                         elif self.structures(UnitTypeId.PYLON).amount < 12 and self.time > 5 * 60 + 8:
-                            if self.can_afford(UnitTypeId.PYLON) and self.minerals >= 150:
+                            if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
                         elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 24:
                             if self.can_afford(UnitTypeId.PYLON):
@@ -320,32 +304,43 @@ class DragonBot(BotAI):
         
         mine(self, iteration)
                     
-        #Remove the probe from the expansion_probes and unit_roles dictionary if max pylons are built
-        if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14:
-            if self.probe.tag in self.expansion_probes:
-                del self.expansion_probes[self.probe.tag]
-            if self.probe.tag in self.unit_roles:
-                del self.unit_roles[self.probe.tag]
+        
             
 
         # expansion logic: if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion 
         if self.townhalls.amount < target_base_count:
                 
-            if self.last_expansion_index < 3 and self.townhalls.amount < target_base_count: 
-                if self.can_afford(UnitTypeId.NEXUS): 
+            if self.last_expansion_index < 2 and self.townhalls.amount < target_base_count and self.time < 2 * 60 + 30: 
+                if self.can_afford(UnitTypeId.NEXUS):   
                     self.last_expansion_index += 1
                     if self.last_expansion_index == 1:
                         self.worker_transfer_delay = self.time + 79  # Nexus build time + mass recall duration
                     next_location = expansion_loctions_list[self.last_expansion_index + 1]
                     location = expansion_loctions_list[self.last_expansion_index]
                     self.probe.build(UnitTypeId.NEXUS, location)
-                    if self.last_expansion_index < 3:
-                        print(self.time_formatted, "expanding to gold bases", self.last_expansion_index, "of", len(expansion_loctions_list), "total current bases=", self.townhalls.amount)
+                    print(self.time_formatted, "expanding to gold base:", self.last_expansion_index)
+                    
+                    if self.last_expansion_index < 2:
                         self.probe.move(next_location, queue=True)
                     else:
-                        location: Point2 = await self.get_next_expansion()
-                        self.probe.move(location)
+                        self.probe.gather(self.mineral_field.closest_to(location), queue=True)
+                        self.probe.return_resource(queue=True)
+                        self.probe.move(expansion_loctions_list[3], queue=True)
                     
+            elif self.last_expansion_index < 3 and self.time > 2 * 60 + 35 and self.time < 2 * 60 + 50:
+                if self.can_afford(UnitTypeId.NEXUS):
+                    self.last_expansion_index += 1
+                    next_location = expansion_loctions_list[self.last_expansion_index + 1]
+                    location = expansion_loctions_list[self.last_expansion_index]
+                    self.probe.build(UnitTypeId.NEXUS, location)
+                    print(self.time_formatted, "expanding to gold base:", self.last_expansion_index)
+                    self.probe.gather(self.mineral_field.closest_to(location), queue=True)
+                    self.probe.return_resource(queue=True)
+                    if self.last_expansion_index == 3:
+                        location: Point2 = await self.get_next_expansion()
+                        self.probe.move(location, queue=True)
+
+
             elif self.last_expansion_index == 3 and self.townhalls.amount < target_base_count:
                 if self.can_afford(UnitTypeId.NEXUS) and self.built_cybernetics_core == True:
                     location: Point2 = await self.get_next_expansion()
@@ -407,11 +402,49 @@ class DragonBot(BotAI):
                         worker.gather(self.mineral_field.closest_to(vgs.first), queue=True)
                         print(f"Building Assimilator at {self.time_formatted}")
         
+        
+        ### Probe Control ###
+        
+        # Build first pylon if we are low on supply up until 4 bases after 4 bases build pylons until supply cap is 200
+        if self.supply_left <= 2 and self.already_pending(UnitTypeId.PYLON) == 0 and self.structures(UnitTypeId.PYLON).amount < 1: 
+            if self.can_afford(UnitTypeId.PYLON): 
+                pylon_position = nexus.position.towards(self.game_info.map_center, 10)
+                probe = self.workers.random
+                probe.return_resource()
+                probe.build(UnitTypeId.PYLON, pylon_position, queue=True)
+
+           
+        # Move the first probe to build the first nexus
+        if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
+            self.probe = self.workers.random
+            self.unit_roles[self.probe.tag] = "expand"
+            
+            self.probe.return_resource()
+             
+            self.probe.move(expansion_loctions_list[0], queue=True)
+
+
+        # moving probe to build cybernetics core
+        """if self.time > 2 * 60 + 54 and self.time < 2 * 60 + 58:
+            pylon_position = nexus.position.towards(self.game_info.map_center, 10)
+            probe = self.workers.closest_to(pylon_position)
+            probe.move(pylon_position)"""
+           
+        
+        #Remove the probe from the expansion_probes and unit_roles dictionary if max pylons are built
+        if self.supply_used < 200 and self.structures(UnitTypeId.PYLON).amount == 14:
+            if self.probe.tag in self.expansion_probes:
+                del self.expansion_probes[self.probe.tag]
+            if self.probe.tag in self.unit_roles:
+                del self.unit_roles[self.probe.tag]
+
         # Determine the maximum number of probes based on the number of bases
         if len(self.townhalls) < 3:
             max_probes = 21
         elif len(self.townhalls) < 4:
             max_probes = 22
+        elif len(self.townhalls) < 5:
+            max_probes = 29
         else:
             max_probes = 200
 
@@ -453,7 +486,7 @@ class DragonBot(BotAI):
                     self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
 
         # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 14 < self.time < 5 * 60 + 22:
+        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 15 < self.time < 5 * 60 + 22:
             for warpgate_tag in self.last_two_warpgates:
                 warpgate = self.structures.ready.find_by_tag(warpgate_tag)
                 if warpgate is not None:
