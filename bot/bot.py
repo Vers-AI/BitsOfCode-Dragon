@@ -298,7 +298,7 @@ class DragonBot(BotAI):
                         elif self.structures(UnitTypeId.PYLON).amount < 12 and self.time > 5 * 60 + 8:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 22:
+                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 23:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
