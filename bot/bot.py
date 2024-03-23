@@ -192,7 +192,7 @@ class DragonBot(BotAI):
         targets = sorted(targets, key=lambda unit: unit.distance_to(self.start_location))
 
         # Select the closest 8 units
-        targets = targets[:8]
+        targets = targets[:6]
 
         x_min, x_max, y_min, y_max = self.get_bounding_box(targets)
         boundaries = ((x_min, x_max), (y_min, y_max))
@@ -394,7 +394,7 @@ class DragonBot(BotAI):
         
         # build 1 gas near the starting nexus
         if self.townhalls.amount >= 5:
-            if self.structures(UnitTypeId.ASSIMILATOR).amount + self.already_pending(UnitTypeId.ASSIMILATOR) < 1:
+            if self.structures(UnitTypeId.ASSIMILATOR).amount < 1 and not self.already_pending(UnitTypeId.ASSIMILATOR):
                 if self.can_afford(UnitTypeId.ASSIMILATOR):
                     vgs = self.vespene_geyser.closer_than(15, closest)
                     if vgs:
@@ -437,7 +437,7 @@ class DragonBot(BotAI):
             max_probes = 21
         elif len(self.townhalls) < 4:
             max_probes = 22
-        elif len(self.townhalls) < 5:
+        elif not self.structures(UnitTypeId.ASSIMILATOR):
             max_probes = 29
         else:
             max_probes = 200
