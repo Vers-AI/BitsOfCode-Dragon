@@ -52,7 +52,8 @@ class DragonBot(BotAI):
         self.pylons = []                             # List to keep track of Pylons
         self.probe = None
         self.occupied_positions = []
-        
+        self.probe_moved = False                    # Flag to indicate if the probe has been ordered to move
+
         self.gateway_queue = []                      # Queue to keep track of the order of building Gateways
         self.warpgate_list = []
         
@@ -327,9 +328,13 @@ class DragonBot(BotAI):
                     else:
                         self.probe.gather(self.mineral_field.closest_to(location), queue=True)
                         self.probe.return_resource(queue=True)
-                        self.probe.move(expansion_loctions_list[3], queue=True)
                     
-            elif self.last_expansion_index < 3 and self.time > 2 * 60 + 35 and self.time < 2 * 60 + 50:
+            
+            elif self.last_expansion_index < 3 and self.time > 2 * 60 + 19 and self.time < 2 * 60 + 45:
+                if self.last_expansion_index  < 3 and not self.probe_moved:
+                    location: Point2 = expansion_loctions_list[3]
+                    self.probe.move(location)
+                    self.probe_moved = True  # Set the flag to True when the probe is ordered to move
                 if self.can_afford(UnitTypeId.NEXUS):
                     self.last_expansion_index += 1
                     next_location = expansion_loctions_list[self.last_expansion_index + 1]
@@ -338,17 +343,20 @@ class DragonBot(BotAI):
                     print(self.time_formatted, "expanding to gold base:", self.last_expansion_index)
                     self.probe.gather(self.mineral_field.closest_to(location), queue=True)
                     self.probe.return_resource(queue=True)
-                    if self.last_expansion_index == 3:
-                        location: Point2 = await self.get_next_expansion()
-                        self.probe.move(location, queue=True)
-
+                    self.probe_moved = False # Reset the flag when the probe is ordered to move
 
             elif self.last_expansion_index == 3 and self.townhalls.amount < target_base_count:
+                if not self.probe_moved and self.time > 3 * 60 + 7:
+                        location: Point2 = await self.get_next_expansion()
+                        self.probe.move(location)
+                        self.probe_moved = True  # Set the flag to True when the probe is ordered to move
                 if self.can_afford(UnitTypeId.NEXUS) and self.built_cybernetics_core == True:
                     location: Point2 = await self.get_next_expansion()
                     self.probe.build(UnitTypeId.NEXUS, location)
                     print(self.time_formatted, "expanding to last expansion")
-                    self.probe.move(self.start_location.towards(self.game_info.map_center, 10))
+                    self.last_expansion_index += 1
+                    if self.last_expansion_index == 4:
+                        self.probe.move(self.start_location.towards(self.game_info.map_center, 10), queue=True)
 
         
         
