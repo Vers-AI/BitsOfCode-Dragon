@@ -436,12 +436,12 @@ class DragonBot(BotAI):
         # Determine the maximum number of probes based on the number of bases
         if len(self.townhalls) < 3:
             max_probes = 21
-        elif len(self.townhalls) < 4:
-            max_probes = 22
+        ###elif len(self.townhalls) < 4:
+        ###    max_probes = 22
         elif not self.structures(UnitTypeId.ASSIMILATOR):
-            max_probes = 29
+            max_probes = 31
         else:
-            max_probes = 150
+            max_probes = 170
 
         # Train probes up to the maximum number for each Nexus
         if self.supply_workers + self.already_pending(UnitTypeId.PROBE) < max_probes:
