@@ -308,7 +308,8 @@ class DragonBot(BotAI):
         
             
 
-        # expansion logic: if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion 
+        ## expansion logic: 
+        # if we have less than target base count and build 5 nexuses, 4 at gold bases and then last one at the closest locations all with the same probe aslong as its not building an expansion 
         if self.townhalls.amount < target_base_count:
                 
             if self.last_expansion_index < 2 and self.townhalls.amount < target_base_count and self.time < 2 * 60 + 30: 
@@ -351,7 +352,7 @@ class DragonBot(BotAI):
 
         
         
-        # Key Buildings
+        ### Key Buildings
         if self.structures(UnitTypeId.PYLON).ready:
             pylon = self.structures(UnitTypeId.PYLON).ready.first
             # Filter workers that are not assigned to gather vespene gas
@@ -483,6 +484,7 @@ class DragonBot(BotAI):
                     self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
 
         ## Nexus Abilities #
+                    
         # Check if the time is between 5:25 and 5:28
         if 5 * 60 + 25 < self.time < 5 * 60 + 29:
             chronoboosts_used = 0
