@@ -24,8 +24,7 @@ from sc2.position import Point2, Point3
 from sc2.unit import Unit
 from sc2.units import Units
 from sc2 import position
-from sc2.constants import UnitTypeId
-from sc2.constants import AbilityId
+from sc2.constants import UnitTypeId, AbilityId, UpgradeId, BuffId
 
 from bot.speedmining import get_speedmining_positions
 from bot.speedmining import split_workers
@@ -192,8 +191,8 @@ class DragonBot(BotAI):
         # Sort the targets by their distance to the center of your base
         targets = sorted(targets, key=lambda unit: unit.distance_to(self.start_location))
 
-        # Select the closest 12 units
-        targets = targets[:6]
+        # Select the closest 8 units
+        targets = targets[:8]
 
         x_min, x_max, y_min, y_max = self.get_bounding_box(targets)
         boundaries = ((x_min, x_max), (y_min, y_max))
@@ -226,8 +225,10 @@ class DragonBot(BotAI):
             # Prioritize positions that hit exactly 8 units
             if hits == 8:
                 return float('inf')  # High value for 8 hits
+            elif hits > 8:
+                return float('-inf')  # Low value for more than 8 hits
             else:
-                return sum(all_evals)  # Lower value for not 8 hits
+                return sum(all_evals)  # Lower value for less than 8 hits
 
         result: OptimizeResult = differential_evolution(f, bounds=boundaries, tol=1e-10)
         return Point2(result.x)
@@ -296,7 +297,7 @@ class DragonBot(BotAI):
                         elif self.structures(UnitTypeId.PYLON).amount < 12 and self.time > 5 * 60 + 8:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 1, build_worker=self.probe)
-                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 23:
+                        elif self.structures(UnitTypeId.PYLON).amount < 14 and self.time > 5 * 60 + 24:
                             if self.can_afford(UnitTypeId.PYLON):
                                 await self.build(UnitTypeId.PYLON, near=closest.position + direction * 2, build_worker=self.probe)
                       
@@ -418,9 +419,7 @@ class DragonBot(BotAI):
         if 49 <= self.time < 50 and not any(role == "expand" for role in self.unit_roles.values()):
             self.probe = self.workers.random
             self.unit_roles[self.probe.tag] = "expand"
-            
-            self.probe.return_resource()
-             
+            self.probe.return_resource(queue=True)
             self.probe.move(expansion_loctions_list[0], queue=True)
 
 
@@ -483,50 +482,63 @@ class DragonBot(BotAI):
                     # Update last_two_warpgates every time a new warpgate is added
                     self.last_two_warpgates = self.warpgate_list[-2:] if len(self.warpgate_list) >= 2 else self.warpgate_list
 
-        # Chrono boost nexus if cybernetics core is not idle and warpgates WARPGATETRAIN_ZEALOT is not available and mass recall probes to the 3rd nexus        
-        if self.structures(UnitTypeId.WARPGATE).amount + self.structures(UnitTypeId.GATEWAY).amount == 13 and 5 * 60 + 15 < self.time < 5 * 60 + 22:
+        ## Nexus Abilities #
+        # Check if the time is between 5:25 and 5:28
+        if 5 * 60 + 25 < self.time < 5 * 60 + 29:
+            chronoboosts_used = 0
             for warpgate_tag in self.last_two_warpgates:
+                if chronoboosts_used >= 2:
+                    break
                 warpgate = self.structures.ready.find_by_tag(warpgate_tag)
-                if warpgate is not None:
+                if warpgate is not None and not warpgate.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
                     abilities = await self.get_available_abilities(warpgate)
                     if AbilityId.WARPGATETRAIN_ZEALOT not in abilities:
-                        if not warpgate.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
-                            for nexus in self.townhalls.ready:
-                                if nexus.energy >= 50:
-                                    nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
-                                    if warpgate.tag in self.last_two_warpgates:  # Check if the WarpGate is still in the list before trying to remove it
-                                        self.last_two_warpgates.remove(warpgate.tag)  # Remove the WarpGate
+                        chronoboost_applied = False
+                        for nexus in self.townhalls.ready:
+                            if nexus.energy >= 50:
+                                nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, warpgate)
+                                chronoboosts_used += 1
+                                if warpgate.tag in self.last_two_warpgates:
+                                    self.last_two_warpgates.remove(warpgate.tag)
+                                chronoboost_applied = True
+                            if chronoboost_applied:
+                                break  # Skip the remaining Nexuses for the current Warpgate
                                 
-        elif self.structures(UnitTypeId.CYBERNETICSCORE).ready and self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) != 1 and self.time >= 4 * 60 + 14 and self.time <= 4 * 60 + 40:
-            ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
-            if not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
-                for nexus in self.townhalls.ready:
-                    if nexus.energy >= 50:
-                        nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
-                         
-        elif self.townhalls.ready.amount == 3:
-            nexus = self.townhalls.ready[2]
-            if nexus.energy >= 50 and AbilityId.EFFECT_MASSRECALL_NEXUS in await self.get_available_abilities(nexus):
-                probes = self.units(UnitTypeId.PROBE).closer_than(10, self.start_location)
-                best_location = self.find_aoe_position(2.5, probes)  # 2.5 is the radius of the Mass Recall effect
-                if best_location is not None:
-                    nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, best_location)
-                    print(self.time_formatted, " - mass recalling probes to 3rd nexus")
-                    
 
-        
-        elif self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 1:
+        # Check if the time is between 00:33 and 4:45
+        elif 33 < self.time < 4 * 60 + 45:
+            # Check if the time is between 4:14 and 4:40
+            if self.townhalls.ready.amount == 3:
+                nexus = self.townhalls.ready[2]
+                if nexus.energy >= 50 and AbilityId.EFFECT_MASSRECALL_NEXUS in await self.get_available_abilities(nexus):
+                    probes = self.units(UnitTypeId.PROBE).closer_than(10, self.start_location)
+                    best_location = self.find_aoe_position(2.5, probes)  # 2.5 is the radius of the Mass Recall effect
+                    if best_location is not None:
+                        nexus(AbilityId.EFFECT_MASSRECALL_NEXUS, best_location)
+                        print(self.time_formatted, " - mass recalling probes to 3rd nexus")
+            elif 4 * 60 + 14 < self.time < 4 * 60 + 40:
+                ccore = self.structures(UnitTypeId.CYBERNETICSCORE).ready.first
+                if ccore and not ccore.has_buff(BuffId.CHRONOBOOSTENERGYCOST):
+                    for nexus in self.townhalls.ready:
+                        if nexus.energy >= 50:
+                            nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, ccore)
+            else:
+                # Find the least saturated nexus that doesn't have the chronoboost buff and is not idle
+                least_saturated_nexus = next((nexus for nexus in sorted(self.townhalls.ready, key=lambda n: n.assigned_harvesters) if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and nexus.is_idle == False), None)
+
+                if least_saturated_nexus is not None:
+                    # Find a Nexus with enough energy
+                    nexus_with_energy = next((nexus for nexus in self.townhalls.ready if nexus.energy >= 50), None)
+
+                    if nexus_with_energy is not None:
+                        # Chronoboost the least saturated Nexus
+                        nexus_with_energy(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, least_saturated_nexus)
+
+        # After 5:30, it can just chronoboost itself if it has the energy
+        elif self.time > 5 * 60 + 30:
             for nexus in self.townhalls.ready:
-                if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
-                    if nexus.energy >= 50:
-                        nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
-                        
-        
-        else:
-            for nexus in self.townhalls.ready:
-                if not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and not nexus.is_idle:
-                    if nexus.energy >= 50 and self.time > 33:
-                        nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
+                if nexus.energy >= 50 and not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST) and nexus.is_idle == False:
+                    nexus(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, nexus)
 
 
         #Benchmarks
