@@ -1,9 +1,18 @@
 """ 
 This bot is a bot from episode 2 of Bits of Code(https://bit.ly/3TjclBh). 
-It is a simple bot that expands to gold bases and builds zealots trying to reach Max supply by 5:46 in game time. 
+It is a simple bot that expands to gold bases and builds zealots trying to reach Max supply before 5:46 in game time. 
 use the map Prion Terrace. 
 
 Download the map from the following link: https://bit.ly/3UUr1bk
+
+The results will vary based on several variables:
+
+- Recall : at 2:40 the bot recalls to the 3rd, the amount needs to be 8 probes, more or less will skew results
+- When building gateways there is a chance the probe will get stuck
+- The 5th nexus won't get built as a result of the recall being off
+
+Current Performance: 5:45
+
 """
 import random
 import math
