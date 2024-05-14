@@ -19,8 +19,8 @@ from bot.bot import DragonBot
 
 import yaml
 
-"""from ladder import run_ladder_game
-"""
+from ladder import run_ladder_game
+
 # change if non default setup / linux
 # if having issues with this, modify `map_list` below manually
 MAPS_PATH: str = "C:\\Program Files (x86)\\StarCraft II\\Maps"
