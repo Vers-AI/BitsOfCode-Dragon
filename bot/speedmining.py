@@ -5,7 +5,7 @@ from sc2.ids.ability_id import AbilityId
 from sc2.unit import Unit
 from sc2.units import Units
 from sc2.position import Point2
-from sc2.bot_ai import BotAI
+from ares import AresBot
 from typing import Dict, Iterable, List, Optional, Set
 
 from sc2.ids.upgrade_id import UpgradeId
@@ -33,7 +33,7 @@ def get_intersections(p0: Point2, r0: float, p1: Point2, r1: float) -> Iterable[
 
 
 # fix workers bumping into adjacent minerals by slightly shifting the move commands
-def get_speedmining_positions(self : BotAI) -> Dict[Point2, Point2]:
+def get_speedmining_positions(self : AresBot) -> Dict[Point2, Point2]:
     targets = dict()
     worker_radius = self.workers[0].radius
     expansions: Dict[Point2, Units] = self.expansion_locations_dict
@@ -48,7 +48,7 @@ def get_speedmining_positions(self : BotAI) -> Dict[Point2, Point2]:
     return targets
 
 
-def micro_worker(self : BotAI) -> None:
+def micro_worker(self : AresBot) -> None:
 
     if self.townhalls.ready.amount <= 0:
         return
@@ -73,7 +73,7 @@ def micro_worker(self : BotAI) -> None:
 
 
 # Saturate assimilator
-def handle_assimilator(self : BotAI, step: int):
+def handle_assimilator(self : AresBot, step: int):
 
     # update assimilator ages and dictionary
     for r in self.gas_buildings.ready:
@@ -106,7 +106,7 @@ def handle_assimilator(self : BotAI, step: int):
                         return
 
 
-def dispatch_workers(self : BotAI):
+def dispatch_workers(self : AresBot):
     # remove destroyed nexus from keys
     keys_to_delete = []
     for key in self.townhall_saturations.keys():
@@ -148,7 +148,7 @@ def dispatch_workers(self : BotAI):
 
 
 # distribute initial workers on mineral patches
-def split_workers(self : BotAI) -> None:
+def split_workers(self : AresBot) -> None:
     minerals = self.expansion_locations_dict[self.start_location].mineral_field.sorted_by_distance_to(self.start_location)
     self.close_minerals = {m.tag for m in minerals[0:4]}
     assigned: Set[int] = set()
@@ -162,7 +162,7 @@ def split_workers(self : BotAI) -> None:
         assigned.add(worker.tag)
 
 
-def mine(self : BotAI, iteration):
+def mine(self : AresBot, iteration):
     dispatch_workers(self)
     micro_worker(self)
     handle_assimilator(self, iteration)
