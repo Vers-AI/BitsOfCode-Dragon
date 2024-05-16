@@ -1,24 +1,27 @@
 import sys
-sys.path.append('ares-sc2/src/ares')
-sys.path.append('ares-sc2/src')
-sys.path.append('ares-sc2')
-
-
 import random
 import sys
 from os import path
 from pathlib import Path
 from typing import List
 
+sys.path.append('ares-sc2/src/ares')
+sys.path.append('ares-sc2/src')
+sys.path.append('ares-sc2')
+
+
+
+
 from sc2 import maps
 from sc2.data import AIBuild, Difficulty, Race
 from sc2.main import run_game
 from sc2.player import Bot, Computer
-from bot.bot import DragonBot
+
 
 
 import yaml
 
+from bot.bot import DragonBot
 from ladder import run_ladder_game
 
 # change if non default setup / linux
