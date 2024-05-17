@@ -27,6 +27,19 @@ class DragonBot(AresBot):
         self.assimilator_age = {}                    # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
 
     
+    
+    async def on_start(self) -> None:
+        await super(DragonBot, self).on_start()
+        
+        print("Game started")
+        self.client.game_step = 2    
+        self.speedmining_positions = get_speedmining_positions(self)
+        split_workers(self)   
+
+        self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
+
+        print("Build Chosen:",self.build_order_runner.chosen_opening)
+    
     async def on_step(self, iteration: int) -> None:
         await super(AresBot, self).on_step(iteration)
 
@@ -39,18 +52,6 @@ class DragonBot(AresBot):
     Can use `python-sc2` hooks as usual, but make a call the inherited method in the superclass
     Examples:
     """
-    async def on_start(self) -> None:
-        await super(DragonBot, self).on_start()
-        
-        print("Game started")
-        self.client.game_step = 2    
-        self.speedmining_positions = get_speedmining_positions(self)
-        split_workers(self)   
-
-        self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
-
-        print("Build Chosen:",self.build_order_runner.chosen_opening)
-
 
 
         

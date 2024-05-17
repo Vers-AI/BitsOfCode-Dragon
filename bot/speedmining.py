@@ -10,6 +10,9 @@ from typing import Dict, Iterable, List, Optional, Set
 
 from sc2.ids.upgrade_id import UpgradeId
 
+from ares.consts import UnitRole
+from sc2.units import Units
+
 
 SPEEDMINING_DISTANCE = 1.8
 
@@ -52,8 +55,11 @@ def micro_worker(self : AresBot) -> None:
 
     if self.townhalls.ready.amount <= 0:
         return
-
-    for unit in self.workers:
+        
+    workers: Units = self.mediator.get_units_from_role(
+    role=UnitRole.GATHERING)
+    
+    for unit in workers:
         if unit.is_idle and self.unit_roles.get(unit.tag) != "expand":
             townhall = self.townhalls.ready.closest_to(unit)
             patch = self.mineral_field.closest_to(townhall)
