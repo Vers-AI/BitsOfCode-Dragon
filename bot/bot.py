@@ -41,7 +41,7 @@ class DragonBot(AresBot):
         print("Build Chosen:",self.build_order_runner.chosen_opening)
     
     async def on_step(self, iteration: int) -> None:
-        await super(AresBot, self).on_step(iteration)
+        await super(DragonBot, self).on_step(iteration)
 
         self.resource_by_tag = {unit.tag: unit for unit in chain(self.mineral_field, self.gas_buildings)}
 
