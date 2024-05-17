@@ -49,6 +49,10 @@ class DragonBot(AresBot):
 
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
 
+        print("Build Chosen:",self.build_order_runner.chosen_opening)
+
+
+
         
     async def on_end(self, game_result: Result) -> None:
         await super(DragonBot, self).on_end(game_result)
