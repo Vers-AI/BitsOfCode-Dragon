@@ -60,7 +60,7 @@ def micro_worker(self : AresBot) -> None:
     role=UnitRole.GATHERING)
     
     for unit in workers:
-        if unit.is_idle and self.unit_roles.get(unit.tag) != "expand":
+        if unit.is_idle:
             townhall = self.townhalls.ready.closest_to(unit)
             patch = self.mineral_field.closest_to(townhall)
             unit.gather(patch)
