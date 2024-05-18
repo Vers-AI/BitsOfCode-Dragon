@@ -135,7 +135,7 @@ def dispatch_workers(self : AresBot):
     nexus_priority = sorted([key for key in maxes.keys() if key in self.nexus_creation_times], key=lambda x: self.nexus_creation_times[x])
     for key in nexus_priority:
         nexus1 = self.townhalls.ready.find_by_tag(key)
-        if maxes[key] > nexus1.ideal_harvesters and (self.time <= 2 * 60 + 38 or self.time >= self.worker_transfer_delay):
+        if maxes[key] > nexus1.ideal_harvesters:
             for key2 in nexus_priority:
                 if key2 == key:
                     continue

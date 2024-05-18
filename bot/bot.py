@@ -25,6 +25,7 @@ class DragonBot(AresBot):
         
         self.townhall_saturations = {}               # lists the mineral saturation of townhalls in queues of 40 frames, we consider the townhall saturated if max_number + 1 >= ideal_number
         self.assimilator_age = {}                    # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
+        self.unit_roles = {}                         # dictionary to keep track of the roles of the units
 
     
     
