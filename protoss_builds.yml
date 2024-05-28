@@ -35,18 +35,19 @@ BuildChoices:
 Builds:
     B2GM_Starting_Build:
         # Build constant worker production till this supply
-        ConstantWorkerProductionTill: 50
+        ConstantWorkerProductionTill: 70
         OpeningBuildOrder:
             - 14 PYLON
             - 16 GATEWAY
-            - 16 CHRONO @ NEXUS
-            - 17 GAS
-            - 20 EXPAND
+            - 16 Probe @ ENEMY_SPAWN
+            - 16 GAS
+            - 20 NEXUS
             - 20 CYBERNETICSCORE
             - 21 GAS
             - 22 PYLON
-            - 23 CHRONO @ GATEWAY
-            - 23 CHRONO @ GATEWAY
+            - 23 STALKER
+            - 23 WARPGATE
+            - 23 chrono @ NEXUS
             - 26 ROBOTICSFACILITY
             - 26 OBSERVER
             - 30 IMMORTAL
@@ -57,13 +58,25 @@ Builds:
             - 38 STALKER
             - 40 STALKER
             - 42 GAS
-            - 44 GAS
             - 50 ROBOTICSFACILITY
             - 50 ROBOTICSBAY
             - 50 COLOSSUS
             - 50 COLOSSUS
             - 50 IMMORTAL
-            - 50 TWILIGHTCOUNCIL
-            - 50 FORGE
+            - 50 EXTENDEDTHERMALLANCE
+            - 70 TWILIGHTCOUNCIL
+            - 70 FORGE
+            - 70 CHARGE
+            - 70 GROUNDWEAPONSLEVEL1
+            - 70 GATEWAY
+            - 70 GATEWAY
+            - 70 GATEWAY
+            - 70 GATEWAY
+            - 70 GATEWAY
+            - 70 TEMPLARARCHIVE
+            - 70 ZEALOT
+            - 70 WARPPRISM
+            - 70 HIGHTEMPLAR
+            - 70 HIGHTEMPLAR
    
     
