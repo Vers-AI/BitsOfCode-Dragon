@@ -37,11 +37,11 @@ Builds:
         # Build constant worker production till this supply
         ConstantWorkerProductionTill: 44
         # After 0 supply turn AutoSupply on
-        AutoSupplyAtSupply: 0
+        AutoSupplyAtSupply: 33
         OpeningBuildOrder:
             - 14 PYLON
             - 16 GATEWAY
-            - 16 WORKER_SCOUT @ ENEMY_SPAWN
+            - 16 WORKER_SCOUT
             - 16 GAS
             - 20 EXPAND
             - 20 CORE
@@ -66,7 +66,7 @@ Builds:
             - 70 TWILIGHTCOUNCIL
             - 70 FORGE
             - 70 CHARGE
-            - 70 GROUNDWEAPONSLEVEL1
+            - 70 PROTOSSGROUNDWEAPONSLEVEL1
             - 70 GATEWAY x5
             - 70 TEMPLARARCHIVE
             - 70 ZEALOT
