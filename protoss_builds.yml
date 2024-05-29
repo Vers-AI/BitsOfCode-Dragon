@@ -35,7 +35,7 @@ BuildChoices:
 Builds:
     B2GM_Starting_Build:
         # Build constant worker production till this supply
-        ConstantWorkerProductionTill: 70
+        ConstantWorkerProductionTill: 44
         OpeningBuildOrder:
             - 14 PYLON
             - 16 GATEWAY
