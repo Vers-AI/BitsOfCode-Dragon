@@ -94,14 +94,13 @@ def handle_assimilator(self : AresBot, step: int):
 
     # handle workers
     for r in self.gas_buildings.ready:
-        if self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) == 0 and self.vespene < 48:
-            if r.assigned_harvesters < r.ideal_harvesters and step - self.assimilator_age[r.tag] > 6: # last check because when it is finished there are 0 workers altough the one building goes to it instantly
-                workers: Units = self.workers.closer_than(10, r)
-                if workers:
-                    for w in workers:
-                        if not w.is_carrying_minerals and not w.is_carrying_vespene:
-                            w.gather(r)
-                            return
+        if r.assigned_harvesters < r.ideal_harvesters and step - self.assimilator_age[r.tag] > 6: # last check because when it is finished there are 0 workers altough the one building goes to it instantly
+            workers: Units = self.workers.closer_than(10, r)
+            if workers:
+                for w in workers:
+                    if not w.is_carrying_minerals and not w.is_carrying_vespene:
+                        w.gather(r)
+                        return
         if r.assigned_harvesters > r.ideal_harvesters or self.workers.amount <= 6 or self.already_pending_upgrade(UpgradeId.WARPGATERESEARCH) > 0 or self.vespene >= 48:
             workers: Units = self.workers.closer_than(6, r)
             if workers:
