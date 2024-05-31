@@ -47,6 +47,8 @@ Builds:
             - 20 CORE
             - 21 GAS
             - 22 PYLON
+            - 22 WARPGATERESEARCH
+            - 22 CHRONO @ CyberneticsCore
             - 23 STALKER x3
             - 23 CHRONO @ GATEWAY x2
             - 26 ROBOTICSFACILITY
@@ -69,6 +71,6 @@ Builds:
             - 70 TEMPLARARCHIVE
             - 70 ZEALOT
             - 70 WARPPRISM
-            - 70 HIGHTEMPLAR x2
+            - 72 HIGHTEMPLAR x2
    
     
