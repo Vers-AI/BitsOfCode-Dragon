@@ -42,6 +42,7 @@ Builds:
             - 14 PYLON
             - 16 GATEWAY
             - 16 WORKER_SCOUT
+            - 16 CHRONO @ NEXUS
             - 16 GAS
             - 20 EXPAND
             - 20 CORE
@@ -49,11 +50,15 @@ Builds:
             - 22 PYLON
             - 22 WARPGATERESEARCH
             - 22 CHRONO @ CyberneticsCore
-            - 23 STALKER x3
-            - 23 CHRONO @ GATEWAY x2
+            - 22 STALKER
+            - 23 CHRONO @ GATEWAY
             - 26 ROBOTICSFACILITY
             - 26 OBSERVER
+            - 29 STALKER
+            - 29 CHRONO @ CYBERNETICSCORE
+            - 29 CHRONO @ NEXUS
             - 30 IMMORTAL
+            - 30 CHRONO @ NEXUS
             - 33 GATEWAY x2
             - 33 PYLON
             - 36 STALKER x3
