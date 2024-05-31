@@ -5,6 +5,8 @@ from itertools import chain
 
 
 from sc2.data import Result
+from sc2.ids.unit_typeid import UnitTypeId
+
 
 from bot.speedmining import get_speedmining_positions
 from bot.speedmining import split_workers
@@ -50,7 +52,9 @@ class DragonBot(AresBot):
         mine(self, iteration)
 
 
-
+    async def on_building_construction_complete(self, building):
+            if building.type_id == UnitTypeId.NEXUS:
+                self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
 
         
     async def on_end(self, game_result: Result) -> None:
