@@ -49,10 +49,7 @@ class DragonBot(AresBot):
 
         mine(self, iteration)
 
-    """
-    Can use `python-sc2` hooks as usual, but make a call the inherited method in the superclass
-    Examples:
-    """
+
 
 
         

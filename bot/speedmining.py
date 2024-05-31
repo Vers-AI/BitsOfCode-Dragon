@@ -134,12 +134,12 @@ def dispatch_workers(self : AresBot):
     nexus_priority = sorted([key for key in maxes.keys() if key in self.nexus_creation_times], key=lambda x: self.nexus_creation_times[x])
     for key in nexus_priority:
         nexus1 = self.townhalls.ready.find_by_tag(key)
-        if maxes[key] > nexus1.ideal_harvesters:
+        if maxes[key] + 1 > nexus1.ideal_harvesters:  # changed this line
             for key2 in nexus_priority:
                 if key2 == key:
                     continue
                 nexus2 = self.townhalls.ready.find_by_tag(key2)
-                if maxes[key2] < nexus2.ideal_harvesters and maxes[key] > nexus1.ideal_harvesters: 
+                if maxes[key2] + 1 < nexus2.ideal_harvesters:  # changed this line
                     for w in self.workers.closer_than(10, nexus1).gathering:
                         if self.mineral_field.closer_than(10, nexus1).find_by_tag(w.order_target) is not None:
                             w.gather(w.position.closest(self.mineral_field.closer_than(10, nexus2)))
