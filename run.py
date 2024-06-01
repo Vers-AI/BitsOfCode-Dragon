@@ -62,7 +62,6 @@ def main():
             "BerlingradAIE",
             "InsideAndOutAIE",
             "MoondanceAIE",
-            "StargazersAIE",
             "WaterfallAIE",
             "HardwireAIE",
         ]
