@@ -46,36 +46,40 @@ Builds:
             - 16 GAS
             - 20 EXPAND
             - 20 CORE
+            - 21 PYLON
             - 21 GAS
-            - 22 PYLON
             - 22 WARPGATERESEARCH
-            - 22 CHRONO @ CyberneticsCore
-            - 22 STALKER
-            - 23 CHRONO @ GATEWAY
+            - 22 CHRONO @ CYBERNETICSCORE
+            - 24 STALKER
+            - 26 CHRONO @ GATEWAY
             - 26 ROBOTICSFACILITY
             - 26 OBSERVER
             - 29 STALKER
-            - 29 CHRONO @ CYBERNETICSCORE
-            - 29 CHRONO @ NEXUS
-            - 30 IMMORTAL
-            - 30 CHRONO @ NEXUS
+            - 33 CHRONO @ CYBERNETICSCORE
+            - 33 CHRONO @ NEXUS
             - 33 GATEWAY x2
             - 33 PYLON
-            - 36 STALKER x3
-            - 42 GAS
-            - 50 ROBOTICSFACILITY
+            - 42 IMMORTAL
+            - 42 GAS x2
+            - 42 STALKER x3
             - 50 ROBOTICSBAY
-            - 50 COLOSSUS x2
-            - 50 IMMORTAL
-            - 50 EXTENDEDTHERMALLANCE
-            - 70 TWILIGHTCOUNCIL
+            - 50 ROBOTICSFACILITY
+            - 52 IMMORTAL
+            - 55 COLOSSUS x2
+            - 56 EXTENDEDTHERMALLANCE
+            - 57 CHRONO @ ROBOTICSBAY
+            - 60 TWILIGHTCOUNCIL
             - 70 FORGE
+            - 70 CHRONO @ ROBOTICSFACILITY
+            - 70 CHRONO @ ROBOTICSFACILITY
             - 70 CHARGE
             - 70 PROTOSSGROUNDWEAPONSLEVEL1
             - 70 GATEWAY x5
             - 70 TEMPLARARCHIVE
-            - 70 ZEALOT
             - 70 WARPPRISM
-            - 72 HIGHTEMPLAR x2
+            - 72 CHRONO @ FORGE
+            - 72 IMMORTAL x2            
+            - 82 HIGHTEMPLAR x2
+            - 82 ZEALOT x6
    
     
