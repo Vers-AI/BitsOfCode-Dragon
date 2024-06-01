@@ -39,13 +39,13 @@ Builds:
         # After 0 supply turn AutoSupply on
         AutoSupplyAtSupply: 33
         OpeningBuildOrder:
-            - 14 PYLON
-            - 16 GATEWAY
+            - 14 PYLON @ NAT
+            - 16 GATEWAY @ NAT
             - 16 WORKER_SCOUT
             - 16 CHRONO @ NEXUS
             - 16 GAS
             - 20 EXPAND
-            - 20 CORE
+            - 20 CORE @ NAT
             - 21 PYLON
             - 21 GAS
             - 22 WARPGATERESEARCH
@@ -56,8 +56,8 @@ Builds:
             - 29 STALKER
             - 33 CHRONO @ CYBERNETICSCORE
             - 33 CHRONO @ NEXUS
-            - 33 GATEWAY x2
-            - 33 PYLON
+            - 33 GATEWAY @ NAT x2
+            - 33 PYLON @ NAT
             - 35 OBSERVER
             - 42 IMMORTAL
             - 42 GAS x2
