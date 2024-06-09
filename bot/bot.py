@@ -1,4 +1,6 @@
 from typing import Optional
+
+from sc2.unit import Unit
 from ares import AresBot
 
 from itertools import chain
@@ -48,9 +50,14 @@ class DragonBot(AresBot):
 
         self.resource_by_tag = {unit.tag: unit for unit in chain(self.mineral_field, self.gas_buildings)}
 
-
         mine(self, iteration)
 
+        #check if the B2GM_Starting_Build is completed, if so send all the units to the enemy base
+    """if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner._opening_build_completed:             
+             
+    # Add units to the attack group when created
+    async def on_unit_created(self, unit: Unit) -> None:"""
+         
 
     async def on_building_construction_complete(self, building):
             if building.type_id == UnitTypeId.NEXUS:
