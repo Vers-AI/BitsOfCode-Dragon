@@ -1,13 +1,18 @@
 from typing import Optional
 
-from sc2.unit import Unit
 from ares import AresBot
+from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole
+
 
 from itertools import chain
 
 
 from sc2.data import Result
 from sc2.ids.unit_typeid import UnitTypeId
+from sc2.unit import Unit
+from sc2.units import Units
+
+
 
 
 from bot.speedmining import get_speedmining_positions
@@ -52,11 +57,24 @@ class DragonBot(AresBot):
 
         mine(self, iteration)
 
+        """
         #check if the B2GM_Starting_Build is completed, if so send all the units to the enemy base
-    """if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner._opening_build_completed:             
-             
-    # Add units to the attack group when created
-    async def on_unit_created(self, unit: Unit) -> None:"""
+
+        if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner._opening_build_completed:             
+        """    
+
+    async def on_unit_created(self, unit: Unit) -> None:
+        await super(DragonBot, self).on_unit_created(unit)
+        # Asign all units to the attacking role using ares unit role system
+        typeid: UnitTypeId = unit.type_id
+        # don't assign workers or buildings to the attacking role
+        if typeid in ALL_STRUCTURES or typeid in WORKER_TYPES:
+            return
+
+        # assign all other units to the attacking role by defualt
+        self.mediator.assign_role(unit.tag, UnitRole.ATTACKING)
+
+
          
 
     async def on_building_construction_complete(self, building):
