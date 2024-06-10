@@ -57,11 +57,15 @@ class DragonBot(AresBot):
 
         mine(self, iteration)
 
-        """
+        # retrieve all attacking units
+        attackers: Units = self.mediator.get_units_from_role(UnitRole.ATTACKING)
+
+        
         #check if the B2GM_Starting_Build is completed, if so send all the units to the enemy base
 
-        if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner._opening_build_completed:             
-        """    
+        if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner.build_completed:             
+            for attacker in attackers:
+                attacker.attack(self.enemy_start_locations[0])
 
     async def on_unit_created(self, unit: Unit) -> None:
         await super(DragonBot, self).on_unit_created(unit)
@@ -78,8 +82,9 @@ class DragonBot(AresBot):
          
 
     async def on_building_construction_complete(self, building):
-            if building.type_id == UnitTypeId.NEXUS:
-                self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
+        await super(DragonBot, self).on_building_construction_complete(building)
+        if building.type_id == UnitTypeId.NEXUS:
+            self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
 
         
     async def on_end(self, game_result: Result) -> None:
@@ -92,10 +97,7 @@ class DragonBot(AresBot):
     #
     #     # custom on_building_construction_complete logic here ...
     #
-    # async def on_unit_created(self, unit: Unit) -> None:
-    #     await super(MyBot, self).on_unit_created(unit)
-    #
-    #     # custom on_unit_created logic here ...
+    
     #
     # async def on_unit_destroyed(self, unit_tag: int) -> None:
     #     await super(MyBot, self).on_unit_destroyed(unit_tag)
