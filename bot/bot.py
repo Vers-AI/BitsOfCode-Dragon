@@ -2,6 +2,8 @@ from typing import Optional
 
 from ares import AresBot
 from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole
+from ares.behaviors.combat import CombatManeuver
+from ares.behaviors.combat.group import AMoveGroup
 
 
 from itertools import chain
@@ -11,6 +13,7 @@ from sc2.data import Result
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.unit import Unit
 from sc2.units import Units
+from sc2.position import Point2
 
 
 
@@ -48,6 +51,8 @@ class DragonBot(AresBot):
 
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
 
+        self.target = self.enemy_start_locations[0]  # set the target to the enemy start location
+        
         print("Build Chosen:",self.build_order_runner.chosen_opening)
     
     async def on_step(self, iteration: int) -> None:
@@ -58,15 +63,14 @@ class DragonBot(AresBot):
         mine(self, iteration)
 
         # retrieve all attacking units
-        attackers: Units = self.mediator.get_units_from_role(UnitRole.ATTACKING)
+        Main_Army = self.mediator.get_units_from_role(role=UnitRole.ATTACKING)
 
         
         #check if the B2GM_Starting_Build is completed, if so send all the units to the enemy base
 
         if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner.build_completed:             
-            for attacker in attackers:
-                attacker.attack(self.enemy_start_locations[0])
-
+            self.Control_Main_Army(Main_Army)
+            
     async def on_unit_created(self, unit: Unit) -> None:
         await super(DragonBot, self).on_unit_created(unit)
         # Asign all units to the attacking role using ares unit role system
@@ -76,8 +80,7 @@ class DragonBot(AresBot):
             return
 
         # assign all other units to the attacking role by defualt
-        self.mediator.assign_role(unit.tag, UnitRole.ATTACKING)
-
+        self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
 
          
 
@@ -86,7 +89,20 @@ class DragonBot(AresBot):
         if building.type_id == UnitTypeId.NEXUS:
             self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
 
-        
+    def Control_Main_Army(self, Main_Army: Units, target: Point2)-> None:
+        #declare a new group manvuever
+        Main_Army_Actions = CombatManeuver = CombatManeuver()
+
+        #Add amove to the main army
+        Main_Army_Actions.add(
+            AMoveGroup(
+                group=Main_Army,
+                group_tags={unit.tag for unit in Main_Army},
+                target=self.target,
+            )
+        )   
+        self.register_behavior(Main_Army_Actions)
+
     async def on_end(self, game_result: Result) -> None:
         await super(DragonBot, self).on_end(game_result)
     
