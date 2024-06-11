@@ -69,7 +69,7 @@ class DragonBot(AresBot):
         #check if the B2GM_Starting_Build is completed, if so send all the units to the enemy base
 
         if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner.build_completed:             
-            self.Control_Main_Army(Main_Army)
+            self.Control_Main_Army(Main_Army, self.target)
             
     async def on_unit_created(self, unit: Unit) -> None:
         await super(DragonBot, self).on_unit_created(unit)
@@ -91,7 +91,7 @@ class DragonBot(AresBot):
 
     def Control_Main_Army(self, Main_Army: Units, target: Point2)-> None:
         #declare a new group manvuever
-        Main_Army_Actions = CombatManeuver = CombatManeuver()
+        Main_Army_Actions: CombatManeuver = CombatManeuver()
 
         #Add amove to the main army
         Main_Army_Actions.add(
