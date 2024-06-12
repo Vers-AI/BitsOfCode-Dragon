@@ -41,7 +41,7 @@ class DragonBot(AresBot):
         self.townhall_saturations = {}               # lists the mineral saturation of townhalls in queues of 40 frames, we consider the townhall saturated if max_number + 1 >= ideal_number
         self.assimilator_age = {}                    # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
-
+        self.scout_targets = {}                      # dictionary to keep track of scout targets
     
     
     async def on_start(self) -> None:
@@ -55,7 +55,6 @@ class DragonBot(AresBot):
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
 
         self.target = self.enemy_start_locations[0]  # set the target to the enemy start location
-        self.scout_arrival = False
 
         print("Build Chosen:",self.build_order_runner.chosen_opening)
     
@@ -122,13 +121,14 @@ class DragonBot(AresBot):
 
         #Move scout to the main base to scout unless its in danger
         for unit in Scout:
-            if unit.shield_health_percentage < 50:
+            if unit.shield_percentage < 1:
                 Scout_Actions.add(
                 KeepUnitSafe(
                     unit=unit,
                     grid=air_grid
                 )
                 )
+
             else:
                 Scout_Actions.add(
                     PathUnitToTarget(
