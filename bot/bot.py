@@ -4,6 +4,7 @@ from ares import AresBot
 from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.group import AMoveGroup
+from ares.behaviors.combat.individual import PathUnitToTarget, KeepUnitSafe
 
 
 from itertools import chain
@@ -22,6 +23,7 @@ from bot.speedmining import get_speedmining_positions
 from bot.speedmining import split_workers
 from bot.speedmining import mine
 
+import numpy as np
 
 class DragonBot(AresBot):
     def __init__(self, game_step_override: Optional[int] = None):
@@ -52,7 +54,8 @@ class DragonBot(AresBot):
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
 
         self.target = self.enemy_start_locations[0]  # set the target to the enemy start location
-        
+        self.scout_arrival = False
+
         print("Build Chosen:",self.build_order_runner.chosen_opening)
     
     async def on_step(self, iteration: int) -> None:
@@ -62,14 +65,19 @@ class DragonBot(AresBot):
 
         mine(self, iteration)
 
-        # retrieve all attacking units
+        # retrieve all attacking units & scouts
         Main_Army = self.mediator.get_units_from_role(role=UnitRole.ATTACKING)
+        Scout = self.mediator.get_units_from_role(role=UnitRole.SCOUTING)
 
-        
         #check if the B2GM_Starting_Build is completed, if so send all the units to the enemy base
 
         if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner.build_completed:             
             self.Control_Main_Army(Main_Army, self.target)
+
+        #send scount to the enemy base if an observer exists
+        if Scout:
+            self.Control_Scout(Scout, self.target)
+        
             
     async def on_unit_created(self, unit: Unit) -> None:
         await super(DragonBot, self).on_unit_created(unit)
@@ -79,10 +87,11 @@ class DragonBot(AresBot):
         if typeid in ALL_STRUCTURES or typeid in WORKER_TYPES:
             return
 
-        # assign all other units to the attacking role by defualt
-        self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
-
-         
+        # add scouting role to Observer else add attacking role
+        if typeid == UnitTypeId.OBSERVER:
+            self.mediator.assign_role(tag=unit.tag, role=UnitRole.SCOUTING)
+        else:
+            self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
 
     async def on_building_construction_complete(self, building):
         await super(DragonBot, self).on_building_construction_complete(building)
@@ -103,6 +112,34 @@ class DragonBot(AresBot):
         )   
         self.register_behavior(Main_Army_Actions)
 
+    def Control_Scout(self, Scout: Units, target: Point2)-> None:
+        #declare a new group manvuever
+        Scout_Actions: CombatManeuver = CombatManeuver()
+        # get an air grid for the scout to path on
+        air_grid: np.ndarray = self.mediator.get_air_grid
+
+        #Move scout to the main base to scout unless its in danger
+        closest_enemy = self.enemy_units.closest_to(Scout)
+        if closest_enemy:
+            closest_enemy_position = closest_enemy.position
+            Scout_Actions.add(
+                KeepUnitSafe(
+                    unit=Scout,
+                    target=closest_enemy_position,
+                    grid=air_grid
+                )
+            )
+        else:
+            Scout_Actions.add(
+                PathUnitToTarget(
+                    unit=Scout,
+                    target=self.target,
+                    grid=air_grid
+                )
+            )
+        
+
+    
     async def on_end(self, game_result: Result) -> None:
         await super(DragonBot, self).on_end(game_result)
     
