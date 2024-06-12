@@ -6,6 +6,7 @@ from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.group import AMoveGroup
 from ares.behaviors.combat.individual import PathUnitToTarget, KeepUnitSafe
 
+from cython_extensions import cy_closest_to, cy_distance_to
 
 from itertools import chain
 
@@ -117,28 +118,28 @@ class DragonBot(AresBot):
         Scout_Actions: CombatManeuver = CombatManeuver()
         # get an air grid for the scout to path on
         air_grid: np.ndarray = self.mediator.get_air_grid
-
-        #Move scout to the main base to scout unless its in danger
-        closest_enemy = self.enemy_units.closest_to(Scout)
-        if closest_enemy:
-            closest_enemy_position = closest_enemy.position
-            Scout_Actions.add(
-                KeepUnitSafe(
-                    unit=Scout,
-                    target=closest_enemy_position,
-                    grid=air_grid
-                )
-            )
-        else:
-            Scout_Actions.add(
-                PathUnitToTarget(
-                    unit=Scout,
-                    target=self.target,
-                    grid=air_grid
-                )
-            )
         
 
+        #Move scout to the main base to scout unless its in danger
+        for unit in Scout:
+            if unit.shield_health_percentage < 50:
+                Scout_Actions.add(
+                KeepUnitSafe(
+                    unit=unit,
+                    grid=air_grid
+                )
+                )
+            else:
+                Scout_Actions.add(
+                    PathUnitToTarget(
+                        unit=unit,
+                        target=self.target,
+                        grid=air_grid,
+                        danger_distance=10
+                    )
+                )
+        
+        self.register_behavior(Scout_Actions)
     
     async def on_end(self, game_result: Result) -> None:
         await super(DragonBot, self).on_end(game_result)
