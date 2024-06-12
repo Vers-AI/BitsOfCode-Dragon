@@ -57,7 +57,12 @@ class DragonBot(AresBot):
         self.target = self.enemy_start_locations[0]  # set the target to the enemy start location
 
         print("Build Chosen:",self.build_order_runner.chosen_opening)
-    
+        
+        # Sort the expansion locations by distance to the enemy start location
+        self.expansion_locations_list.sort(key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
+
+        # Use the sorted expansion locations as your scout targets
+        self.scout_targets = self.expansion_locations_list
     async def on_step(self, iteration: int) -> None:
         await super(DragonBot, self).on_step(iteration)
 
@@ -76,7 +81,7 @@ class DragonBot(AresBot):
 
         #send scount to the enemy base if an observer exists
         if Scout:
-            self.Control_Scout(Scout, self.target)
+            self.Control_Scout(Scout)
         
             
     async def on_unit_created(self, unit: Unit) -> None:
@@ -112,12 +117,17 @@ class DragonBot(AresBot):
         )   
         self.register_behavior(Main_Army_Actions)
 
-    def Control_Scout(self, Scout: Units, target: Point2)-> None:
-        #declare a new group manvuever
+    def Control_Scout(self, Scout: Units)-> None:
+        #declare a new group maneuver
         Scout_Actions: CombatManeuver = CombatManeuver()
         # get an air grid for the scout to path on
         air_grid: np.ndarray = self.mediator.get_air_grid
-        
+
+        # Sort the expansion locations by distance to the enemy start location
+        self.expansion_locations_list.sort(key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
+
+        # Create a list of targets for the scout
+        targets = [self.enemy_start_locations[0]] + self.expansion_locations_list[:4] + [self.enemy_start_locations[0]]
 
         #Move scout to the main base to scout unless its in danger
         for unit in Scout:
@@ -128,17 +138,30 @@ class DragonBot(AresBot):
                     grid=air_grid
                 )
                 )
-
             else:
-                Scout_Actions.add(
-                    PathUnitToTarget(
-                        unit=unit,
-                        target=self.target,
-                        grid=air_grid,
-                        danger_distance=10
+                # If the unit is not in danger, move it to the current target
+                if unit.tag not in self.scout_targets:
+                    # If the unit doesn't have a current target, set it to the first target
+                    self.scout_targets[unit.tag] = targets[0]
+                elif unit.distance_to(self.scout_targets[unit.tag]) < 1:
+                    # If the unit has reached its current target, move it to the next target
+                    current_index = targets.index(self.scout_targets[unit.tag])
+                    if current_index + 1 < len(targets):
+                        self.scout_targets[unit.tag] = targets[current_index + 1]
+                    else:
+                        # If the unit has visited all targets, set its current target to None
+                        self.scout_targets[unit.tag] = None
+
+                if self.scout_targets[unit.tag] is not None:
+                    Scout_Actions.add(
+                        PathUnitToTarget(
+                            unit=unit,
+                            target=self.scout_targets[unit.tag],
+                            grid=air_grid,
+                            danger_distance=10
+                        )
                     )
-                )
-        
+
         self.register_behavior(Scout_Actions)
     
     async def on_end(self, game_result: Result) -> None:
