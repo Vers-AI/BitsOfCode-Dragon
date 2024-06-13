@@ -57,16 +57,18 @@ class DragonBot(AresBot):
 
         self.target = self.enemy_start_locations[0]  # set the target to the enemy start location
  
-        self.expansion_locations_list.sort(key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))      # Sort the expansion locations by distance to the enemy start location
+        self.scout_targets = sorted(self.expansion_locations_list, key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
         
-        self.scout_targets = self.expansion_locations_list  # Use the sorted expansion locations as your scout targets
+        self.expansion_locations_list = sorted(self.expansion_locations_list, key=lambda loc: loc.distance_to(self.start_location))
         
 
         print("Build Chosen:",self.build_order_runner.chosen_opening)
         
         # Print the contents of enemy_start_locations and expansion_locations_list
         print("Enemy start locations: ", self.enemy_start_locations)
+        print("Start location: ", self.start_location)
         print("Scout targets: ", self.scout_targets)
+        print("Expansion locations: ", self.expansion_locations_list)
 
     async def on_step(self, iteration: int) -> None:
         await super(DragonBot, self).on_step(iteration)
@@ -107,8 +109,10 @@ class DragonBot(AresBot):
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.SCOUTING)
         elif typeid == UnitTypeId.WARPPRISM:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.DROP_SHIP)
+            unit.move(self.expansion_locations_list[1].towards(self.game_info.map_center, 1))
         else:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
+            unit.attack(self.expansion_locations_list[1].towards(self.game_info.map_center, 2))
         
 
     async def on_building_construction_complete(self, building):
@@ -130,6 +134,23 @@ class DragonBot(AresBot):
         )   
         self.register_behavior(Main_Army_Actions)
 
+    # Function to Control Warp Prism
+    def Control_Warp_Prism(self, Warp_Prism: Units, target: Point2)-> None:
+        #declare a new group maneuver
+        Warp_Prism_Actions: CombatManeuver = CombatManeuver()
+
+        #Add amove to the warp prism
+        Warp_Prism_Actions.add(
+            AMoveGroup(
+                group=Warp_Prism,
+                group_tags={unit.tag for unit in Warp_Prism},
+                target=self.target,
+            )
+        )
+        
+        self.register_behavior(Warp_Prism_Actions)
+    
+    
     def Control_Scout(self, Scout: Units)-> None:
         #declare a new group maneuver
         Scout_Actions: CombatManeuver = CombatManeuver()
@@ -138,7 +159,7 @@ class DragonBot(AresBot):
 
         # Create a list of targets for the scout
         targets = self.expansion_locations_list[:5] + [self.enemy_start_locations[0]]
-        print("Scout targets: ", targets)
+        
         
         # If there's no current target or the current target is None, set the first target
         if not hasattr(self, 'current_scout_target') or self.current_scout_target is None:
@@ -147,7 +168,7 @@ class DragonBot(AresBot):
 
         #Move scout to the main base to scout unless its in danger
         for unit in Scout:
-            print("Scout unit: ", unit.tag)
+            
             if unit.shield_percentage < 1:
                 Scout_Actions.add(
                 KeepUnitSafe(
