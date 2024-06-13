@@ -90,6 +90,11 @@ class DragonBot(AresBot):
         if Scout:
             self.Control_Scout(Scout)
         
+        # if a transport exists, send it to the main army
+        Warp_Prism = self.mediator.get_units_from_role(role=UnitRole.DROP_SHIP)
+        if Warp_Prism:
+            self.Control_Warp_Prism(Warp_Prism, Main_Army, self.target)
+            
         # Checking if there are 2 high templar to warp in Archons
         if self.units(UnitTypeId.HIGHTEMPLAR).amount >= 2:
             for templar in self.units(UnitTypeId.HIGHTEMPLAR).ready:
@@ -135,19 +140,33 @@ class DragonBot(AresBot):
         self.register_behavior(Main_Army_Actions)
 
     # Function to Control Warp Prism
-    def Control_Warp_Prism(self, Warp_Prism: Units, target: Point2)-> None:
+    def Control_Warp_Prism(self, Warp_Prism: Units, Main_Army: Units, target: Point2)-> None:
         #declare a new group maneuver
         Warp_Prism_Actions: CombatManeuver = CombatManeuver()
 
-        #Add amove to the warp prism
-        Warp_Prism_Actions.add(
-            AMoveGroup(
-                group=Warp_Prism,
-                group_tags={unit.tag for unit in Warp_Prism},
-                target=self.target,
-            )
-        )
-        
+        air_grid: np.ndarray = self.mediator.get_air_grid
+
+        # Warp Prism to follow the main army and morph into Phase Mode if close by, transport mode if the main army is far away to follow again
+        for prism in Warp_Prism:
+            closest_unit = cy_closest_to(Main_Army, prism.position)
+            if closest_unit is not None:
+                distance_to_closest_unit = prism.distance_to(closest_unit)
+                if distance_to_closest_unit < 10:
+                    if prism.is_idle:
+                        prism(AbilityId.MORPH_WARPPRISMPHASINGMODE)
+                else:
+                    if prism.is_using_ability(AbilityId.MORPH_WARPPRISMPHASINGMODE):
+                        prism(AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
+                    Warp_Prism_Actions.add(
+                        PathUnitToTarget(
+                            unit=prism,
+                            target=Main_Army.center,
+                            grid=air_grid,
+                            danger_distance=10
+                        )
+                    )
+                    
+
         self.register_behavior(Warp_Prism_Actions)
     
     
