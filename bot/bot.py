@@ -55,14 +55,18 @@ class DragonBot(AresBot):
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
 
         self.target = self.enemy_start_locations[0]  # set the target to the enemy start location
+ 
+        self.expansion_locations_list.sort(key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))      # Sort the expansion locations by distance to the enemy start location
+        
+        self.scout_targets = self.expansion_locations_list  # Use the sorted expansion locations as your scout targets
+        
 
         print("Build Chosen:",self.build_order_runner.chosen_opening)
         
-        # Sort the expansion locations by distance to the enemy start location
-        self.expansion_locations_list.sort(key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
+        # Print the contents of enemy_start_locations and expansion_locations_list
+        print("Enemy start locations: ", self.enemy_start_locations)
+        print("Scout targets: ", self.scout_targets)
 
-        # Use the sorted expansion locations as your scout targets
-        self.scout_targets = self.expansion_locations_list
     async def on_step(self, iteration: int) -> None:
         await super(DragonBot, self).on_step(iteration)
 
@@ -92,11 +96,14 @@ class DragonBot(AresBot):
         if typeid in ALL_STRUCTURES or typeid in WORKER_TYPES:
             return
 
-        # add scouting role to Observer else add attacking role
+        # add scouting role to Observer and a role to warp prism else add attacking role
         if typeid == UnitTypeId.OBSERVER:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.SCOUTING)
+        elif typeid == UnitTypeId.WARPPRISM:
+            self.mediator.assign_role(tag=unit.tag, role=UnitRole.DROP_SHIP)
         else:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
+        
 
     async def on_building_construction_complete(self, building):
         await super(DragonBot, self).on_building_construction_complete(building)
@@ -123,14 +130,18 @@ class DragonBot(AresBot):
         # get an air grid for the scout to path on
         air_grid: np.ndarray = self.mediator.get_air_grid
 
-        # Sort the expansion locations by distance to the enemy start location
-        self.expansion_locations_list.sort(key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
-
         # Create a list of targets for the scout
-        targets = [self.enemy_start_locations[0]] + self.expansion_locations_list[:4] + [self.enemy_start_locations[0]]
+        targets = self.expansion_locations_list[:5] + [self.enemy_start_locations[0]]
+        print("Scout targets: ", targets)
+        
+        # If there's no current target or the current target is None, set the first target
+        if not hasattr(self, 'current_scout_target') or self.current_scout_target is None:
+            if targets:
+                self.current_scout_target = targets[0]
 
         #Move scout to the main base to scout unless its in danger
         for unit in Scout:
+            print("Scout unit: ", unit.tag)
             if unit.shield_percentage < 1:
                 Scout_Actions.add(
                 KeepUnitSafe(
@@ -140,23 +151,21 @@ class DragonBot(AresBot):
                 )
             else:
                 # If the unit is not in danger, move it to the current target
-                if unit.tag not in self.scout_targets:
-                    # If the unit doesn't have a current target, set it to the first target
-                    self.scout_targets[unit.tag] = targets[0]
-                elif unit.distance_to(self.scout_targets[unit.tag]) < 1:
+                if unit.distance_to(self.current_scout_target) < 1:
                     # If the unit has reached its current target, move it to the next target
-                    current_index = targets.index(self.scout_targets[unit.tag])
-                    if current_index + 1 < len(targets):
-                        self.scout_targets[unit.tag] = targets[current_index + 1]
-                    else:
-                        # If the unit has visited all targets, set its current target to None
-                        self.scout_targets[unit.tag] = None
+                    if self.current_scout_target is not None:
+                        current_index = targets.index(self.current_scout_target)
+                        if current_index + 1 < len(targets):
+                            self.current_scout_target = targets[current_index + 1]
+                        else:
+                            # If the unit has visited all targets, set its current target to None
+                            self.current_scout_target = None
 
-                if self.scout_targets[unit.tag] is not None:
+                if self.current_scout_target is not None:
                     Scout_Actions.add(
                         PathUnitToTarget(
                             unit=unit,
-                            target=self.scout_targets[unit.tag],
+                            target=self.current_scout_target,
                             grid=air_grid,
                             danger_distance=10
                         )
