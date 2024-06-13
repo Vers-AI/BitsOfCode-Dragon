@@ -96,7 +96,7 @@ class DragonBot(AresBot):
         if typeid in ALL_STRUCTURES or typeid in WORKER_TYPES:
             return
 
-        # add scouting role to Observer and a role to warp prism else add attacking role
+        # add scouting role to Observer and Drop_Ship role warp prism else add attacking role
         if typeid == UnitTypeId.OBSERVER:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.SCOUTING)
         elif typeid == UnitTypeId.WARPPRISM:
