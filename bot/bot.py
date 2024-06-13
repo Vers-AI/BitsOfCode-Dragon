@@ -13,6 +13,7 @@ from itertools import chain
 
 from sc2.data import Result
 from sc2.ids.unit_typeid import UnitTypeId
+from sc2.ids.ability_id import AbilityId
 from sc2.unit import Unit
 from sc2.units import Units
 from sc2.position import Point2
@@ -87,6 +88,11 @@ class DragonBot(AresBot):
         if Scout:
             self.Control_Scout(Scout)
         
+        # Checking if there are 2 high templar to warp in Archons
+        if self.units(UnitTypeId.HIGHTEMPLAR).amount >= 2:
+            for templar in self.units(UnitTypeId.HIGHTEMPLAR).ready:
+                templar(AbilityId.MORPH_ARCHON)
+
             
     async def on_unit_created(self, unit: Unit) -> None:
         await super(DragonBot, self).on_unit_created(unit)
