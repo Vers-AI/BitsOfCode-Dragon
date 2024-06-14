@@ -156,11 +156,11 @@ class DragonBot(AresBot):
                 not_ready_units = [unit for unit in self.units if not unit.is_ready and unit.distance_to(prism) < 6.5]
                 if prism.type_id == UnitTypeId.WARPPRISMPHASING and not not_ready_units:
                     prism(AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
-                    
-                    # Calculate a new target position that is 5 distance units away from Main_Army.center
-                    direction_vector = (prism.position - Main_Army.center).normalized
-                    new_target = Main_Army.center + direction_vector * 5
-                    
+
+                # Calculate a new target position that is 5 distance units away from Main_Army.center
+                direction_vector = (prism.position - Main_Army.center).normalized
+                new_target = Main_Army.center + direction_vector * 5
+                if prism.type_id == UnitTypeId.WARPPRISM:
                     Warp_Prism_Actions.add(
                         PathUnitToTarget(
                             unit=prism,
@@ -169,7 +169,7 @@ class DragonBot(AresBot):
                             danger_distance=10
                         )
                     )
-                    
+
         self.register_behavior(Warp_Prism_Actions)
     
     
