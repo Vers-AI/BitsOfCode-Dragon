@@ -58,10 +58,9 @@ class DragonBot(AresBot):
         self.target = self.enemy_start_locations[0]  # set the target to the enemy start location
  
         self.scout_targets = sorted(self.expansion_locations_list, key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
+                
+        self.expansion_locations_list = sorted(self.expansion_locations_list.copy(), key=lambda loc: loc.distance_to(self.start_location))
         
-        self.expansion_locations_list = sorted(self.expansion_locations_list, key=lambda loc: loc.distance_to(self.start_location))
-        
-
         print("Build Chosen:",self.build_order_runner.chosen_opening)
         
         # Print the contents of enemy_start_locations and expansion_locations_list
@@ -80,6 +79,8 @@ class DragonBot(AresBot):
         # retrieve all attacking units & scouts
         Main_Army = self.mediator.get_units_from_role(role=UnitRole.ATTACKING)
         Scout = self.mediator.get_units_from_role(role=UnitRole.SCOUTING)
+        Warp_Prism = self.mediator.get_units_from_role(role=UnitRole.DROP_SHIP)
+
 
         #check if the B2GM_Starting_Build is completed, if so send all the units to the enemy base
 
@@ -91,7 +92,6 @@ class DragonBot(AresBot):
             self.Control_Scout(Scout)
         
         # if a transport exists, send it to the main army
-        Warp_Prism = self.mediator.get_units_from_role(role=UnitRole.DROP_SHIP)
         if Warp_Prism:
             self.Control_Warp_Prism(Warp_Prism, Main_Army, self.target)
             
@@ -114,10 +114,10 @@ class DragonBot(AresBot):
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.SCOUTING)
         elif typeid == UnitTypeId.WARPPRISM:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.DROP_SHIP)
-            unit.move(self.expansion_locations_list[1].towards(self.game_info.map_center, 1))
+            unit.move(self.expansion_locations_list[0].towards(self.game_info.map_center, 1))
         else:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
-            unit.attack(self.expansion_locations_list[1].towards(self.game_info.map_center, 2))
+            unit.attack(self.expansion_locations_list[0].towards(self.game_info.map_center, 2))
         
 
     async def on_building_construction_complete(self, building):
@@ -148,25 +148,25 @@ class DragonBot(AresBot):
 
         # Warp Prism to follow the main army and morph into Phase Mode if close by, transport mode if the main army is far away to follow again
         for prism in Warp_Prism:
-            closest_unit = cy_closest_to(Main_Army, prism.position)
+            closest_unit = cy_closest_to(prism.position, Main_Army)
             if closest_unit is not None:
                 distance_to_closest_unit = prism.distance_to(closest_unit)
                 if distance_to_closest_unit < 10:
                     if prism.is_idle:
                         prism(AbilityId.MORPH_WARPPRISMPHASINGMODE)
                 else:
-                    if prism.is_using_ability(AbilityId.MORPH_WARPPRISMPHASINGMODE):
+                    not_ready_units = self.units.filter(lambda unit: not unit.is_ready)
+                    if prism.is_using_ability(AbilityId.MORPH_WARPPRISMPHASINGMODE) and not not_ready_units.closer_than(6.5, prism.position).exists:
                         prism(AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
-                    Warp_Prism_Actions.add(
-                        PathUnitToTarget(
-                            unit=prism,
-                            target=Main_Army.center,
-                            grid=air_grid,
-                            danger_distance=10
+                        Warp_Prism_Actions.add(
+                            PathUnitToTarget(
+                                unit=prism,
+                                target=Main_Army.center,
+                                grid=air_grid,
+                                danger_distance=10
+                            )
                         )
-                    )
                     
-
         self.register_behavior(Warp_Prism_Actions)
     
     
