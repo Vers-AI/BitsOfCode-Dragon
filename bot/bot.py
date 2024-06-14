@@ -88,7 +88,7 @@ class DragonBot(AresBot):
         if Scout:
             self.Control_Scout(Scout)
         
-        # if a transport exists, send it to follow the main army
+        # if a Warp Prism exists, send it to follow the main army
         if Warp_Prism:
             self.Warp_Prism_Follower(Warp_Prism, Main_Army, self.target)
             
@@ -146,27 +146,29 @@ class DragonBot(AresBot):
 
         air_grid: np.ndarray = self.mediator.get_air_grid
 
-
-        # Warp Prism to follow the main army and morph into Phase Mode if close by, transport mode if the main army is far away to follow again
+        # Warp Prism to morph into Phase Mode if close by, transport mode to follow if no unit is being warped in 
         for prism in Warp_Prism:
-            closest_unit = cy_closest_to(prism.position, Main_Army)
-            if closest_unit is not None:
-                distance_to_closest_unit = prism.distance_to(closest_unit)
-                if distance_to_closest_unit < 10:
-                    if prism.is_idle:
-                        prism(AbilityId.MORPH_WARPPRISMPHASINGMODE)
-                else:
-                    not_ready_units = self.units.filter(lambda unit: not unit.is_ready)
-                    if prism.type_id == UnitTypeId.WARPPRISMPHASING and not not_ready_units:
-                        prism(AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
-                        Warp_Prism_Actions.add(
-                            PathUnitToTarget(
-                                unit=prism,
-                                target=Main_Army.center,
-                                grid=air_grid,
-                                danger_distance=10
-                            )
+            distance_to_center = prism.distance_to(Main_Army.center)
+            if distance_to_center < 10:
+                if prism.is_idle:
+                    prism(AbilityId.MORPH_WARPPRISMPHASINGMODE)
+            else:
+                not_ready_units = [unit for unit in self.units if not unit.is_ready and unit.distance_to(prism) < 6.5]
+                if prism.type_id == UnitTypeId.WARPPRISMPHASING and not not_ready_units:
+                    prism(AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
+                    
+                    # Calculate a new target position that is 5 distance units away from Main_Army.center
+                    direction_vector = (prism.position - Main_Army.center).normalized
+                    new_target = Main_Army.center + direction_vector * 5
+                    
+                    Warp_Prism_Actions.add(
+                        PathUnitToTarget(
+                            unit=prism,
+                            target=new_target,
+                            grid=air_grid,
+                            danger_distance=10
                         )
+                    )
                     
         self.register_behavior(Warp_Prism_Actions)
     
