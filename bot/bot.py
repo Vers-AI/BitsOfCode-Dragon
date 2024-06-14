@@ -122,6 +122,9 @@ class DragonBot(AresBot):
         if building.type_id == UnitTypeId.NEXUS:
             self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
 
+        if not building.type_id == UnitTypeId.ASSIMILATOR or UnitTypeId.NEXUS:
+            building(AbilityId.RALLY_BUILDING, self.natural_expansion)
+    
     def Control_Main_Army(self, Main_Army: Units, target: Point2)-> None:
         #declare a new group manvuever
         Main_Army_Actions: CombatManeuver = CombatManeuver()
