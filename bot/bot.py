@@ -65,11 +65,6 @@ class DragonBot(AresBot):
 
         print("Build Chosen:",self.build_order_runner.chosen_opening)
         
-        # Print the contents of enemy_start_locations and expansion_locations_list
-        print("Enemy start locations: ", self.enemy_start_locations)
-        print("Start location: ", self.start_location)
-        print("Scout targets: ", self.scout_targets)
-        print("Natural expansion: ", self.natural_expansion)
 
     async def on_step(self, iteration: int) -> None:
         await super(DragonBot, self).on_step(iteration)
@@ -93,9 +88,9 @@ class DragonBot(AresBot):
         if Scout:
             self.Control_Scout(Scout)
         
-        # if a transport exists, send it to the main army
+        # if a transport exists, send it to follow the main army
         if Warp_Prism:
-            self.Control_Warp_Prism(Warp_Prism, Main_Army, self.target)
+            self.Warp_Prism_Follower(Warp_Prism, Main_Army, self.target)
             
         # Checking if there are 2 high templar to warp in Archons
         if self.units(UnitTypeId.HIGHTEMPLAR).amount >= 2:
@@ -142,11 +137,12 @@ class DragonBot(AresBot):
         self.register_behavior(Main_Army_Actions)
 
     # Function to Control Warp Prism
-    def Control_Warp_Prism(self, Warp_Prism: Units, Main_Army: Units, target: Point2)-> None:
+    def Warp_Prism_Follower(self, Warp_Prism: Units, Main_Army: Units, target: Point2)-> None:
         #declare a new group maneuver
         Warp_Prism_Actions: CombatManeuver = CombatManeuver()
 
         air_grid: np.ndarray = self.mediator.get_air_grid
+
 
         # Warp Prism to follow the main army and morph into Phase Mode if close by, transport mode if the main army is far away to follow again
         for prism in Warp_Prism:
@@ -158,7 +154,7 @@ class DragonBot(AresBot):
                         prism(AbilityId.MORPH_WARPPRISMPHASINGMODE)
                 else:
                     not_ready_units = self.units.filter(lambda unit: not unit.is_ready)
-                    if prism.is_using_ability(AbilityId.MORPH_WARPPRISMPHASINGMODE) and not not_ready_units.closer_than(6.5, prism.position).exists:
+                    if prism.type_id == UnitTypeId.WARPPRISMPHASING and not not_ready_units:
                         prism(AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
                         Warp_Prism_Actions.add(
                             PathUnitToTarget(
