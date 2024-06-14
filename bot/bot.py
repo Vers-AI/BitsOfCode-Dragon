@@ -61,13 +61,15 @@ class DragonBot(AresBot):
                 
         self.expansion_locations_list = sorted(self.expansion_locations_list.copy(), key=lambda loc: loc.distance_to(self.start_location))
         
+        self.natural_expansion: Point2 = await self.get_next_expansion()
+
         print("Build Chosen:",self.build_order_runner.chosen_opening)
         
         # Print the contents of enemy_start_locations and expansion_locations_list
         print("Enemy start locations: ", self.enemy_start_locations)
         print("Start location: ", self.start_location)
         print("Scout targets: ", self.scout_targets)
-        print("Expansion locations: ", self.expansion_locations_list)
+        print("Natural expansion: ", self.natural_expansion)
 
     async def on_step(self, iteration: int) -> None:
         await super(DragonBot, self).on_step(iteration)
@@ -114,10 +116,10 @@ class DragonBot(AresBot):
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.SCOUTING)
         elif typeid == UnitTypeId.WARPPRISM:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.DROP_SHIP)
-            unit.move(self.expansion_locations_list[0].towards(self.game_info.map_center, 1))
+            unit.move(self.natural_expansion.towards(self.game_info.map_center, 1))
         else:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
-            unit.attack(self.expansion_locations_list[0].towards(self.game_info.map_center, 2))
+            unit.attack(self.natural_expansion.towards(self.game_info.map_center, 1))
         
 
     async def on_building_construction_complete(self, building):
