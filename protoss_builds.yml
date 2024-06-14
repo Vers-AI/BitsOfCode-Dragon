@@ -68,10 +68,9 @@ Builds:
             - 52 IMMORTAL
             - 55 COLOSSUS x2
             - 56 EXTENDEDTHERMALLANCE
-            - 57 CHRONO @ ROBOTICSBAY
+            - 57 CHRONO @ ROBOTICSBAY x2
             - 60 TWILIGHTCOUNCIL
             - 70 FORGE
-            - 70 CHRONO @ ROBOTICSFACILITY
             - 70 CHRONO @ ROBOTICSFACILITY
             - 70 CHARGE
             - 70 PROTOSSGROUNDWEAPONSLEVEL1
@@ -79,6 +78,7 @@ Builds:
             - 70 TEMPLARARCHIVE
             - 70 WARPPRISM
             - 72 CHRONO @ FORGE
+            - 72 CHRONO @ ROBOTICSFACILITY
             - 72 IMMORTAL x2            
             - 82 HIGHTEMPLAR x2 @ NAT
             - 82 ZEALOT x6 @ NAT
