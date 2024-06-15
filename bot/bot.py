@@ -100,7 +100,18 @@ class DragonBot(AresBot):
         Scout = self.mediator.get_units_from_role(role=UnitRole.SCOUTING)
         Warp_Prism = self.mediator.get_units_from_role(role=UnitRole.DROP_SHIP)
 
+        #Checks for cannon rushes or worker rushes
+        if self.time < 5*60 and self.townhalls.exists:
+            enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
+            pylons = enemy_units_near_bases.of_type([UnitTypeId.PYLON])
+            probes = enemy_units_near_bases.of_type([UnitTypeId.PROBE])
+            cannons = enemy_units_near_bases.of_type([UnitTypeId.PHOTONCANNON])
 
+            if pylons.exists or probes.exists or cannons.exists:
+                self.build_order_runner.set_build_completed()
+                await self.defend_worker_cannon_rush(probes, cannons)
+        
+        
         #check if the B2GM_Starting_Build is completed, if so send all the units to the enemy base
 
         if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner.build_completed:             
@@ -146,6 +157,24 @@ class DragonBot(AresBot):
 
         if not building.type_id == UnitTypeId.ASSIMILATOR or UnitTypeId.NEXUS:
             building(AbilityId.RALLY_BUILDING, self.natural_expansion)
+    
+    # Function to defend against worker rushes and cannon rushes
+    async def defend_worker_cannon_rush(self, enemy_probes, enemy_cannons):
+        # Select a worker
+        if worker := self.mediator.select_worker(target_position=self.start_location):
+            self.mediator.assign_role(tag=worker.tag, role=UnitRole.DEFENDING)
+
+        # Retrieve workers with a DEFENDING role
+        defending_workers: Units = self.mediator.get_units_from_role(role=UnitRole.DEFENDING, unit_type=UnitTypeId.PROBE)
+
+        # Assign workers to attack enemy probes and cannons
+        for probe in enemy_probes:
+            if defending_worker := defending_workers.closest_to(probe):
+                await defending_worker.attack(probe)
+
+        for cannon in enemy_cannons:
+            if defending_worker := defending_workers.closest_to(cannon):
+                await defending_worker.attack(cannon)
     
     def Control_Main_Army(self, Main_Army: Units)-> None:
         #declare a new group manvuever
