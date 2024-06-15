@@ -6,6 +6,7 @@ from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.group import AMoveGroup
 from ares.behaviors.combat.individual import PathUnitToTarget, KeepUnitSafe
+from ares.behaviors.macro import SpawnController, ProductionController
 
 from cython_extensions import cy_closest_to, cy_distance_to, cy_pick_enemy_target
 
@@ -13,7 +14,7 @@ from itertools import chain
 
 
 from sc2.data import Result
-from sc2.ids.unit_typeid import UnitTypeId
+from sc2.ids.unit_typeid import UnitTypeId 
 from sc2.ids.ability_id import AbilityId
 from sc2.unit import Unit
 from sc2.units import Units
@@ -60,6 +61,24 @@ class DragonBot(AresBot):
 
             return self.current_base_target
     
+    # Army Compositions
+    @property
+    def Standard_Army(self) -> dict:
+        return {
+            UnitTypeId.IMMORTAL: {"proportion": 0.4, "priority": 0},
+            UnitTypeId.COLOSSUS: {"proportion": 0.3, "priority": 2},
+            UnitTypeId.HIGHTEMPLAR: {"proportion": 0.2, "priority": 1},
+            UnitTypeId.ZEALOT: {"proportion": 0.1, "priority": 3},
+        }
+    
+    @property
+    def cheese_defense_army(self) -> dict:
+        return {
+            UnitTypeId.ZEALOT: {"proportion": 0.5, "priority": 0},
+            UnitTypeId.STALKER: {"proportion": 0.4, "priority": 1},
+            UnitTypeId.ADEPT: {"proportion": 0.1, "priority": 2},
+        }
+
     async def on_start(self) -> None:
         await super(DragonBot, self).on_start()
         
@@ -104,18 +123,23 @@ class DragonBot(AresBot):
         if self.time < 5*60 and self.townhalls.exists:
             enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
             pylons = enemy_units_near_bases.of_type([UnitTypeId.PYLON])
-            probes = enemy_units_near_bases.of_type([UnitTypeId.PROBE])
+            enemyWorkerUnits = enemy_units_near_bases.of_type([UnitTypeId.PROBE, UnitTypeId.SCV, UnitTypeId.DRONE])
             cannons = enemy_units_near_bases.of_type([UnitTypeId.PHOTONCANNON])
 
-            if pylons.exists or probes.exists or cannons.exists:
+            if pylons.exists or enemyWorkerUnits.amount >= 4 or cannons.exists:
                 self.build_order_runner.set_build_completed()
-                await self.defend_worker_cannon_rush(probes, cannons)
+                self.defend_worker_cannon_rush(enemyWorkerUnits, cannons)
         
         
-        #check if the B2GM_Starting_Build is completed, if so send all the units to the enemy base
+        ## Macro and Army control
 
         if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner.build_completed:             
             self.Control_Main_Army(Main_Army)
+            if Warp_Prism:
+                prism_location = Warp_Prism[0].position
+                self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location))
+            else:
+                self.register_behavior(SpawnController(self.Standard_Army))
 
         #send scount to the enemy base if an observer exists
         if Scout:
