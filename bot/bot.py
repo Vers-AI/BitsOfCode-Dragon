@@ -1,4 +1,5 @@
 from typing import Optional
+from itertools import cycle
 
 from ares import AresBot
 from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole
@@ -6,7 +7,7 @@ from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.group import AMoveGroup
 from ares.behaviors.combat.individual import PathUnitToTarget, KeepUnitSafe
 
-from cython_extensions import cy_closest_to, cy_distance_to
+from cython_extensions import cy_closest_to, cy_distance_to, cy_pick_enemy_target
 
 from itertools import chain
 
@@ -44,6 +45,20 @@ class DragonBot(AresBot):
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
         self.scout_targets = {}                      # dictionary to keep track of scout targets
     
+    @property
+    def attack_target(self) -> Point2:
+        if self.enemy_structures:
+            return cy_closest_to(self.start_location, self.enemy_structures).position
+        # not seen anything in early game, just head to enemy spawn
+        elif self.time < 240.0:
+            return self.enemy_start_locations[0]
+        # else search the map
+        else:
+            # cycle through expansion locations
+            if self.is_visible(self.current_base_target):
+                self.current_base_target = next(self.expansions_generator)
+
+            return self.current_base_target
     
     async def on_start(self) -> None:
         await super(DragonBot, self).on_start()
@@ -55,13 +70,20 @@ class DragonBot(AresBot):
 
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
 
-        self.target = self.enemy_start_locations[0]  # set the target to the enemy start location
+        self.current_base_target = self.enemy_start_locations[0]  # set the target to the enemy start location
  
-        self.scout_targets = sorted(self.expansion_locations_list, key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
-                
-        self.expansion_locations_list = sorted(self.expansion_locations_list.copy(), key=lambda loc: loc.distance_to(self.start_location))
+        
+        # Sort the expansion locations by distance to the enemy start location
+        self.expansion_locations_list.sort(key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
+
+        # Use the sorted expansion locations as your scout targets
+        self.scout_targets = self.expansion_locations_list
         
         self.natural_expansion: Point2 = await self.get_next_expansion()
+        
+        self.expansions_generator = cycle(
+            [pos for pos in self.expansion_locations_list]
+        )
 
         print("Build Chosen:",self.build_order_runner.chosen_opening)
         
@@ -82,7 +104,7 @@ class DragonBot(AresBot):
         #check if the B2GM_Starting_Build is completed, if so send all the units to the enemy base
 
         if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner.build_completed:             
-            self.Control_Main_Army(Main_Army, self.target)
+            self.Control_Main_Army(Main_Army)
 
         #send scount to the enemy base if an observer exists
         if Scout:
@@ -90,7 +112,7 @@ class DragonBot(AresBot):
         
         # if a Warp Prism exists, send it to follow the main army
         if Warp_Prism:
-            self.Warp_Prism_Follower(Warp_Prism, Main_Army, self.target)
+            self.Warp_Prism_Follower(Warp_Prism, Main_Army)
             
         # Checking if there are 2 high templar to warp in Archons
         if self.units(UnitTypeId.HIGHTEMPLAR).amount >= 2:
@@ -125,22 +147,23 @@ class DragonBot(AresBot):
         if not building.type_id == UnitTypeId.ASSIMILATOR or UnitTypeId.NEXUS:
             building(AbilityId.RALLY_BUILDING, self.natural_expansion)
     
-    def Control_Main_Army(self, Main_Army: Units, target: Point2)-> None:
+    def Control_Main_Army(self, Main_Army: Units)-> None:
         #declare a new group manvuever
         Main_Army_Actions: CombatManeuver = CombatManeuver()
+        target: Point2 = self.attack_target
 
         #Add amove to the main army
         Main_Army_Actions.add(
             AMoveGroup(
                 group=Main_Army,
                 group_tags={unit.tag for unit in Main_Army},
-                target=self.target,
+                target=target,
             )
         )   
         self.register_behavior(Main_Army_Actions)
 
     # Function to Control Warp Prism
-    def Warp_Prism_Follower(self, Warp_Prism: Units, Main_Army: Units, target: Point2)-> None:
+    def Warp_Prism_Follower(self, Warp_Prism: Units, Main_Army: Units)-> None:
         #declare a new group maneuver
         Warp_Prism_Actions: CombatManeuver = CombatManeuver()
 
