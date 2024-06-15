@@ -46,10 +46,20 @@ class DragonBot(AresBot):
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
         self.scout_targets = {}                      # dictionary to keep track of scout targets
     
+        self._commenced_attack: bool = False
+        self._used_cheese_defense: bool = False
+        self._used_rush_defense: bool = False
+    
     @property
     def attack_target(self) -> Point2:
+        # If we already have a target and it's still alive, stick with it
+        if hasattr(self, '_attack_target') and self._attack_target in self.enemy_structures:
+            return self._attack_target.position
+    
+        # Otherwise, find a new target
         if self.enemy_structures:
-            return cy_closest_to(self.start_location, self.enemy_structures).position
+            self._attack_target = cy_closest_to(self.start_location, self.enemy_structures)
+            return self._attack_target.position
         # not seen anything in early game, just head to enemy spawn
         elif self.time < 240.0:
             return self.enemy_start_locations[0]
@@ -58,7 +68,7 @@ class DragonBot(AresBot):
             # cycle through expansion locations
             if self.is_visible(self.current_base_target):
                 self.current_base_target = next(self.expansions_generator)
-
+    
             return self.current_base_target
     
     # Army Compositions
@@ -99,6 +109,7 @@ class DragonBot(AresBot):
         self.scout_targets = self.expansion_locations_list
         
         self.natural_expansion: Point2 = await self.get_next_expansion()
+        self._begin_attack_at_supply = 3.0
         
         self.expansions_generator = cycle(
             [pos for pos in self.expansion_locations_list]
@@ -118,6 +129,8 @@ class DragonBot(AresBot):
         Main_Army = self.mediator.get_units_from_role(role=UnitRole.ATTACKING)
         Scout = self.mediator.get_units_from_role(role=UnitRole.SCOUTING)
         Warp_Prism = self.mediator.get_units_from_role(role=UnitRole.DROP_SHIP)
+        worker_scouts: Units = self.mediator.get_units_from_role(role=UnitRole.BUILD_RUNNER_SCOUT, unit_type=self.worker_type)
+        
 
         #Checks for cannon rushes or worker rushes
         if self.time < 5*60 and self.townhalls.exists:
@@ -129,8 +142,33 @@ class DragonBot(AresBot):
             if pylons.exists or enemyWorkerUnits.amount >= 4 or cannons.exists:
                 self.build_order_runner.set_build_completed()
                 self.defend_worker_cannon_rush(enemyWorkerUnits, cannons)
+                self._used_rush_defense = True
+            
+        if self._used_rush_defense:
+             enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
+             if not enemy_units_near_bases:
+                self.register_behavior(SpawnController(self.cheese_defense_army))
+                self.register_behavior(ProductionController(self.cheese_defense_army))
+
         
-        
+        # Checks for cheese defense
+        if self.time > 2*60 and self.time < 3*60 + 30:
+            if worker_scouts.exists:
+                enemy_buildings = self.enemy_structures
+                if enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists:
+                    self.build_order_runner.set_build_completed()
+                    self.register_behavior(SpawnController(self.cheese_defense_army))
+                    self.register_behavior(ProductionController(self.cheese_defense_army))
+                    self._used_cheese_defense = True
+
+        if self._used_cheese_defense or self._used_rush_defense:
+            if self._commenced_attack:
+                self.Control_Main_Army(Main_Army)
+
+            elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
+                self._commenced_attack = True
+
+
         ## Macro and Army control
 
         if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner.build_completed:             
@@ -140,6 +178,7 @@ class DragonBot(AresBot):
                 self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location))
             else:
                 self.register_behavior(SpawnController(self.Standard_Army))
+
 
         #send scount to the enemy base if an observer exists
         if Scout:
