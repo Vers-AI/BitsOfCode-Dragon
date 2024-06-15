@@ -149,7 +149,7 @@ class DragonBot(AresBot):
         # Warp Prism to morph into Phase Mode if close by, transport mode to follow if no unit is being warped in 
         for prism in Warp_Prism:
             distance_to_center = prism.distance_to(Main_Army.center)
-            if distance_to_center < 10:
+            if distance_to_center < 15:
                 if prism.is_idle:
                     prism(AbilityId.MORPH_WARPPRISMPHASINGMODE)
             else:
