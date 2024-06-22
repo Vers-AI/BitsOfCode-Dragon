@@ -2,13 +2,14 @@ from typing import Optional
 from itertools import cycle
 
 from ares import AresBot
-from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole
+from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole, UnitTreeQueryType
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.group import AMoveGroup
 from ares.behaviors.combat.individual import PathUnitToTarget, KeepUnitSafe
 from ares.behaviors.macro import SpawnController, ProductionController
+from ares.managers.squad_manager import UnitSquad
 
-from cython_extensions import cy_closest_to, cy_distance_to, cy_pick_enemy_target
+from cython_extensions import cy_closest_to
 
 from itertools import chain
 
@@ -150,7 +151,19 @@ class DragonBot(AresBot):
                 self.register_behavior(SpawnController(self.cheese_defense_army))
                 self.register_behavior(ProductionController(self.cheese_defense_army))
 
+        # Detect threat near main base
+        threat_near_base = self.enemy_units.closer_than(20, self.townhalls.first.position).exists
+
+        # If there's a threat and we have a main army, send the army to defend
+        if threat_near_base and Main_Army.exists:
+            threat_position = self.enemy_units.closer_than(20, self.townhalls.first.position).center
+            self.Control_Main_Army(Main_Army, threat_position)
+
+
+
         
+            
+
         # Checks for cheese defense
         if self.time > 2*60 and self.time < 3*60 + 30:
             if worker_scouts.exists:
@@ -163,7 +176,7 @@ class DragonBot(AresBot):
 
         if self._used_cheese_defense or self._used_rush_defense:
             if self._commenced_attack:
-                self.Control_Main_Army(Main_Army)
+                self.Control_Main_Army(Main_Army, self.attack_target)
 
             elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
                 self._commenced_attack = True
@@ -171,13 +184,16 @@ class DragonBot(AresBot):
 
         ## Macro and Army control
 
-        if self.build_order_runner.chosen_opening == "B2GM_Starting_Build" and self.build_order_runner.build_completed:             
-            self.Control_Main_Army(Main_Army)
-            if Warp_Prism:
-                prism_location = Warp_Prism[0].position
-                self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location))
-            else:
-                self.register_behavior(SpawnController(self.Standard_Army))
+        if self.build_order_runner.build_completed:
+            if self._commenced_attack:             
+                self.Control_Main_Army(Main_Army)
+                if Warp_Prism:
+                    prism_location = Warp_Prism[0].position
+                    self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location))
+                else:
+                    self.register_behavior(SpawnController(self.Standard_Army))
+            elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
+                self._commenced_attack = True
 
 
         #send scount to the enemy base if an observer exists
@@ -239,20 +255,35 @@ class DragonBot(AresBot):
             if defending_worker := defending_workers.closest_to(cannon):
                 await defending_worker.attack(cannon)
     
-    def Control_Main_Army(self, Main_Army: Units)-> None:
-        #declare a new group manvuever
-        Main_Army_Actions: CombatManeuver = CombatManeuver()
-        target: Point2 = self.attack_target
+    def Control_Main_Army(self, Main_Army: Units, target:Point2)-> None:
+        
+        
+        target: Point2 = target
+        squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=9.0)
 
-        #Add amove to the main army
-        Main_Army_Actions.add(
-            AMoveGroup(
-                group=Main_Army,
-                group_tags={unit.tag for unit in Main_Army},
-                target=target,
-            )
-        )   
-        self.register_behavior(Main_Army_Actions)
+        for squad in squads:
+            squad_position: Point2 = squad.squad_position
+            units: list[Unit] = squad.squad_units
+            squad_tags: set[int] = squad.tags
+
+            # retreive close enemy to the main army
+            close_enemy: Units = self.mediator.get_units_in_range(start_points=[squad_position],
+                                                                    distances=11.5,
+                                                                    query_tree= UnitTreeQueryType.AllEnemy,)[0]
+            
+            #declare a new group manvuever
+            Main_Army_Actions: CombatManeuver = CombatManeuver()
+
+
+            #Add amove to the main army
+            Main_Army_Actions.add(
+                AMoveGroup(
+                    group=units,
+                    group_tags=squad_tags,
+                    target=target,
+                )
+            )   
+            self.register_behavior(Main_Army_Actions)
 
     # Function to Control Warp Prism
     def Warp_Prism_Follower(self, Warp_Prism: Units, Main_Army: Units)-> None:
