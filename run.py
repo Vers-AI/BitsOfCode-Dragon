@@ -59,10 +59,12 @@ def main():
         # Local game
         
         map_list: List[str] = [
-            "Equilibrium512V2AIE",
-            "Gresvan512V2AIE",
-            "Goldenaura512V2AIE",
-
+            "Equilibrium513AIE",
+            "GoldenAura513AIE",
+            "Gresvan513AIE",
+            "HardLead513AIE",
+            "Oceanborn513AIE",
+            "SiteDelta513AIE"
         ]
 
         random_race = random.choice([Race.Zerg, Race.Terran, Race.Protoss])
