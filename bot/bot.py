@@ -144,20 +144,23 @@ class DragonBot(AresBot):
                 self.build_order_runner.set_build_completed()
                 self.defend_worker_cannon_rush(enemyWorkerUnits, cannons)
                 self._used_rush_defense = True
+                print("Defending against worker/cannon rush")
             
         if self._used_rush_defense:
              enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
              if not enemy_units_near_bases:
                 self.register_behavior(SpawnController(self.cheese_defense_army))
                 self.register_behavior(ProductionController(self.cheese_defense_army))
-
-        # Detect threat near main base
+                print("Building cheese defense army")
+        
+        #TODO - Fix Threat Response
+        """# Detect threat near main base
         threat_near_base = self.enemy_units.closer_than(20, self.townhalls.first.position).exists
 
         # If there's a threat and we have a main army, send the army to defend
         if threat_near_base and Main_Army.exists:
             threat_position = self.enemy_units.closer_than(20, self.townhalls.first.position).center
-            self.Control_Main_Army(Main_Army, threat_position)
+            self.Control_Main_Army(Main_Army, threat_position)"""
 
 
 
@@ -183,7 +186,7 @@ class DragonBot(AresBot):
 
 
         ## Macro and Army control
-
+        # TODO - Pass the target throught he Control_Main_Army function
         if self.build_order_runner.build_completed:
             if self._commenced_attack:             
                 self.Control_Main_Army(Main_Army)
@@ -259,7 +262,7 @@ class DragonBot(AresBot):
         
         
         target: Point2 = target
-        squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=9.0)
+        squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=12.0)
 
         for squad in squads:
             squad_position: Point2 = squad.squad_position
