@@ -7,8 +7,9 @@ from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.group import AMoveGroup
 from ares.behaviors.combat.individual import PathUnitToTarget, KeepUnitSafe
 from ares.behaviors.macro import SpawnController, ProductionController
-from ares.managers.squad_manager import UnitSquad
 
+from ares.managers.squad_manager import UnitSquad
+from ares.managers.enemy_to_base_manager import EnemyToBaseManager
 from cython_extensions import cy_closest_to
 
 from itertools import chain
@@ -28,6 +29,8 @@ from bot.speedmining import get_speedmining_positions
 from bot.speedmining import split_workers
 from bot.speedmining import mine
 
+from Managers.Threat_Manager import ManageThreats
+
 import numpy as np
 
 class DragonBot(AresBot):
@@ -46,10 +49,13 @@ class DragonBot(AresBot):
         self.assimilator_age = {}                    # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
         self.scout_targets = {}                      # dictionary to keep track of scout targets
+        self.bases = {}                              # dictionary to keep track of bases
     
+        # Flags
         self._commenced_attack: bool = False
         self._used_cheese_defense: bool = False
         self._used_rush_defense: bool = False
+        self._under_attack: bool = False
     
     @property
     def attack_target(self) -> Point2:
@@ -101,7 +107,7 @@ class DragonBot(AresBot):
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
 
         self.current_base_target = self.enemy_start_locations[0]  # set the target to the enemy start location
- 
+        self.bases = {nexus.tag: nexus for nexus in self.townhalls.ready}  # store the bases in a dictionary
         
         # Sort the expansion locations by distance to the enemy start location
         self.expansion_locations_list.sort(key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
@@ -132,10 +138,11 @@ class DragonBot(AresBot):
         Warp_Prism = self.mediator.get_units_from_role(role=UnitRole.DROP_SHIP)
         worker_scouts: Units = self.mediator.get_units_from_role(role=UnitRole.BUILD_RUNNER_SCOUT, unit_type=self.worker_type)
         
-
-        #Checks for cannon rushes or worker rushes
+        ## Threat Response
+        #Checks for Early Game Threats
+        enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
         if self.time < 5*60 and self.townhalls.exists:
-            enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
+            
             pylons = enemy_units_near_bases.of_type([UnitTypeId.PYLON])
             enemyWorkerUnits = enemy_units_near_bases.of_type([UnitTypeId.PROBE, UnitTypeId.SCV, UnitTypeId.DRONE])
             cannons = enemy_units_near_bases.of_type([UnitTypeId.PHOTONCANNON])
@@ -145,22 +152,29 @@ class DragonBot(AresBot):
                 self.defend_worker_cannon_rush(enemyWorkerUnits, cannons)
                 self._used_rush_defense = True
                 print("Defending against worker/cannon rush")
-            
-        if self._used_rush_defense:
-             enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
-             if not enemy_units_near_bases:
-                self.register_behavior(SpawnController(self.cheese_defense_army))
-                self.register_behavior(ProductionController(self.cheese_defense_army))
-                print("Building cheese defense army")
-        
-        #TODO - Fix Threat Response
-        """# Detect threat near main base
-        threat_near_base = self.enemy_units.closer_than(20, self.townhalls.first.position).exists
-
-        # If there's a threat and we have a main army, send the army to defend
-        if threat_near_base and Main_Army.exists:
-            threat_position = self.enemy_units.closer_than(20, self.townhalls.first.position).center
-            self.Control_Main_Army(Main_Army, threat_position)"""
+            if self._used_rush_defense:
+                enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
+                if not enemy_units_near_bases:
+                    self.register_behavior(SpawnController(self.cheese_defense_army))
+                    self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
+                    print("Building cheese defense army")
+        # TODO - implement threat manager
+        """else:
+            # If there's a threat and we have a main army, send the army to defend
+            if enemy_units_near_bases and Main_Army.exists:
+                self._under_attack = True
+                threat_position = self.mediator.get_enemy_army_center_mass()
+                self.Control_Main_Army(Main_Army, threat_position)
+                print("Under Attack")
+                if not self.build_order_runner.build_completed:
+                    self.register_behavior(SpawnController(self.Standard_Army))
+                    self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
+            elif not enemy_units_near_bases and self._under_attack:
+                self.Control_Main_Army(Main_Army, self.natural_expansion.towards(self.game_info.map_center, 1))
+                print("No longer under attack")
+                self._under_attack = False
+            else:
+                self._under_attack = False"""
 
 
 
@@ -174,8 +188,15 @@ class DragonBot(AresBot):
                 if enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists:
                     self.build_order_runner.set_build_completed()
                     self.register_behavior(SpawnController(self.cheese_defense_army))
-                    self.register_behavior(ProductionController(self.cheese_defense_army))
+                    self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
                     self._used_cheese_defense = True
+        # Backstop check for if something went wrong
+        if self.minerals > 1200:
+            self.build_order_runner.set_build_completed
+            self.register_behavior(SpawnController(self.Standard_Army))
+            self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
+            
+        
 
         if self._used_cheese_defense or self._used_rush_defense:
             if self._commenced_attack:
@@ -186,10 +207,9 @@ class DragonBot(AresBot):
 
 
         ## Macro and Army control
-        # TODO - Pass the target throught he Control_Main_Army function
         if self.build_order_runner.build_completed:
             if self._commenced_attack:             
-                self.Control_Main_Army(Main_Army)
+                self.Control_Main_Army(Main_Army, self.attack_target)
                 if Warp_Prism:
                     prism_location = Warp_Prism[0].position
                     self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location))
@@ -236,10 +256,25 @@ class DragonBot(AresBot):
         await super(DragonBot, self).on_building_construction_complete(building)
         if building.type_id == UnitTypeId.NEXUS:
             self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
+            self.bases[building.tag] = building  # add the Nexus to the bases dictionary
 
         if not building.type_id == UnitTypeId.ASSIMILATOR or UnitTypeId.NEXUS:
             building(AbilityId.RALLY_BUILDING, self.natural_expansion)
+        
+        
     
+    async def on_unit_took_damage(self, unit: Unit, amount_damage_taken: float) -> None:
+        await super(DragonBot, self).on_unit_took_damage(unit, amount_damage_taken)
+        if unit.type_id not in ALL_STRUCTURES:
+            return
+        
+        compare_health: float = max(50.0, unit.health_max * 0.09)
+        if unit.health < compare_health:
+            self.mediator.cancel_structure(structure=unit)
+
+    
+
+
     # Function to defend against worker rushes and cannon rushes
     async def defend_worker_cannon_rush(self, enemy_probes, enemy_cannons):
         # Select a worker
