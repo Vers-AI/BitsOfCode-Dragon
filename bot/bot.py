@@ -9,8 +9,8 @@ from ares.behaviors.combat.individual import PathUnitToTarget, KeepUnitSafe
 from ares.behaviors.macro import SpawnController, ProductionController
 
 from ares.managers.squad_manager import UnitSquad
-from ares.managers.enemy_to_base_manager import EnemyToBaseManager
-from cython_extensions import cy_closest_to
+from ares.managers.manager_mediator import ManagerMediator
+from cython_extensions import cy_closest_to, cy_find_units_center_mass
 
 from itertools import chain
 
@@ -137,10 +137,13 @@ class DragonBot(AresBot):
         worker_scouts: Units = self.mediator.get_units_from_role(role=UnitRole.BUILD_RUNNER_SCOUT, unit_type=self.worker_type)
         
         ## Threat Response
-        #Checks for Early Game Threats
-        enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
-        threat_level = self.assess_threat(enemy_units_near_bases, Main_Army)
+        # TODO - implement threat manager
+        
+        self.detect_threats(Main_Army)
 
+        
+        """
+        #Checks for Early Game Threats
         if self.time < 5*60 and self.townhalls.exists:
             
             pylons = enemy_units_near_bases.of_type([UnitTypeId.PYLON])
@@ -158,8 +161,7 @@ class DragonBot(AresBot):
                     self.register_behavior(SpawnController(self.cheese_defense_army))
                     self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
                     print("Building cheese defense army")
-        # TODO - implement threat manager
-        """else:
+        else:
             # If there's a threat and we have a main army, send the army to defend
             if threat_level > 5 and Main_Army.exists:
                 self._under_attack = True
@@ -405,13 +407,84 @@ class DragonBot(AresBot):
 
         self.register_behavior(Scout_Actions)
     
-    def assess_threat(enemy_units_near_bases, own_forces):
+    def detect_threats(self, Main_Army: Units) -> None:
+        ground_enemy_near_bases: dict[int, set[int]] = self.mediator.get_ground_enemy_near_bases
+        flying_enemy_near_bases: dict[int, set[int]] = self.mediator.get_flying_enemy_near_bases
+        
+        if ground_enemy_near_bases or flying_enemy_near_bases:
+            # Merge ground and air threats
+            all_enemy = {}
+            for key, value in ground_enemy_near_bases.items():
+                all_enemy[key] = value.copy()
+            for key, value in flying_enemy_near_bases.items():
+                if key in all_enemy:
+                    all_enemy[key].update(value)
+                else:
+                    all_enemy[key] = value.copy()
+            print("All Enemy:",all_enemy)
+            # Retrieve actual enemy units and assess threat
+            for _, enemy_tags in all_enemy.items():
+                enemy_units: Units = self.enemy_units.tags_in(enemy_tags)
+                own_forces: Units = Main_Army 
+                self.assess_threat(enemy_units, own_forces)
+                # If threat_level is needed, add logic here to process it
+    
+    def assess_threat(self,enemy_units_near_bases, own_forces):
         threat_level = 0
         # Increase threat level based on number and type of enemy units
         for unit in enemy_units_near_bases:
-            if unit.type in [UnitTypeId.MARINE, UnitTypeId.ZEALOT, UnitTypeId.ZERGLING]:
+            if unit.type in [UnitTypeId.MARINE, 
+                             UnitTypeId.ZEALOT, 
+                             UnitTypeId.ZERGLING, 
+                             UnitTypeId.ADEPT,
+                             UnitTypeId.STALKER,
+                             UnitTypeId.ROACH,
+                             UnitTypeId.REAPER,
+                             UnitTypeId.MARAUDER,
+                             UnitTypeId.SENTRY,
+                             UnitTypeId.HYDRALISK,
+                             UnitTypeId.BANELING,
+                             UnitTypeId.HELLION,
+                             UnitTypeId.HELLIONTANK,
+                             UnitTypeId.HIGHTEMPLAR,
+                             UnitTypeId.MUTALISK,
+                             UnitTypeId.BANSHEE,
+                             UnitTypeId.VIKING,
+                             UnitTypeId.VIKINGFIGHTER,
+                             UnitTypeId.PHOENIX,
+                             UnitTypeId.ORACLE,
+                             UnitTypeId.RAVEN,
+                             UnitTypeId.GHOST
+                            ]:
                 threat_level += 2  # Combat units are a higher threat
-            elif unit.type in [UnitTypeId.SIEGETANK, UnitTypeId.IMMORTAL]:
+            elif unit.type in [UnitTypeId.SIEGETANK, 
+                                UnitTypeId.IMMORTAL, 
+                                UnitTypeId.CYCLONE,
+                                UnitTypeId.DISRUPTOR, 
+                                UnitTypeId.COLOSSUS,
+                                UnitTypeId.RAVAGER,
+                                UnitTypeId.LURKER,
+                                UnitTypeId.VOIDRAY,
+                                UnitTypeId.CARRIER,
+                                UnitTypeId.BATTLECRUISER,
+                                UnitTypeId.TEMPEST,
+                                UnitTypeId.BROODLORD,
+                                UnitTypeId.ULTRALISK,
+                                UnitTypeId.THOR,
+                                UnitTypeId.SIEGETANKSIEGED,
+                                UnitTypeId.LIBERATOR,
+                                UnitTypeId.LIBERATORAG,
+                                UnitTypeId.LURKERBURROWED,
+                                UnitTypeId.DARKTEMPLAR,
+                                UnitTypeId.ARCHON,
+                                UnitTypeId.CORRUPTOR,
+                                UnitTypeId.WIDOWMINE,
+                                UnitTypeId.INFESTOR,
+                                UnitTypeId.INFESTORBURROWED,
+                                UnitTypeId.SWARMHOSTBURROWEDMP,
+                                UnitTypeId.VIPER,
+                                UnitTypeId.WIDOWMINEBURROWED
+                                 ]:
                 threat_level += 3  # Heavy units are an even higher threat
             else:
                 threat_level += 1  # Other units contribute less to the threat
