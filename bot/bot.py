@@ -498,6 +498,7 @@ class DragonBot(AresBot):
             threat_level -= 2  # Having a significantly larger force reduces the threat level
     
         # Return the final threat level
+        print("Threat Level:",threat_level)
         return threat_level
     
     
