@@ -136,47 +136,11 @@ class DragonBot(AresBot):
         Warp_Prism = self.mediator.get_units_from_role(role=UnitRole.DROP_SHIP)
         worker_scouts: Units = self.mediator.get_units_from_role(role=UnitRole.BUILD_RUNNER_SCOUT, unit_type=self.worker_type)
         
-        ## Threat Response
-        # TODO - implement threat manager
-        
+        # Detect threats
         self.detect_threats(Main_Army)
 
         
-        """
-        #Checks for Early Game Threats
-        if self.time < 5*60 and self.townhalls.exists:
-            
-            pylons = enemy_units_near_bases.of_type([UnitTypeId.PYLON])
-            enemyWorkerUnits = enemy_units_near_bases.of_type([UnitTypeId.PROBE, UnitTypeId.SCV, UnitTypeId.DRONE])
-            cannons = enemy_units_near_bases.of_type([UnitTypeId.PHOTONCANNON])
-
-            if pylons.exists or enemyWorkerUnits.amount >= 4 or cannons.exists:
-                self.build_order_runner.set_build_completed()
-                self.defend_worker_cannon_rush(enemyWorkerUnits, cannons)
-                self._used_rush_defense = True
-                print("Defending against worker/cannon rush")
-            if self._used_rush_defense:
-                enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
-                if not enemy_units_near_bases:
-                    self.register_behavior(SpawnController(self.cheese_defense_army))
-                    self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
-                    print("Building cheese defense army")
-        else:
-            # If there's a threat and we have a main army, send the army to defend
-            if threat_level > 5 and Main_Army.exists:
-                self._under_attack = True
-                threat_position = self.mediator.get_enemy_army_center_mass()
-                self.Control_Main_Army(Main_Army, threat_position)
-                print("Under Attack")
-                if not self.build_order_runner.build_completed:
-                    self.register_behavior(SpawnController(self.Standard_Army))
-                    self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
-            elif not enemy_units_near_bases and self._under_attack:
-                self.Control_Main_Army(Main_Army, self.natural_expansion.towards(self.game_info.map_center, 1))
-                print("No longer under attack")
-                self._under_attack = False
-            else:
-                self._under_attack = False"""
+        
 
 
         
@@ -428,12 +392,48 @@ class DragonBot(AresBot):
                 own_forces: Units = Main_Army 
                 self.assess_threat(enemy_units, own_forces)
                 # If threat_level is needed, add logic here to process it
+        
+            # TODO - fix threat response
+            #Checks for Early Game Threats
+            if self.time < 5*60 and self.townhalls.exists:
+                
+                pylons = ground_enemy_near_bases.of_type([UnitTypeId.PYLON])
+                enemyWorkerUnits = ground_enemy_near_bases.of_type([UnitTypeId.PROBE, UnitTypeId.SCV, UnitTypeId.DRONE])
+                cannons = ground_enemy_near_bases.of_type([UnitTypeId.PHOTONCANNON])
+
+                if pylons.exists or enemyWorkerUnits.amount >= 4 or cannons.exists:
+                    self.build_order_runner.set_build_completed()
+                    self.defend_worker_cannon_rush(enemyWorkerUnits, cannons)
+                    self._used_rush_defense = True
+                    print("Defending against worker/cannon rush")
+                if self._used_rush_defense:
+                    ground_enemy_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
+                    if not ground_enemy_near_bases:
+                        self.register_behavior(SpawnController(self.cheese_defense_army))
+                        self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
+                        print("Building cheese defense army")
+            else:
+                # If there's a threat and we have a main army, send the army to defend
+                if self.assess_threat > 5 and Main_Army.exists:
+                    self._under_attack = True
+                    threat_position = self.mediator.get_enemy_army_center_mass()
+                    self.Control_Main_Army(Main_Army, threat_position)
+                    print("Under Attack")
+                    if not self.build_order_runner.build_completed:
+                        self.register_behavior(SpawnController(self.Standard_Army))
+                        self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
+                elif not ground_enemy_near_bases and self._under_attack:
+                    self.Control_Main_Army(Main_Army, self.natural_expansion.towards(self.game_info.map_center, 1))
+                    print("No longer under attack")
+                    self._under_attack = False
+                else:
+                    self._under_attack = False
     
     def assess_threat(self,enemy_units_near_bases, own_forces):
         threat_level = 0
         # Increase threat level based on number and type of enemy units
         for unit in enemy_units_near_bases:
-            if unit.type in [UnitTypeId.MARINE, 
+            if unit.type_id in [UnitTypeId.MARINE, 
                              UnitTypeId.ZEALOT, 
                              UnitTypeId.ZERGLING, 
                              UnitTypeId.ADEPT,
@@ -457,7 +457,7 @@ class DragonBot(AresBot):
                              UnitTypeId.GHOST
                             ]:
                 threat_level += 2  # Combat units are a higher threat
-            elif unit.type in [UnitTypeId.SIEGETANK, 
+            elif unit.type_id in [UnitTypeId.SIEGETANK, 
                                 UnitTypeId.IMMORTAL, 
                                 UnitTypeId.CYCLONE,
                                 UnitTypeId.DISRUPTOR, 
