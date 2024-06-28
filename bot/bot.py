@@ -29,8 +29,6 @@ from bot.speedmining import get_speedmining_positions
 from bot.speedmining import split_workers
 from bot.speedmining import mine
 
-from Managers.Threat_Manager import ManageThreats
-
 import numpy as np
 
 class DragonBot(AresBot):
@@ -141,6 +139,8 @@ class DragonBot(AresBot):
         ## Threat Response
         #Checks for Early Game Threats
         enemy_units_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
+        threat_level = self.assess_threat(enemy_units_near_bases, Main_Army)
+
         if self.time < 5*60 and self.townhalls.exists:
             
             pylons = enemy_units_near_bases.of_type([UnitTypeId.PYLON])
@@ -161,7 +161,7 @@ class DragonBot(AresBot):
         # TODO - implement threat manager
         """else:
             # If there's a threat and we have a main army, send the army to defend
-            if enemy_units_near_bases and Main_Army.exists:
+            if threat_level > 5 and Main_Army.exists:
                 self._under_attack = True
                 threat_position = self.mediator.get_enemy_army_center_mass()
                 self.Control_Main_Army(Main_Army, threat_position)
@@ -175,7 +175,6 @@ class DragonBot(AresBot):
                 self._under_attack = False
             else:
                 self._under_attack = False"""
-
 
 
         
@@ -405,6 +404,30 @@ class DragonBot(AresBot):
                     )
 
         self.register_behavior(Scout_Actions)
+    
+    def assess_threat(enemy_units_near_bases, own_forces):
+        threat_level = 0
+        # Increase threat level based on number and type of enemy units
+        for unit in enemy_units_near_bases:
+            if unit.type in [UnitTypeId.MARINE, UnitTypeId.ZEALOT, UnitTypeId.ZERGLING]:
+                threat_level += 2  # Combat units are a higher threat
+            elif unit.type in [UnitTypeId.SIEGETANK, UnitTypeId.IMMORTAL]:
+                threat_level += 3  # Heavy units are an even higher threat
+            else:
+                threat_level += 1  # Other units contribute less to the threat
+    
+        # Adjust threat level based on proximity to key structures
+        # Example: if enemy units are very close to a key structure, increase threat level
+        # This part is left as an exercise for implementation
+    
+        # Adjust threat level based on your own defensive capabilities
+        if own_forces.amount > enemy_units_near_bases.amount * 2:
+            threat_level -= 2  # Having a significantly larger force reduces the threat level
+    
+        # Return the final threat level
+        return threat_level
+    
+    
     
     async def on_end(self, game_result: Result) -> None:
         await super(DragonBot, self).on_end(game_result)
