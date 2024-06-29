@@ -137,7 +137,9 @@ class DragonBot(AresBot):
         worker_scouts: Units = self.mediator.get_units_from_role(role=UnitRole.BUILD_RUNNER_SCOUT, unit_type=self.worker_type)
         
         # Detect threats
-        self.detect_threats(Main_Army)
+        # If there are enemy units near our bases, respond to the threat
+        if self.all_enemy_units.closer_than(30, self.townhalls.center):
+            self.threat_response(Main_Army)
 
         
         
@@ -371,7 +373,7 @@ class DragonBot(AresBot):
 
         self.register_behavior(Scout_Actions)
     
-    def detect_threats(self, Main_Army: Units) -> None:
+    def threat_response(self, Main_Army: Units) -> None:
         ground_enemy_near_bases: dict[int, set[int]] = self.mediator.get_ground_enemy_near_bases
         flying_enemy_near_bases: dict[int, set[int]] = self.mediator.get_flying_enemy_near_bases
         
@@ -395,26 +397,39 @@ class DragonBot(AresBot):
         
             # TODO - fix threat response
             #Checks for Early Game Threats
-            if self.time < 5*60 and self.townhalls.exists:
+            if self.time < 5*60 and self.townhalls.first:
+                # Initialize categories
+                unit_categories = {'pylons': [], 'enemyWorkerUnits': [], 'cannons': []}
                 
-                pylons = ground_enemy_near_bases.of_type([UnitTypeId.PYLON])
-                enemyWorkerUnits = ground_enemy_near_bases.of_type([UnitTypeId.PROBE, UnitTypeId.SCV, UnitTypeId.DRONE])
-                cannons = ground_enemy_near_bases.of_type([UnitTypeId.PHOTONCANNON])
-
-                if pylons.exists or enemyWorkerUnits.amount >= 4 or cannons.exists:
+                # Retrieve and categorize units from tags
+                for _, enemy_tags in ground_enemy_near_bases.items():
+                    enemy_units = self.enemy_units.tags_in(enemy_tags)
+                    for unit in enemy_units:
+                        if unit.type_id == UnitTypeId.PYLON:
+                            unit_categories['pylons'].append(unit)
+                            print("Pylon Detected")
+                        elif unit.type_id in [UnitTypeId.PROBE, UnitTypeId.SCV, UnitTypeId.DRONE]:
+                            unit_categories['enemyWorkerUnits'].append(unit)
+                            print("Worker Detected")
+                        elif unit.type_id == UnitTypeId.PHOTONCANNON:
+                            unit_categories['cannons'].append(unit)
+                            print("Cannon Detected")
+                
+                # Check for specific units and act accordingly
+                if unit_categories['pylons'] or len(unit_categories['enemyWorkerUnits']) >= 4 or unit_categories['cannons']:
                     self.build_order_runner.set_build_completed()
-                    self.defend_worker_cannon_rush(enemyWorkerUnits, cannons)
+                    self.defend_worker_cannon_rush(unit_categories['enemyWorkerUnits'], unit_categories['cannons'])
                     self._used_rush_defense = True
                     print("Defending against worker/cannon rush")
                 if self._used_rush_defense:
-                    ground_enemy_near_bases = self.all_enemy_units.closer_than(30, self.townhalls.center)
                     if not ground_enemy_near_bases:
                         self.register_behavior(SpawnController(self.cheese_defense_army))
                         self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
                         print("Building cheese defense army")
             else:
                 # If there's a threat and we have a main army, send the army to defend
-                if self.assess_threat > 5 and Main_Army.exists:
+                if self.assess_threat(enemy_units, own_forces) > 5 and Main_Army:
+                    # Your logic here  
                     self._under_attack = True
                     threat_position = self.mediator.get_enemy_army_center_mass()
                     self.Control_Main_Army(Main_Army, threat_position)
@@ -432,6 +447,10 @@ class DragonBot(AresBot):
     def assess_threat(self,enemy_units_near_bases, own_forces):
         threat_level = 0
         # Increase threat level based on number and type of enemy units
+        """ 
+        This section could be changed to instead of being an arbitrary 
+        number to measure level of threat, 
+        it could be their value in minerals and with 25% weight to gas"""
         for unit in enemy_units_near_bases:
             if unit.type_id in [UnitTypeId.MARINE, 
                              UnitTypeId.ZEALOT, 
