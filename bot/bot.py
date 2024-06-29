@@ -4,8 +4,8 @@ from itertools import cycle
 from ares import AresBot
 from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole, UnitTreeQueryType
 from ares.behaviors.combat import CombatManeuver
-from ares.behaviors.combat.group import AMoveGroup
-from ares.behaviors.combat.individual import PathUnitToTarget, KeepUnitSafe
+from ares.behaviors.combat.group import AMoveGroup 
+from ares.behaviors.combat.individual import AMove, AttackTarget, KeepUnitSafe, PathUnitToTarget
 from ares.behaviors.macro import SpawnController, ProductionController
 
 from ares.managers.squad_manager import UnitSquad
@@ -263,8 +263,16 @@ class DragonBot(AresBot):
     def Control_Main_Army(self, Main_Army: Units, target:Point2)-> None:
         
         
-        target: Point2 = target
-        squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=12.0)
+        target: Point2 = target 
+
+        # Add amove to the main army
+        for unit in Main_Army:
+            Main_Army_Actions: CombatManeuver = CombatManeuver()
+            Main_Army_Actions.add(AMove(unit=unit, target=target))
+            self.register_behavior(Main_Army_Actions)
+        
+        
+        """squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=12.0)
 
         for squad in squads:
             squad_position: Point2 = squad.squad_position
@@ -277,8 +285,7 @@ class DragonBot(AresBot):
                                                                     query_tree= UnitTreeQueryType.AllEnemy,)[0]
             
             #declare a new group manvuever
-            Main_Army_Actions: CombatManeuver = CombatManeuver()
-
+            
 
             #Add amove to the main army
             Main_Army_Actions.add(
@@ -288,7 +295,8 @@ class DragonBot(AresBot):
                     target=target,
                 )
             )   
-            self.register_behavior(Main_Army_Actions)
+            self.register_behavior(Main_Army_Actions)"""
+        
 
     # Function to Control Warp Prism
     def Warp_Prism_Follower(self, Warp_Prism: Units, Main_Army: Units)-> None:
@@ -395,7 +403,6 @@ class DragonBot(AresBot):
                 self.assess_threat(enemy_units, own_forces)
                 # If threat_level is needed, add logic here to process it
         
-            # TODO - fix threat response
             #Checks for Early Game Threats
             if self.time < 5*60 and self.townhalls.first:
                 # Initialize categories
