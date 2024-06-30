@@ -316,7 +316,10 @@ class DragonBot(AresBot):
                     ShootTargetInRange(unit=unit, targets=in_attack_range))
                 # If there are no enemy units in range, move towards the target
                 else:
-                    pass
+                    Main_Army_Actions.add(
+                        PathUnitToTarget(unit=unit, target=target, grid=grid))
+                    Main_Army_Actions.add(
+                        AMove(unit=unit, target=target))
                 
             else:
                 # Move towards the strategic target otherwise
