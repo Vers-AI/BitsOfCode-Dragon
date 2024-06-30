@@ -66,9 +66,9 @@ class DragonBot(AresBot):
     
     @property
     def attack_target(self) -> Point2:
-        # If we already have a target and it's still alive, stick with it
+        """# If we already have a target and it's still alive, stick with it
         if hasattr(self, '_attack_target') and self._attack_target in self.enemy_structures:
-            return self._attack_target.position
+            return self._attack_target.position"""
     
         # Otherwise, find a new target
         if self.enemy_structures:
@@ -282,12 +282,10 @@ class DragonBot(AresBot):
 
         near_enemy: dict[int, Units] = self.mediator.get_units_in_range(
             start_points=Main_Army,
-            distances=15,
+            distances=10,
             query_tree=UnitTreeQueryType.AllEnemy,
             return_as_dict=True,
         )
-
-        target: Point2 = self.attack_target
 
         #get a ground grid to path on
         grid: np.ndarray = self.mediator.get_ground_grid
@@ -302,13 +300,14 @@ class DragonBot(AresBot):
             only_enemy_units: Units = all_close.filter(
                 lambda u: u.type_id not in ALL_STRUCTURES
                 )
-        
+            
             if all_close:
+                # If there are enemy units in range, attack them
                 if in_attack_range:= cy_in_attack_range(unit, only_enemy_units):
                     Main_Army_Actions.add(
                         ShootTargetInRange(unit=unit, targets=in_attack_range)
                         )
-
+                #check for enemy buildings
                 elif in_attack_range := cy_in_attack_range(unit, all_close):
                     Main_Army_Actions.add(
                     ShootTargetInRange(unit=unit, targets=in_attack_range))
@@ -421,7 +420,6 @@ class DragonBot(AresBot):
                     all_enemy[key].update(value)
                 else:
                     all_enemy[key] = value.copy()
-            print("All Enemy:",all_enemy)
             # Retrieve actual enemy units and assess threat
             for _, enemy_tags in all_enemy.items():
                 enemy_units: Units = self.enemy_units.tags_in(enemy_tags)
@@ -443,7 +441,6 @@ class DragonBot(AresBot):
                             print("Pylon Detected")
                         elif unit.type_id in [UnitTypeId.PROBE, UnitTypeId.SCV, UnitTypeId.DRONE]:
                             unit_categories['enemyWorkerUnits'].append(unit)
-                            print("Worker Detected")
                         elif unit.type_id == UnitTypeId.PHOTONCANNON:
                             unit_categories['cannons'].append(unit)
                             print("Cannon Detected")
@@ -464,6 +461,7 @@ class DragonBot(AresBot):
                 if self.assess_threat(enemy_units, own_forces) > 5 and Main_Army:
                     # Your logic here  
                     self._under_attack = True
+                    # TODO - Fix Error: 'Point2' object is not callable from threat_position
                     threat_position = self.mediator.get_enemy_army_center_mass()
                     self.Control_Main_Army(Main_Army, threat_position)
                     print("Under Attack")
@@ -550,7 +548,6 @@ class DragonBot(AresBot):
             threat_level -= 2  # Having a significantly larger force reduces the threat level
     
         # Return the final threat level
-        print("Threat Level:",threat_level)
         return threat_level
     
     
