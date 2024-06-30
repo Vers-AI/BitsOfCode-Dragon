@@ -5,11 +5,12 @@ from ares import AresBot
 from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole, UnitTreeQueryType
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import AMove, ShootTargetInRange, KeepUnitSafe, PathUnitToTarget
+from ares.behaviors.combat.group import AMoveGroup
 from ares.behaviors.macro import SpawnController, ProductionController, AutoSupply
 
 from ares.managers.squad_manager import UnitSquad
 from ares.managers.manager_mediator import ManagerMediator
-from cython_extensions import cy_closest_to, cy_in_attack_range, cy_pick_enemy_target
+from cython_extensions import cy_closest_to, cy_in_attack_range, cy_pick_enemy_target, cy_find_units_center_mass
 
 from itertools import chain
 
@@ -66,14 +67,15 @@ class DragonBot(AresBot):
     
     @property
     def attack_target(self) -> Point2:
+        # TODO - Look into fixing that it stays on a target until it dies
         """# If we already have a target and it's still alive, stick with it
         if hasattr(self, '_attack_target') and self._attack_target in self.enemy_structures:
             return self._attack_target.position"""
     
         # Otherwise, find a new target
         if self.enemy_structures:
-            self._attack_target = cy_closest_to(self.start_location, self.enemy_structures)
-            return self._attack_target.position
+            return cy_closest_to(self.start_location, self.enemy_structures).position
+            
         # not seen anything in early game, just head to enemy spawn
         elif self.time < 240.0:
             return self.enemy_start_locations[0]
@@ -171,8 +173,9 @@ class DragonBot(AresBot):
                     self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
                     self._used_cheese_defense = True
         # Backstop check for if something went wrong
+        # TODO - Fix back stop so it doesn't spam build order complete
         if self.minerals > 1200:
-            self.build_order_runner.set_build_completed
+            self.build_order_runner.set_build_completed()
             self.register_behavior(SpawnController(self.Standard_Army))
             self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
             
@@ -282,7 +285,7 @@ class DragonBot(AresBot):
 
         near_enemy: dict[int, Units] = self.mediator.get_units_in_range(
             start_points=Main_Army,
-            distances=10,
+            distances=15,
             query_tree=UnitTreeQueryType.AllEnemy,
             return_as_dict=True,
         )
@@ -311,6 +314,9 @@ class DragonBot(AresBot):
                 elif in_attack_range := cy_in_attack_range(unit, all_close):
                     Main_Army_Actions.add(
                     ShootTargetInRange(unit=unit, targets=in_attack_range))
+                # If there are no enemy units in range, move towards the target
+                else:
+                    pass
                 
             else:
                 # Move towards the strategic target otherwise
@@ -461,8 +467,9 @@ class DragonBot(AresBot):
                 if self.assess_threat(enemy_units, own_forces) > 5 and Main_Army:
                     # Your logic here  
                     self._under_attack = True
-                    # TODO - Fix Error: 'Point2' object is not callable from threat_position
-                    threat_position = self.mediator.get_enemy_army_center_mass()
+                    # TODO - pass out num_units to the function to tell how many units in the threat
+                    threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
+                    threat_position = Point2(threat_position)
                     self.Control_Main_Army(Main_Army, threat_position)
                     print("Under Attack")
                     if not self.build_order_runner.build_completed:
