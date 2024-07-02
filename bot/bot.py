@@ -173,8 +173,7 @@ class DragonBot(AresBot):
                     self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
                     self._used_cheese_defense = True
         # Backstop check for if something went wrong
-        # TODO - Fix back stop so it doesn't spam build order complete
-        if self.minerals > 1200:
+        if self.minerals > 1200 and self.build_order_runner.build_completed == False:
             self.build_order_runner.set_build_completed()
             self.register_behavior(SpawnController(self.Standard_Army))
             self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
@@ -282,6 +281,8 @@ class DragonBot(AresBot):
                 await defending_worker.attack(cannon)
     
     def Control_Main_Army(self, Main_Army: Units, target: Point2) -> None:
+
+        
 
         near_enemy: dict[int, Units] = self.mediator.get_units_in_range(
             start_points=Main_Army,
