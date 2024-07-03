@@ -5,7 +5,7 @@ from ares import AresBot
 from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole, UnitTreeQueryType
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import AMove, ShootTargetInRange, KeepUnitSafe, PathUnitToTarget
-from ares.behaviors.combat.group import AMoveGroup
+from ares.behaviors.combat.group import AMoveGroup, PathGroupToTarget
 from ares.behaviors.macro import SpawnController, ProductionController, AutoSupply
 
 from ares.managers.squad_manager import UnitSquad
@@ -282,19 +282,47 @@ class DragonBot(AresBot):
     
     def Control_Main_Army(self, Main_Army: Units, target: Point2) -> None:
 
-        
+        squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=12.0)
 
-        near_enemy: dict[int, Units] = self.mediator.get_units_in_range(
+
+        
+        
+        pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
+        grid: np.ndarray = self.mediator.get_ground_grid
+
+        # TODO - fix the issue with all_close and pick enemy target
+        for squad in squads:
+            Main_Army_Actions = CombatManeuver()
+            
+            squad_position: Point2 = squad.squad_position
+            units: list[Unit] = squad.squad_units
+            squad_tags: set[int] = squad.tags
+            move_to: Point2 = target if squad.main_squad else pos_of_main_squad
+
+            near_enemy: dict[int, Units] = self.mediator.get_units_in_range(
             start_points=Main_Army,
             distances=15,
             query_tree=UnitTreeQueryType.AllEnemy,
             return_as_dict=True,
         )
+            all_close: Units = [unit for units_group in near_enemy.values() for unit in units_group if not unit.is_memory and unit.type_id not in COMMON_UNIT_IGNORE_TYPES]            
+            
+            if all_close:
+                target = cy_pick_enemy_target(all_close)
+                Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
+            else:
+            # Move towards the strategic target otherwise
+                Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=move_to, grid=grid))
+                Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))        
+            self.register_behavior(Main_Army_Actions)
 
-        #get a ground grid to path on
-        grid: np.ndarray = self.mediator.get_ground_grid
 
-        for unit in Main_Army:
+
+        
+    
+
+
+        """for unit in Main_Army:
             Main_Army_Actions = CombatManeuver()
             
             all_close: Units = near_enemy[unit.tag].filter(
@@ -328,7 +356,7 @@ class DragonBot(AresBot):
                     PathUnitToTarget(unit=unit, target=target, grid=grid))
                 Main_Army_Actions.add(
                     AMove(unit=unit, target=target))
-            self.register_behavior(Main_Army_Actions)
+            self.register_behavior(Main_Army_Actions)"""
         
         
         
