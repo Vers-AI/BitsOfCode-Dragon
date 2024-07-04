@@ -50,6 +50,10 @@ COMMON_UNIT_IGNORE_TYPES: set[UnitTypeId] = {
 }
 
 class DragonBot(AresBot):
+    current_base_target: Point2
+    expansions_generator: cycle
+    _begin_attack_at_supply: float
+
     def __init__(self, game_step_override: Optional[int] = None):
         """Initiate custom bot
 
@@ -92,6 +96,7 @@ class DragonBot(AresBot):
             # cycle through expansion locations
             if self.is_visible(self.current_base_target):
                 self.current_base_target = next(self.expansions_generator)
+                print("New target:", self.current_base_target)
     
             return self.current_base_target
     
@@ -164,13 +169,6 @@ class DragonBot(AresBot):
         if self.all_enemy_units.closer_than(30, self.townhalls.center):
             self.threat_response(Main_Army)
 
-        
-        
-
-
-        
-            
-
         # Checks for cheese defense
         if self.time > 2*60 and self.time < 3*60 + 30:
             if worker_scouts.exists:
@@ -216,7 +214,7 @@ class DragonBot(AresBot):
 
         #send scount to the enemy base if an observer exists
         if Scout:
-            self.Control_Scout(Scout)
+            self.Control_Scout(Scout, Main_Army)
         
         # if a Warp Prism exists, send it to follow the main army
         if Warp_Prism:
@@ -267,6 +265,13 @@ class DragonBot(AresBot):
         if unit.health < compare_health:
             self.mediator.cancel_structure(structure=unit)
 
+    async def on_unit_destroyed(self, unit_tag: int) -> None:
+        await super(DragonBot, self).on_unit_destroyed(unit_tag)
+        #remake observer if it is destroyed
+        if self.units(UnitTypeId.OBSERVER).amount < 1 and self.units(UnitTypeId.ROBOTICSFACILITY).ready:
+            if self.can_afford(UnitTypeId.OBSERVER):
+                self.train(UnitTypeId.OBSERVER)
+                print("Observer Destroyed, Remaking Observer")
     
 
 
@@ -303,7 +308,7 @@ class DragonBot(AresBot):
 
             all_close: Units = self.mediator.get_units_in_range(
                     start_points=[squad_position],
-                    distances=20,
+                    distances=15,
                     query_tree=UnitTreeQueryType.AllEnemy,
                     return_as_dict=False,
                 )[0].filter(lambda u: not u.is_memory and u.type_id and not u.is_structure not in COMMON_UNIT_IGNORE_TYPES)            
@@ -315,7 +320,7 @@ class DragonBot(AresBot):
                 # Only regroup if there are no nearby enemies
                 if not squad.main_squad:
                     # Move towards the position of the main squad to regroup
-                    Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, success_at_distance=2, grid=grid))
+                    Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid))
                 else:
                     # Move towards the strategic target otherwise
                     Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))        
@@ -400,7 +405,7 @@ class DragonBot(AresBot):
         self.register_behavior(Warp_Prism_Actions)
     
     
-    def Control_Scout(self, Scout: Units)-> None:
+    def Control_Scout(self, Scout: Units, Main_Army: Units)-> None:
         #declare a new group maneuver
         Scout_Actions: CombatManeuver = CombatManeuver()
         # get an air grid for the scout to path on
@@ -409,45 +414,59 @@ class DragonBot(AresBot):
         # Create a list of targets for the scout
         targets = self.expansion_locations_list[:5] + [self.enemy_start_locations[0]]
         
-        
-        # If there's no current target or the current target is None, set the first target
-        if not hasattr(self, 'current_scout_target') or self.current_scout_target is None:
-            if targets:
-                self.current_scout_target = targets[0]
-
-        #Move scout to the main base to scout unless its in danger
-        for unit in Scout:
-            
-            if unit.shield_percentage < 1:
+        if self._commenced_attack:
+        #follow the main army if it has commenced attack
+            target = Main_Army.center
+            for unit in Scout:
                 Scout_Actions.add(
-                KeepUnitSafe(
-                    unit=unit,
-                    grid=air_grid
-                )
-                )
-            else:
-                # If the unit is not in danger, move it to the current target
-                if unit.distance_to(self.current_scout_target) < 1:
-                    # If the unit has reached its current target, move it to the next target
-                    if self.current_scout_target is not None:
-                        current_index = targets.index(self.current_scout_target)
-                        if current_index + 1 < len(targets):
-                            self.current_scout_target = targets[current_index + 1]
-                        else:
-                            # If the unit has visited all targets, set its current target to None
-                            self.current_scout_target = None
-
-                if self.current_scout_target is not None:
-                    Scout_Actions.add(
-                        PathUnitToTarget(
-                            unit=unit,
-                            target=self.current_scout_target,
-                            grid=air_grid,
-                            danger_distance=10
-                        )
+                    PathUnitToTarget(
+                        unit=unit,
+                        target=target,
+                        grid=air_grid,
+                        danger_distance=10
                     )
+                )
+            self.register_behavior(Scout_Actions)
 
-        self.register_behavior(Scout_Actions)
+        else:
+            # If there's no current target or the current target is None, set the first target
+            if not hasattr(self, 'current_scout_target') or self.current_scout_target is None:
+                if targets:
+                    self.current_scout_target = targets[0]
+
+            #Move scout to the main base to scout unless its in danger
+            for unit in Scout:
+                
+                if unit.shield_percentage < 1:
+                    Scout_Actions.add(
+                    KeepUnitSafe(
+                        unit=unit,
+                        grid=air_grid
+                    )
+                    )
+                else:
+                    # If the unit is not in danger, move it to the current target
+                    if unit.distance_to(self.current_scout_target) < 1:
+                        # If the unit has reached its current target, move it to the next target
+                        if self.current_scout_target is not None:
+                            current_index = targets.index(self.current_scout_target)
+                            if current_index + 1 < len(targets):
+                                self.current_scout_target = targets[current_index + 1]
+                            else:
+                                # If the unit has visited all targets, set its current target to None
+                                self.current_scout_target = None
+
+                    if self.current_scout_target is not None:
+                        Scout_Actions.add(
+                            PathUnitToTarget(
+                                unit=unit,
+                                target=self.current_scout_target,
+                                grid=air_grid,
+                                danger_distance=10
+                            )
+                        )
+
+            self.register_behavior(Scout_Actions)
     
     def threat_response(self, Main_Army: Units) -> None:
         ground_enemy_near_bases: dict[int, set[int]] = self.mediator.get_ground_enemy_near_bases
@@ -608,8 +627,7 @@ class DragonBot(AresBot):
     #
     
     #
-    # async def on_unit_destroyed(self, unit_tag: int) -> None:
-    #     await super(MyBot, self).on_unit_destroyed(unit_tag)
+    
     #
     #     # custom on_unit_destroyed logic here ...
     #
