@@ -39,6 +39,14 @@ COMMON_UNIT_IGNORE_TYPES: set[UnitTypeId] = {
             UnitTypeId.CREEPTUMORQUEEN,
             UnitTypeId.CREEPTUMOR,
             UnitTypeId.MULE,
+            UnitTypeId.PROBE,
+            UnitTypeId.SCV,
+            UnitTypeId.DRONE,
+            UnitTypeId.OVERLORD,
+            UnitTypeId.OVERSEER,
+            UnitTypeId.LOCUSTMP,
+            UnitTypeId.LOCUSTMPFLYING,
+            UnitTypeId.ADEPTPHASESHIFT,
 }
 
 class DragonBot(AresBot):
@@ -290,7 +298,6 @@ class DragonBot(AresBot):
         pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
         grid: np.ndarray = self.mediator.get_ground_grid
 
-        # TODO - fix the issue with all_close and pick enemy target
         for squad in squads:
             Main_Army_Actions = CombatManeuver()
             
@@ -301,17 +308,17 @@ class DragonBot(AresBot):
 
             all_close: Units = self.mediator.get_units_in_range(
                     start_points=[squad_position],
-                    distances=15,
+                    distances=20,
                     query_tree=UnitTreeQueryType.AllEnemy,
                     return_as_dict=False,
-                )[0].filter(lambda u: not u.is_memory and u.type_id not in COMMON_UNIT_IGNORE_TYPES)            
+                )[0].filter(lambda u: not u.is_memory and u.type_id and not u.is_structure not in COMMON_UNIT_IGNORE_TYPES)            
             
             if all_close:
                 target = cy_pick_enemy_target(all_close)
                 Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
             else:
             # Move towards the strategic target otherwise
-                Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=move_to, grid=grid))
+                Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=move_to.position, success_at_distance=2, grid=grid))
                 Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))        
             self.register_behavior(Main_Army_Actions)
 
