@@ -75,14 +75,14 @@ class DragonBot(AresBot):
     
     @property
     def attack_target(self) -> Point2:
-        # TODO - Look into fixing that it stays on a target until it dies
-        """# If we already have a target and it's still alive, stick with it
+        # If we already have a target and it's still alive, stick with it
         if hasattr(self, '_attack_target') and self._attack_target in self.enemy_structures:
-            return self._attack_target.position"""
+            return self._attack_target.position
     
         # Otherwise, find a new target
         if self.enemy_structures:
-            return cy_closest_to(self.start_location, self.enemy_structures).position
+            self._attack_target = cy_closest_to(self.start_location, self.enemy_structures)
+            return self._attack_target.position
             
         # not seen anything in early game, just head to enemy spawn
         elif self.time < 240.0:
