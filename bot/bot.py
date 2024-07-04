@@ -291,10 +291,6 @@ class DragonBot(AresBot):
     def Control_Main_Army(self, Main_Army: Units, target: Point2) -> None:
 
         squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=12.0)
-
-
-        
-        
         pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
         grid: np.ndarray = self.mediator.get_ground_grid
 
@@ -304,7 +300,6 @@ class DragonBot(AresBot):
             squad_position: Point2 = squad.squad_position
             units: list[Unit] = squad.squad_units
             squad_tags: set[int] = squad.tags
-            move_to: Point2 = target if squad.main_squad else pos_of_main_squad
 
             all_close: Units = self.mediator.get_units_in_range(
                     start_points=[squad_position],
@@ -317,9 +312,13 @@ class DragonBot(AresBot):
                 target = cy_pick_enemy_target(all_close)
                 Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
             else:
-            # Move towards the strategic target otherwise
-                Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=move_to.position, success_at_distance=2, grid=grid))
-                Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))        
+                # Only regroup if there are no nearby enemies
+                if not squad.main_squad:
+                    # Move towards the position of the main squad to regroup
+                    Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, success_at_distance=2, grid=grid))
+                else:
+                    # Move towards the strategic target otherwise
+                    Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))        
             self.register_behavior(Main_Army_Actions)
 
 
