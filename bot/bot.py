@@ -201,7 +201,7 @@ class DragonBot(AresBot):
                     self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location))
                 else:
                     self.register_behavior(SpawnController(self.Standard_Army))
-                    self.register_behavior(AutoSupply(self.Standard_Army, base_location=self.start_location))
+                    self.register_behavior(AutoSupply(base_location=self.start_location))
             elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
                 self._commenced_attack = True
 
@@ -299,13 +299,12 @@ class DragonBot(AresBot):
             squad_tags: set[int] = squad.tags
             move_to: Point2 = target if squad.main_squad else pos_of_main_squad
 
-            near_enemy: dict[int, Units] = self.mediator.get_units_in_range(
-            start_points=Main_Army,
-            distances=15,
-            query_tree=UnitTreeQueryType.AllEnemy,
-            return_as_dict=True,
-        )
-            all_close: Units = [unit for units_group in near_enemy.values() for unit in units_group if not unit.is_memory and unit.type_id not in COMMON_UNIT_IGNORE_TYPES]            
+            all_close: Units = self.mediator.get_units_in_range(
+                    start_points=[squad_position],
+                    distances=15,
+                    query_tree=UnitTreeQueryType.AllEnemy,
+                    return_as_dict=False,
+                )[0].filter(lambda u: not u.is_memory and u.type_id not in COMMON_UNIT_IGNORE_TYPES)            
             
             if all_close:
                 target = cy_pick_enemy_target(all_close)
