@@ -47,6 +47,10 @@ COMMON_UNIT_IGNORE_TYPES: set[UnitTypeId] = {
             UnitTypeId.LOCUSTMP,
             UnitTypeId.LOCUSTMPFLYING,
             UnitTypeId.ADEPTPHASESHIFT,
+            UnitTypeId.CHANGELING,
+            UnitTypeId.CHANGELINGMARINE,
+            UnitTypeId.CHANGELINGZEALOT,
+            UnitTypeId.CHANGELINGZERGLING,
 }
 
 class DragonBot(AresBot):
@@ -295,7 +299,7 @@ class DragonBot(AresBot):
     
     def Control_Main_Army(self, Main_Army: Units, target: Point2) -> None:
 
-        squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=12.0)
+        squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=15.5)
         pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
         grid: np.ndarray = self.mediator.get_ground_grid
 
@@ -318,7 +322,7 @@ class DragonBot(AresBot):
                 Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
             else:
                 # Only regroup if there are no nearby enemies
-                if not squad.main_squad:
+                if pos_of_main_squad.distance_to(squad_position) > 5.0:
                     # Move towards the position of the main squad to regroup
                     Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid))
                 else:
@@ -423,7 +427,7 @@ class DragonBot(AresBot):
                         unit=unit,
                         target=target,
                         grid=air_grid,
-                        danger_distance=10
+                        danger_distance=2
                     )
                 )
             self.register_behavior(Scout_Actions)
@@ -521,7 +525,6 @@ class DragonBot(AresBot):
             else:
                 # If there's a threat and we have a main army, send the army to defend
                 if self.assess_threat(enemy_units, own_forces) > 5 and Main_Army:
-                    # Your logic here  
                     self._under_attack = True
                     # TODO - pass out num_units to the function to tell how many units in the threat
                     threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
