@@ -7,6 +7,7 @@ from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import AMove, ShootTargetInRange, KeepUnitSafe, PathUnitToTarget
 from ares.behaviors.combat.group import AMoveGroup, PathGroupToTarget
 from ares.behaviors.macro import SpawnController, ProductionController, AutoSupply
+from ares.managers.manager_mediator import ManagerMediator
 
 from ares.managers.squad_manager import UnitSquad
 from cython_extensions import cy_closest_to, cy_pick_enemy_target, cy_find_units_center_mass
@@ -141,7 +142,7 @@ class DragonBot(AresBot):
         self.scout_targets = self.expansion_locations_list
         
         self.natural_expansion: Point2 = await self.get_next_expansion()
-        self._begin_attack_at_supply = 25.0
+        self._begin_attack_at_supply = 30.0
         
         self.expansions_generator = cycle(
             [pos for pos in self.expansion_locations_list]
@@ -314,23 +315,20 @@ class DragonBot(AresBot):
                     distances=15,
                     query_tree=UnitTreeQueryType.AllEnemy,
                     return_as_dict=False,
-                )[0].filter(lambda u: not u.is_memory and u.type_id and not u.is_structure not in COMMON_UNIT_IGNORE_TYPES)            
+                )[0].filter(lambda u: not u.is_memory or u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)            
             
             if all_close:
                 target = cy_pick_enemy_target(all_close)
-                Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
+                Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target.position))
             else:
-                # TODO - Test the regrouping
                 # Check if the squad is already close to the target
-                # TODO - consider "leap froging" to target
-                if squad_position.distance_to(self.attack_target) > 2.0:
-                        # Move towards the strategic target
-                        Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
-                else:
-                    if pos_of_main_squad.distance_to(squad_position) > 3.0:
+                if pos_of_main_squad.distance_to(squad_position) > 0.5 and squad_position.distance_to(target) > 1.0:
                     # Move towards the position of the main squad to regroup
-                        Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, success_at_distance=3.0))
-                         
+                        print("Regrouping")
+                        Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, success_at_distance=0.5))      
+                else:
+                    Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
+                    
             self.register_behavior(Main_Army_Actions)
 
 
@@ -423,14 +421,15 @@ class DragonBot(AresBot):
         
         if self._commenced_attack:
         #follow the main army if it has commenced attack
-            target = Main_Army.center.towards(self.attack_target, 10)
+            target = Main_Army.center.towards(self.attack_target, 30)
             for unit in Scout:
                 Scout_Actions.add(
                     PathUnitToTarget(
                         unit=unit,
                         target=target,
                         grid=air_grid,
-                        danger_distance=10
+                        danger_distance=2,
+                        danger_threshold=1
                     )
                 )
             self.register_behavior(Scout_Actions)
