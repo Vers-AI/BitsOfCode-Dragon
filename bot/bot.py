@@ -9,8 +9,7 @@ from ares.behaviors.combat.group import AMoveGroup, PathGroupToTarget
 from ares.behaviors.macro import SpawnController, ProductionController, AutoSupply
 
 from ares.managers.squad_manager import UnitSquad
-from ares.managers.manager_mediator import ManagerMediator
-from cython_extensions import cy_closest_to, cy_in_attack_range, cy_pick_enemy_target, cy_find_units_center_mass
+from cython_extensions import cy_closest_to, cy_pick_enemy_target, cy_find_units_center_mass
 
 from itertools import chain
 
@@ -89,7 +88,7 @@ class DragonBot(AresBot):
     
         # Otherwise, find a new target
         if self.enemy_structures:
-            self._attack_target = cy_closest_to(self.start_location, self.enemy_structures).position
+            self._attack_target = cy_closest_to(self.start_location, self.enemy_structures)
             return self._attack_target.position
             
         # not seen anything in early game, just head to enemy spawn
