@@ -297,8 +297,7 @@ class DragonBot(AresBot):
             if defending_worker := defending_workers.closest_to(cannon):
                 await defending_worker.attack(cannon)
     
-    def Control_Main_Army(self, target: Point2) -> None:
-
+    def Control_Main_Army(self, Main_Army: Units, target: Point2) -> None:
         squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=15.5)
         pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
         grid: np.ndarray = self.mediator.get_ground_grid
@@ -320,8 +319,9 @@ class DragonBot(AresBot):
             if all_close:
                 target = cy_pick_enemy_target(all_close)
                 Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
-            else:       
-                """ # Only regroup if there are no nearby enemies
+            else:
+                # TODO - Fix the unit bouncing when they regroup or create a new way for them to regroup       
+                """# Only regroup if there are no nearby enemies
                 if pos_of_main_squad.distance_to(squad_position) > 1.0:
                     # Move towards the position of the main squad to regroup
                     Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid))
@@ -420,7 +420,7 @@ class DragonBot(AresBot):
         
         if self._commenced_attack:
         #follow the main army if it has commenced attack
-            target = Main_Army.center
+            target = Main_Army.position
             for unit in Scout:
                 Scout_Actions.add(
                     PathUnitToTarget(
