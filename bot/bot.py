@@ -193,7 +193,7 @@ class DragonBot(AresBot):
         if self._used_cheese_defense or self._used_rush_defense:
             if self.get_total_supply(Main_Army) <= self._begin_attack_at_supply:
                 self._commenced_attack = False
-            elif self._commenced_attack:
+            elif self._commenced_attack and not self._under_attack:
                 self.Control_Main_Army(Main_Army, self.attack_target)
 
             elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
@@ -204,7 +204,7 @@ class DragonBot(AresBot):
         if self.build_order_runner.build_completed:
             if self.get_total_supply(Main_Army) <= self._begin_attack_at_supply:
                 self._commenced_attack = False
-            elif self._commenced_attack:             
+            elif self._commenced_attack and not self._under_attack:             
                 self.Control_Main_Army(Main_Army, self.attack_target)
                 if Warp_Prism:
                     prism_location = Warp_Prism[0].position
@@ -216,9 +216,17 @@ class DragonBot(AresBot):
                 self._commenced_attack = True
 
 
-        #send scount to the enemy base if an observer exists
+        #Activate the scout if it exists if not build one
         if Scout:
             self.Control_Scout(Scout, Main_Army)
+        else:
+            if self.time > 4*60:  
+                if self.units(UnitTypeId.OBSERVER).amount < 1 and self.units(UnitTypeId.ROBOTICSFACILITY).ready:
+                    if self.can_afford(UnitTypeId.OBSERVER):
+                        self.train(UnitTypeId.OBSERVER)
+                        print("Observer Destroyed, Remaking Observer")
+                
+
         
         # if a Warp Prism exists, send it to follow the main army
         if Warp_Prism:
@@ -269,14 +277,6 @@ class DragonBot(AresBot):
         if unit.health < compare_health:
             self.mediator.cancel_structure(structure=unit)
 
-    async def on_unit_destroyed(self, unit_tag: int) -> None:
-        await super(DragonBot, self).on_unit_destroyed(unit_tag)
-        #remake observer if it is destroyed
-        if self.units(UnitTypeId.OBSERVER).amount < 1 and self.units(UnitTypeId.ROBOTICSFACILITY).ready:
-            if self.can_afford(UnitTypeId.OBSERVER):
-                self.train(UnitTypeId.OBSERVER)
-                print("Observer Destroyed, Remaking Observer")
-    
 
 
     # Function to defend against worker rushes and cannon rushes
@@ -322,7 +322,7 @@ class DragonBot(AresBot):
                 Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
             else:
                 # Only regroup if there are no nearby enemies
-                if pos_of_main_squad.distance_to(squad_position) > 5.0:
+                if pos_of_main_squad.distance_to(squad_position) > 2.0:
                     # Move towards the position of the main squad to regroup
                     Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid))
                 else:
@@ -427,7 +427,7 @@ class DragonBot(AresBot):
                         unit=unit,
                         target=target,
                         grid=air_grid,
-                        danger_distance=2
+                        sense_danger=False
                     )
                 )
             self.register_behavior(Scout_Actions)
@@ -524,7 +524,7 @@ class DragonBot(AresBot):
                         print("Building cheese defense army")
             else:
                 # If there's a threat and we have a main army, send the army to defend
-                if self.assess_threat(enemy_units, own_forces) > 5 and Main_Army:
+                if self.assess_threat(enemy_units, own_forces) > 7 and Main_Army:
                     self._under_attack = True
                     # TODO - pass out num_units to the function to tell how many units in the threat
                     threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
@@ -532,6 +532,7 @@ class DragonBot(AresBot):
                     self.Control_Main_Army(Main_Army, threat_position)
                     print("Under Attack")
                     if not self.build_order_runner.build_completed:
+                        self.build_order_runner.set_build_completed()
                         self.register_behavior(SpawnController(self.Standard_Army))
                         self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
                 elif not ground_enemy_near_bases and self._under_attack:
