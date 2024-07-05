@@ -320,14 +320,17 @@ class DragonBot(AresBot):
                 target = cy_pick_enemy_target(all_close)
                 Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
             else:
-                # TODO - Fix the unit bouncing when they regroup or create a new way for them to regroup       
-                """# Only regroup if there are no nearby enemies
-                if pos_of_main_squad.distance_to(squad_position) > 1.0:
-                    # Move towards the position of the main squad to regroup
-                    Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid))
+                # TODO - Test the regrouping
+                # Check if the squad is already close to the target
+                # TODO - consider "leap froging" to target
+                if squad_position.distance_to(self.attack_target) > 2.0:
+                        # Move towards the strategic target
+                        Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
                 else:
-                    # Move towards the strategic target otherwise"""
-                Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))     
+                    if pos_of_main_squad.distance_to(squad_position) > 3.0:
+                    # Move towards the position of the main squad to regroup
+                        Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, success_at_distance=3.0))
+                         
             self.register_behavior(Main_Army_Actions)
 
 
@@ -622,22 +625,5 @@ class DragonBot(AresBot):
     async def on_end(self, game_result: Result) -> None:
         await super(DragonBot, self).on_end(game_result)
     
-
-    #
-    # async def on_building_construction_complete(self, unit: Unit) -> None:
-    #     await super(MyBot, self).on_building_construction_complete(unit)
-    #
-    #     # custom on_building_construction_complete logic here ...
-    #
-    
-    #
-    
-    #
-    #     # custom on_unit_destroyed logic here ...
-    #
-    # async def on_unit_took_damage(self, unit: Unit, amount_damage_taken: float) -> None:
-    #     await super(MyBot, self).on_unit_took_damage(unit, amount_damage_taken)
-    #
-    #     # custom on_unit_took_damage logic here ...
 
     
