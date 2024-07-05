@@ -89,20 +89,20 @@ class DragonBot(AresBot):
     
         # Otherwise, find a new target
         if self.enemy_structures:
-            self._attack_target = cy_closest_to(self.start_location, self.enemy_structures)
+            self._attack_target = cy_closest_to(self.start_location, self.enemy_structures).position
             return self._attack_target.position
             
         # not seen anything in early game, just head to enemy spawn
         elif self.time < 240.0:
             return self.enemy_start_locations[0]
         # else search the map
-        else:
+        """else:
             # cycle through expansion locations
             if self.is_visible(self.current_base_target):
                 self.current_base_target = next(self.expansions_generator)
                 print("New target:", self.current_base_target)
     
-            return self.current_base_target
+            return self.current_base_target"""
     
     # Army Compositions
     @property
@@ -221,7 +221,7 @@ class DragonBot(AresBot):
             self.Control_Scout(Scout, Main_Army)
         else:
             if self.time > 4*60:  
-                if self.units(UnitTypeId.OBSERVER).amount < 1 and self.units(UnitTypeId.ROBOTICSFACILITY).ready:
+                if self.units(UnitTypeId.OBSERVER).amount < 1 and self.structures(UnitTypeId.ROBOTICSFACILITY).ready:
                     if self.can_afford(UnitTypeId.OBSERVER):
                         self.train(UnitTypeId.OBSERVER)
                         print("Observer Destroyed, Remaking Observer")
@@ -297,7 +297,7 @@ class DragonBot(AresBot):
             if defending_worker := defending_workers.closest_to(cannon):
                 await defending_worker.attack(cannon)
     
-    def Control_Main_Army(self, Main_Army: Units, target: Point2) -> None:
+    def Control_Main_Army(self, target: Point2) -> None:
 
         squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=15.5)
         pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
