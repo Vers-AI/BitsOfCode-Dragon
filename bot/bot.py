@@ -96,13 +96,13 @@ class DragonBot(AresBot):
         elif self.time < 240.0:
             return self.enemy_start_locations[0]
         # else search the map
-        """else:
+        else:
             # cycle through expansion locations
             if self.is_visible(self.current_base_target):
                 self.current_base_target = next(self.expansions_generator)
                 print("New target:", self.current_base_target)
     
-            return self.current_base_target"""
+            return self.current_base_target
     
     # Army Compositions
     @property
@@ -220,11 +220,12 @@ class DragonBot(AresBot):
         if Scout:
             self.Control_Scout(Scout, Main_Army)
         else:
-            if self.time > 4*60:  
-                if self.units(UnitTypeId.OBSERVER).amount < 1 and self.structures(UnitTypeId.ROBOTICSFACILITY).ready:
-                    if self.can_afford(UnitTypeId.OBSERVER):
-                        self.train(UnitTypeId.OBSERVER)
-                        print("Observer Destroyed, Remaking Observer")
+            if self.time > 4*60:
+                if self.structures(UnitTypeId.ROBOTICSFACILITY).ready:    
+                    if self.units(UnitTypeId.OBSERVER).amount < 1 and self.already_pending(UnitTypeId.OBSERVER) == 0:
+                        if self.can_afford(UnitTypeId.OBSERVER):
+                            self.train(UnitTypeId.OBSERVER)
+                            
                 
 
         
@@ -320,14 +321,14 @@ class DragonBot(AresBot):
             if all_close:
                 target = cy_pick_enemy_target(all_close)
                 Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
-            else:
-                # Only regroup if there are no nearby enemies
-                if pos_of_main_squad.distance_to(squad_position) > 2.0:
+            else:       
+                """ # Only regroup if there are no nearby enemies
+                if pos_of_main_squad.distance_to(squad_position) > 1.0:
                     # Move towards the position of the main squad to regroup
                     Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid))
                 else:
-                    # Move towards the strategic target otherwise
-                    Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))        
+                    # Move towards the strategic target otherwise"""
+                Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))     
             self.register_behavior(Main_Army_Actions)
 
 
