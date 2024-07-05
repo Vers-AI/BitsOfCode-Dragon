@@ -420,14 +420,14 @@ class DragonBot(AresBot):
         
         if self._commenced_attack:
         #follow the main army if it has commenced attack
-            target = Main_Army.position
+            target = Main_Army.center.towards(self.attack_target, 10)
             for unit in Scout:
                 Scout_Actions.add(
                     PathUnitToTarget(
                         unit=unit,
                         target=target,
                         grid=air_grid,
-                        sense_danger=False
+                        danger_distance=10
                     )
                 )
             self.register_behavior(Scout_Actions)
