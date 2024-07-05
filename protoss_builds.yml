@@ -37,6 +37,7 @@ Builds:
         # Build constant worker production till this supply
         ConstantWorkerProductionTill: 44
         # After 0 supply turn AutoSupply on
+        # TODO - Check that 2nd gas is occuring at 12 workers on NAT
         AutoSupplyAtSupply: 33
         OpeningBuildOrder:
             - 14 PYLON @ NAT
