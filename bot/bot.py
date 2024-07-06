@@ -10,7 +10,7 @@ from ares.behaviors.macro import SpawnController, ProductionController, AutoSupp
 from ares.managers.manager_mediator import ManagerMediator
 
 from ares.managers.squad_manager import UnitSquad
-from cython_extensions import cy_closest_to, cy_pick_enemy_target, cy_find_units_center_mass
+from cython_extensions import cy_closest_to, cy_pick_enemy_target, cy_find_units_center_mass, cy_center
 
 from itertools import chain
 
@@ -204,10 +204,10 @@ class DragonBot(AresBot):
 
 
         ## Macro and Army control
-        #TODO Test this out
+        #TODO Wait till rasper fixes productioncontroller bug
         if self.build_order_runner.build_completed and not self._used_cheese_defense and not self._used_rush_defense:
             self.register_behavior(AutoSupply(base_location=self.start_location))
-            self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
+            # self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))  # disabled for now
 
             if Warp_Prism:
                     prism_location = Warp_Prism[0].position
@@ -325,17 +325,21 @@ class DragonBot(AresBot):
                 )[0].filter(lambda u: not u.is_memory and not u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)            
             
             if all_close:
-                melee: list[Unit] = [u for u in units if u.ground_range < 3]
-                ranged: list[Unit] = [u for u in units if u.ground_range >= 3]
+                melee: list[Unit] = [u for u in units if u.ground_range <= 3]
+                ranged: list[Unit] = [u for u in units if u.ground_range > 3]
                 target = cy_pick_enemy_target(all_close)
                 
                 # Melee Actions
                 melee_maneuver: CombatManeuver = CombatManeuver()
                 melee_maneuver.add(AMoveGroup(group=melee, group_tags={u.tag for u in melee}, target=target.position))
                 # TODO - Fix Stutter Group Back
-                # Ranged Actions
-                ranged_maneuver: CombatManeuver = CombatManeuver()
-                ranged_maneuver.add(StutterGroupBack(group=ranged, group_tags={u.tag for u in ranged}, group_position={u.position for u in ranged}, target=target.position,grid=grid))
+                if ranged:
+                    # Ranged Actions
+                    ranged_maneuver: CombatManeuver = CombatManeuver()
+                    ranged_maneuver.add(StutterGroupBack(group=ranged, group_tags={u.tag for u in ranged}, group_position=Point2(cy_center(ranged)), target=target.position,grid=grid))
+                    self.register_behavior(ranged_maneuver)
+                    
+
                 # TODO add keep unit safe for ranged units
                 """for unit in ranged:
                     if unit.shield_percentage < 0.3:
@@ -343,12 +347,11 @@ class DragonBot(AresBot):
                         self.register_behavior(ranged_maneuver)"""
                 
                 self.register_behavior(melee_maneuver)
-                self.register_behavior(ranged_maneuver)
             else:
                 # Check if the squad is already close to the target
-                if pos_of_main_squad.distance_to(squad_position) > 0.5 and squad_position.distance_to(target) > 1.0:
+                if pos_of_main_squad.distance_to(squad_position) > 0.2 and squad_position.distance_to(target) > 1.0:
                     # Move towards the position of the main squad to regroup
-                        Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, success_at_distance=0.5))      
+                        Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, success_at_distance=0.3))      
                 else:
                     Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
                     
