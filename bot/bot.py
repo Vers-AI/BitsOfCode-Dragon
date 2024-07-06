@@ -90,7 +90,7 @@ class DragonBot(AresBot):
     
         # Otherwise, find a new target
         if self.enemy_structures:
-            self._attack_target = cy_closest_to(self.start_location, self.enemy_structures)
+            self._attack_target = cy_pick_enemy_target(self.enemy_structures)
             return self._attack_target.position
             
         # not seen anything in early game, just head to enemy spawn
@@ -204,7 +204,6 @@ class DragonBot(AresBot):
 
 
         ## Macro and Army control
-        #TODO Wait till rasper fixes productioncontroller bug
         if self.build_order_runner.build_completed and not self._used_cheese_defense and not self._used_rush_defense:
             self.register_behavior(AutoSupply(base_location=self.start_location))
             # self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))  # disabled for now
@@ -332,26 +331,25 @@ class DragonBot(AresBot):
                 # Melee Actions
                 melee_maneuver: CombatManeuver = CombatManeuver()
                 melee_maneuver.add(AMoveGroup(group=melee, group_tags={u.tag for u in melee}, target=target.position))
-                # TODO - Fix Stutter Group Back
                 if ranged:
-                    # Ranged Actions
                     ranged_maneuver: CombatManeuver = CombatManeuver()
-                    ranged_maneuver.add(StutterGroupBack(group=ranged, group_tags={u.tag for u in ranged}, group_position=Point2(cy_center(ranged)), target=target.position,grid=grid))
-                    self.register_behavior(ranged_maneuver)
-                    
-
-                # TODO add keep unit safe for ranged units
-                """for unit in ranged:
-                    if unit.shield_percentage < 0.3:
-                        ranged_maneuver.add(KeepGroupSafe(unit, grid))
-                        self.register_behavior(ranged_maneuver)"""
+                    # keep units safe when they are low in shields else stutter back
+                    for unit in ranged:
+                        if unit.shield_percentage < 0.3:
+                            ranged_maneuver.add(KeepUnitSafe(unit, grid))
+                            self.register_behavior(ranged_maneuver)
+                        else:
+                            ranged_maneuver.add(StutterUnitBack(unit, target=target, grid=grid))
+                            self.register_behavior(ranged_maneuver)
+                    # ranged_maneuver.add(StutterGroupBack(group=ranged, group_tags={u.tag for u in ranged}, group_position=Point2(cy_center(ranged)), target=target.position,grid=grid))
+                                    
                 
                 self.register_behavior(melee_maneuver)
             else:
                 # Check if the squad is already close to the target
-                if pos_of_main_squad.distance_to(squad_position) > 0.2 and squad_position.distance_to(target) > 1.0:
+                if pos_of_main_squad.distance_to(squad_position) > 0.2 and pos_of_main_squad.distance_to(target) > 0.5:
                     # Move towards the position of the main squad to regroup
-                        Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, success_at_distance=0.3))      
+                        Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, success_at_distance=0.1))      
                 else:
                     Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
                     
