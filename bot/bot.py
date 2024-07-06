@@ -322,7 +322,7 @@ class DragonBot(AresBot):
                     distances=15,
                     query_tree=UnitTreeQueryType.AllEnemy,
                     return_as_dict=False,
-                )[0].filter(lambda u: not u.is_memory or u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)            
+                )[0].filter(lambda u: not u.is_memory and not u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)            
             
             if all_close:
                 target = cy_pick_enemy_target(all_close)
@@ -362,7 +362,7 @@ class DragonBot(AresBot):
                     distances=15,
                     query_tree=UnitTreeQueryType.AllEnemy,
                     return_as_dict=False,
-                )[0].filter(lambda u: not u.is_memory or u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)
+                )[0].filter(lambda u: not u.is_memory and not u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)
             
             if all_close:
                 enemy_target: Unit = cy_pick_enemy_target(all_close)
