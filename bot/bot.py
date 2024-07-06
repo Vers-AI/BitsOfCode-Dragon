@@ -271,8 +271,7 @@ class DragonBot(AresBot):
             self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
             self.bases[building.tag] = building  # add the Nexus to the bases dictionary
 
-        if not building.type_id == UnitTypeId.ASSIMILATOR or UnitTypeId.NEXUS:
-            building(AbilityId.RALLY_BUILDING, self.natural_expansion)
+        
         
         
     
