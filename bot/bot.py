@@ -204,17 +204,21 @@ class DragonBot(AresBot):
 
 
         ## Macro and Army control
+        #TODO Test this out
         if self.build_order_runner.build_completed and not self._used_cheese_defense and not self._used_rush_defense:
-            self.register_behavior(SpawnController(self.Standard_Army))
-            self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
             self.register_behavior(AutoSupply(base_location=self.start_location))
+            self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
 
+            if Warp_Prism:
+                    prism_location = Warp_Prism[0].position
+                    self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location))
+            else:
+                self.register_behavior(SpawnController(self.Standard_Army))
+            
             if self.get_total_supply(Main_Army) <= self._begin_attack_at_supply:
                 self._commenced_attack = False
             elif self._commenced_attack and not self._under_attack:             
                 self.Control_Main_Army(Main_Army, self.attack_target)
-                if Warp_Prism:
-                    prism_location = Warp_Prism[0].position
                 
             elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
                 self._commenced_attack = True
