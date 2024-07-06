@@ -4,8 +4,8 @@ from itertools import cycle
 from ares import AresBot
 from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole, UnitTreeQueryType
 from ares.behaviors.combat import CombatManeuver
-from ares.behaviors.combat.individual import AMove, ShootTargetInRange, KeepUnitSafe, PathUnitToTarget
-from ares.behaviors.combat.group import AMoveGroup, PathGroupToTarget
+from ares.behaviors.combat.individual import AMove, ShootTargetInRange, KeepUnitSafe, PathUnitToTarget, StutterUnitBack
+from ares.behaviors.combat.group import AMoveGroup, PathGroupToTarget, KeepGroupSafe, StutterGroupBack
 from ares.behaviors.macro import SpawnController, ProductionController, AutoSupply
 from ares.managers.manager_mediator import ManagerMediator
 
@@ -80,6 +80,7 @@ class DragonBot(AresBot):
         self._used_cheese_defense: bool = False
         self._used_rush_defense: bool = False
         self._under_attack: bool = False
+        self.assigned_ranged: bool = False # for ranged units
     
     @property
     def attack_target(self) -> Point2:
@@ -164,14 +165,18 @@ class DragonBot(AresBot):
 
         # retrieve all attacking units & scouts
         Main_Army = self.mediator.get_units_from_role(role=UnitRole.ATTACKING)
+        Range_Army = self.mediator.get_units_from_role(role=UnitRole.CONTROL_GROUP_TWO)
         Scout = self.mediator.get_units_from_role(role=UnitRole.SCOUTING)
         Warp_Prism = self.mediator.get_units_from_role(role=UnitRole.DROP_SHIP)
         worker_scouts: Units = self.mediator.get_units_from_role(role=UnitRole.BUILD_RUNNER_SCOUT, unit_type=self.worker_type)
         
+        if Main_Army:
+            self.assign_ranged_units(Main_Army)
+
         # Detect threats
         # If there are enemy units near our bases, respond to the threat
         if self.all_enemy_units.closer_than(30, self.townhalls.center):
-            self.threat_response(Main_Army)
+            self.threat_response(Main_Army, Range_Army)
 
         # Checks for cheese defense
         if self.time > 2*60 and self.time < 3*60 + 30:
@@ -195,6 +200,7 @@ class DragonBot(AresBot):
                 self._commenced_attack = False
             elif self._commenced_attack and not self._under_attack:
                 self.Control_Main_Army(Main_Army, self.attack_target)
+                self.Control_Ranged_Army(Range_Army, self.attack_target)
 
             elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
                 self._commenced_attack = True
@@ -206,6 +212,7 @@ class DragonBot(AresBot):
                 self._commenced_attack = False
             elif self._commenced_attack and not self._under_attack:             
                 self.Control_Main_Army(Main_Army, self.attack_target)
+                self.Control_Ranged_Army(Range_Army, self.attack_target)
                 if Warp_Prism:
                     prism_location = Warp_Prism[0].position
                     self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location))
@@ -324,7 +331,6 @@ class DragonBot(AresBot):
                 # Check if the squad is already close to the target
                 if pos_of_main_squad.distance_to(squad_position) > 0.5 and squad_position.distance_to(target) > 1.0:
                     # Move towards the position of the main squad to regroup
-                        print("Regrouping")
                         Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, success_at_distance=0.5))      
                 else:
                     Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
@@ -336,42 +342,44 @@ class DragonBot(AresBot):
         
     
 
+    # Function to Control Ranged Units in the Army
+    def Control_Ranged_Army(self, Ranged_Army: Units, target: Point2) -> None:
+        squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.CONTROL_GROUP_TWO, squad_radius=15.5)
+        pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.CONTROL_GROUP_TWO)
 
-        """for unit in Main_Army:
-            Main_Army_Actions = CombatManeuver()
+        #declare a new group maneuver
+        grid: np.ndarray = self.mediator.get_ground_grid
+        # stutter step units when they are low shields
+        for squad in squads:
+            Ranged_Army_Actions: CombatManeuver = CombatManeuver()
+
+            squad_position: Point2 = squad.squad_position
+            units: list[Unit] = squad.squad_units
+            squad_tags: set[int] = squad.tags
             
-            all_close: Units = near_enemy[unit.tag].filter(
-                lambda u: not u.is_memory and u.type_id not in COMMON_UNIT_IGNORE_TYPES
-                )
-        
-            only_enemy_units: Units = all_close.filter(
-                lambda u: u.type_id not in ALL_STRUCTURES
-                )
+            all_close: Units = self.mediator.get_units_in_range(
+                    start_points=[squad_position],
+                    distances=15,
+                    query_tree=UnitTreeQueryType.AllEnemy,
+                    return_as_dict=False,
+                )[0].filter(lambda u: not u.is_memory or u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)
             
             if all_close:
-                # If there are enemy units in range, attack them
-                if in_attack_range:= cy_in_attack_range(unit, only_enemy_units):
-                    Main_Army_Actions.add(
-                        ShootTargetInRange(unit=unit, targets=in_attack_range)
-                        )
-                #check for enemy buildings
-                elif in_attack_range := cy_in_attack_range(unit, all_close):
-                    Main_Army_Actions.add(
-                    ShootTargetInRange(unit=unit, targets=in_attack_range))
-                # If there are no enemy units in range, move towards the target
-                else:
-                    Main_Army_Actions.add(
-                        PathUnitToTarget(unit=unit, target=target, grid=grid))
-                    Main_Army_Actions.add(
-                        AMove(unit=unit, target=target))
+                enemy_target: Unit = cy_pick_enemy_target(all_close)
                 
+                Ranged_Army_Actions.add(StutterGroupBack(group=units, group_tags=squad_tags, group_position=squad_position, target=enemy_target.position, grid=grid))
+                """for unit in Ranged_Army:
+                    if unit.shield_percentage < 0.3:
+                        Ranged_Army_Actions.add(KeepUnitSafe(unit, grid))
+                        self.register_behavior(Ranged_Army_Actions)"""
             else:
-                # Move towards the strategic target otherwise
-                Main_Army_Actions.add(
-                    PathUnitToTarget(unit=unit, target=target, grid=grid))
-                Main_Army_Actions.add(
-                    AMove(unit=unit, target=target))
-            self.register_behavior(Main_Army_Actions)"""
+                # Check if the squad is already close to the target
+                if pos_of_main_squad.distance_to(squad_position) > 0.5 and squad_position.distance_to(target) > 1.0:
+                    # Move towards the position of the Ranged squad to regroup
+                    Ranged_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, success_at_distance=0.5))      
+                else:
+                    Ranged_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
+            self.register_behavior(Ranged_Army_Actions)
         
         
         
@@ -384,6 +392,7 @@ class DragonBot(AresBot):
         air_grid: np.ndarray = self.mediator.get_air_grid
 
         # Warp Prism to morph into Phase Mode if close by, transport mode to follow if no unit is being warped in 
+        # TODO - fix what happens if there is no main army (if statement)
         for prism in Warp_Prism:
             distance_to_center = prism.distance_to(Main_Army.center)
             if distance_to_center < 15:
@@ -473,8 +482,15 @@ class DragonBot(AresBot):
                         )
 
             self.register_behavior(Scout_Actions)
+    def assign_ranged_units(self, Main_Army: Units) -> None:
+        # get all stalkers and colossus from Main Army  and assign them them to control group 2
+        ranged_units: list[Unit] = [u for u in Main_Army if u.type_id in [UnitTypeId.STALKER, UnitTypeId.COLOSSUS]]
+        
+        for unit in ranged_units:
+            self.mediator.assign_role(tag=unit.tag, role=UnitRole.CONTROL_GROUP_TWO)
+
     
-    def threat_response(self, Main_Army: Units) -> None:
+    def threat_response(self, Main_Army: Units, Range_Army: Units) -> None:
         ground_enemy_near_bases: dict[int, set[int]] = self.mediator.get_ground_enemy_near_bases
         flying_enemy_near_bases: dict[int, set[int]] = self.mediator.get_flying_enemy_near_bases
         
@@ -532,6 +548,7 @@ class DragonBot(AresBot):
                     threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
                     threat_position = Point2(threat_position)
                     self.Control_Main_Army(Main_Army, threat_position)
+                    self.Control_Ranged_Army(Range_Army, threat_position)
                     print("Under Attack")
                     if not self.build_order_runner.build_completed:
                         self.build_order_runner.set_build_completed()
@@ -539,6 +556,7 @@ class DragonBot(AresBot):
                         self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
                 elif not ground_enemy_near_bases and self._under_attack:
                     self.Control_Main_Army(Main_Army, self.natural_expansion.towards(self.game_info.map_center, 1))
+                    self.Control_Ranged_Army(Range_Army, self.natural_expansion.towards(self.game_info.map_center, 1))
                     print("No longer under attack")
                     self._under_attack = False
                 else:
