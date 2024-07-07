@@ -29,7 +29,7 @@ def get_bot_description() -> str:
         bot_name = name
 
     return (
-        f"# {bot_name}\n\n" "Made with [ares-sc2](https://github.com/AresSC2/ares-sc2)"
+        f"# {bot_name}\n\n" "A Protoss Bot Designed to play optimally using human like builds.This bot uses the Ares Framework\n\n"
     )
 
 def retrieve_value_from_config(string: str) -> Union[str, bool, None]:
