@@ -169,7 +169,7 @@ class DragonBot(AresBot):
 
         # Detect threats
         # If there are enemy units near our bases, respond to the threat
-        if self.all_enemy_units.closer_than(30, self.townhalls.center):
+        if self.townhalls.exists and self.all_enemy_units.closer_than(30, self.townhalls.center):
             self.threat_response(Main_Army)
 
         # Checks for cheese defense
