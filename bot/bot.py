@@ -84,14 +84,7 @@ class DragonBot(AresBot):
     
     @property
     def attack_target(self) -> Point2:
-        # If we already have a target and it's still alive, stick with it
-        # if hasattr(self, '_attack_target') and self._attack_target in self.enemy_structures:
-        #     print("Current target:", self._attack_target)
-        #     return self._attack_target.position        
-    
-        # Otherwise, find a new target
         if self.enemy_structures:
-            # self._attack_target = cy_closest_to(position=self.start_location, units=self.enemy_structures)
             return cy_closest_to(position=self.start_location, units=self.enemy_structures).position
             
         
