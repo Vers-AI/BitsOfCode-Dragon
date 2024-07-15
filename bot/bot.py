@@ -85,13 +85,16 @@ class DragonBot(AresBot):
     @property
     def attack_target(self) -> Point2:
         # If we already have a target and it's still alive, stick with it
-        if hasattr(self, '_attack_target') and self._attack_target in self.enemy_structures:
-            return self._attack_target.position
+        # if hasattr(self, '_attack_target') and self._attack_target in self.enemy_structures:
+        #     print("Current target:", self._attack_target)
+        #     return self._attack_target.position        
     
         # Otherwise, find a new target
         if self.enemy_structures:
-            self._attack_target = cy_pick_enemy_target(self.enemy_structures)
-            return self._attack_target.position
+            # self._attack_target = cy_closest_to(position=self.start_location, units=self.enemy_structures)
+            return cy_closest_to(position=self.start_location, units=self.enemy_structures).position
+            
+        
             
         # not seen anything in early game, just head to enemy spawn
         elif self.time < 240.0:
@@ -222,7 +225,7 @@ class DragonBot(AresBot):
             elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
                 self._commenced_attack = True
 
-
+        ### FAIL SAFES
         #Activate the scout if it exists if not build one
         if Scout:
             self.Control_Scout(Scout, Main_Army)
@@ -233,7 +236,8 @@ class DragonBot(AresBot):
                         if self.can_afford(UnitTypeId.OBSERVER):
                             self.train(UnitTypeId.OBSERVER)
                             
-                
+        # Check for unpowered builds
+        #if self.structures        
 
         
         # if a Warp Prism exists, send it to follow the main army
@@ -327,24 +331,25 @@ class DragonBot(AresBot):
                 melee: list[Unit] = [u for u in units if u.ground_range <= 3]
                 ranged: list[Unit] = [u for u in units if u.ground_range > 3]
                 target = cy_pick_enemy_target(all_close)
+                print("Enemy Target:", target)
                 
-                # Melee Actions
-                melee_maneuver: CombatManeuver = CombatManeuver()
-                melee_maneuver.add(AMoveGroup(group=melee, group_tags={u.tag for u in melee}, target=target.position))
                 if ranged:
-                    ranged_maneuver: CombatManeuver = CombatManeuver()
                     # keep units safe when they are low in shields else stutter back
                     for unit in ranged:
+                        ranged_maneuver: CombatManeuver = CombatManeuver()
                         if unit.shield_percentage < 0.3:
                             ranged_maneuver.add(KeepUnitSafe(unit, grid))
-                            self.register_behavior(ranged_maneuver)
                         else:
                             ranged_maneuver.add(StutterUnitBack(unit, target=target, grid=grid))
-                            self.register_behavior(ranged_maneuver)
+                        self.register_behavior(ranged_maneuver)
                     # ranged_maneuver.add(StutterGroupBack(group=ranged, group_tags={u.tag for u in ranged}, group_position=Point2(cy_center(ranged)), target=target.position,grid=grid))
+                else:
+                     # Melee Actions
+                    melee_maneuver: CombatManeuver = CombatManeuver()
+                    melee_maneuver.add(AMoveGroup(group=melee, group_tags={u.tag for u in melee}, target=target.position))
+                    self.register_behavior(melee_maneuver)
                                     
                 
-                self.register_behavior(melee_maneuver)
             else:
                 # Check if the squad is already close to the target
                 if pos_of_main_squad.distance_to(squad_position) > 0.2 and pos_of_main_squad.distance_to(target) > 0.5:
