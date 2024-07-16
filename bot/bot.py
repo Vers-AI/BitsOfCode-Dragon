@@ -81,11 +81,13 @@ class DragonBot(AresBot):
     
     @property
     def attack_target(self) -> Point2:
-        if self.enemy_structures:
-            return cy_closest_to(position=self.start_location, units=self.enemy_structures).position
-        
-            
-        
+        # if we already have a target and it's still alive, stick with it
+        if hasattr(self, '_attack_target') and self._attack_target in self.enemy_structures:
+            return self._attack_target.position
+
+        elif self.enemy_structures:
+            self._attack_target = cy_pick_enemy_target(self.enemy_structures)
+            return self._attack_target.position
             
         # not seen anything in early game, just head to enemy spawn
         elif self.time < 240.0:
@@ -282,6 +284,7 @@ class DragonBot(AresBot):
 
 
     # Function to defend against worker rushes and cannon rushes
+    # TODO  - WorkerKiteBack to worker defense
     async def defend_worker_cannon_rush(self, enemy_probes, enemy_cannons):
         # Select a worker
         if worker := self.mediator.select_worker(target_position=self.start_location):
@@ -326,13 +329,10 @@ class DragonBot(AresBot):
                     # keep units safe when they are low in shields else stutter back
                     for unit in ranged:
                         ranged_maneuver: CombatManeuver = CombatManeuver()
-                        if unit.shield_health_percentage < 0.5:
+                        if unit.shield_health_percentage < 0.2:
                             ranged_maneuver.add(KeepUnitSafe(unit, grid))
                         else:
-                            if cy_attack_ready(self, unit, target):
-                                ranged_maneuver.add(StutterUnitBack(unit, target=target, grid=grid))
-                            else:
-                                ranged_maneuver.add(AMove(unit, target))
+                            ranged_maneuver.add(StutterUnitBack(unit, target=target, grid=grid))
                         self.register_behavior(ranged_maneuver)
                 else:
                      # Melee Actions
