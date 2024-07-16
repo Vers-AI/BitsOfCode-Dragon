@@ -7,11 +7,11 @@ MyBotName: DragonBot
 MyBotRace: Protoss
 # setting ture allows auto upload to aiareana (https://aiarena.net/) on push to `main` branch
 # see tutorial on readme before setting to True
-AutoUploadToAiarena: True
+AutoUploadToAiarena: False
 ########################
 
 UseData: False
-Debug: False
+Debug: True
 GameStep: 4
 DebugGameStep: 2
 
