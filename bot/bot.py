@@ -83,10 +83,12 @@ class DragonBot(AresBot):
     def attack_target(self) -> Point2:
         # if we already have a target and it's still alive, stick with it
         if hasattr(self, '_attack_target') and self._attack_target in self.enemy_structures:
+            print("Target still alive", self._attack_target)
             return self._attack_target.position
 
         elif self.enemy_structures:
             self._attack_target = cy_pick_enemy_target(self.enemy_structures)
+            print("Picking target", self._attack_target)
             return self._attack_target.position
             
         # not seen anything in early game, just head to enemy spawn
@@ -316,7 +318,7 @@ class DragonBot(AresBot):
 
             all_close: Units = self.mediator.get_units_in_range(
                     start_points=[squad_position],
-                    distances=15,
+                    distances=25,
                     query_tree=UnitTreeQueryType.AllEnemy,
                     return_as_dict=False,
                 )[0].filter(lambda u: not u.is_memory and not u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)            
@@ -344,11 +346,13 @@ class DragonBot(AresBot):
             else:
                 # TODO - Fix grouping up without messing with Target, by iterating over all units checking distance to squad position if too far come close
                 # # Check if the squad is already close to the target
-                # if pos_of_main_squad.distance_to(squad_position) > 0.2 and pos_of_main_squad.distance_to(target) > 0.1:
-                #     # Move towards the position of the main squad to regroup
-                #         Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, success_at_distance=0.1))      
-                # else:
-                Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target))
+                if pos_of_main_squad.distance_to(squad_position) > 0.2 and pos_of_main_squad.distance_to(target) > 0.1:
+                    # Move towards the position of the main squad to regroup
+                    Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, sense_danger=False, success_at_distance=0.1))      
+                else:
+                   # Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=target.position, grid=grid, sense_danger=True, success_at_distance=25))
+                    Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target.position))
+
                     
                 self.register_behavior(Main_Army_Actions)
 
@@ -407,7 +411,7 @@ class DragonBot(AresBot):
         
         if self._commenced_attack:
         #follow the main army if it has commenced attack
-            target = Main_Army.center.towards(self.attack_target, 10)
+            target = Main_Army.center.towards(self.attack_target, 20)
             for unit in Scout:
                 Scout_Actions.add(
                     PathUnitToTarget(
