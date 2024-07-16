@@ -53,7 +53,7 @@ Builds:
             - 24 STALKER
             - 26 CHRONO @ GATEWAY
             - 26 ROBOTICSFACILITY
-            - 29 STALKER
+            - 29 STALKER 
             - 33 CHRONO @ CYBERNETICSCORE
             - 33 CHRONO @ NEXUS
             - 33 GATEWAY x2 @ NAT
@@ -61,16 +61,18 @@ Builds:
             - 33 GAS x2
             - 35 OBSERVER
             - 42 IMMORTAL
-            - 42 STALKER x3 @ NAT
             - 50 ROBOTICSBAY
             - 50 ROBOTICSFACILITY
             - 52 IMMORTAL
             - 55 COLOSSUS x2
+            - 55 CHRONO @ ROBOTICSFACILITY x2
             - 56 EXTENDEDTHERMALLANCE
-            - 57 CHRONO @ ROBOTICSBAY x2
+            - 57 CHRONO @ ROBOTICSBAY
+            - 57 STALKER x3 @ NAT
             - 60 TWILIGHTCOUNCIL
             - 70 FORGE
             - 70 CHARGE
+            - 70 CHRONO @ TWILIGHTCOUNCIL
             - 70 PROTOSSGROUNDWEAPONSLEVEL1
             - 70 GATEWAY x5
             - 70 TEMPLARARCHIVE
