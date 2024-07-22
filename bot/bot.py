@@ -106,10 +106,10 @@ class DragonBot(AresBot):
     @property
     def Standard_Army(self) -> dict:
         return {
-            UnitTypeId.IMMORTAL: {"proportion": 0.4, "priority": 0},
-            UnitTypeId.COLOSSUS: {"proportion": 0.3, "priority": 2},
-            UnitTypeId.HIGHTEMPLAR: {"proportion": 0.2, "priority": 1},
-            UnitTypeId.ZEALOT: {"proportion": 0.1, "priority": 3},
+            UnitTypeId.IMMORTAL: {"proportion": 0.3, "priority": 0},
+            UnitTypeId.COLOSSUS: {"proportion": 0.2, "priority": 2},
+            UnitTypeId.HIGHTEMPLAR: {"proportion": 0.3, "priority": 1},
+            UnitTypeId.ZEALOT: {"proportion": 0.2, "priority": 3},
         }
     
     @property
@@ -182,9 +182,8 @@ class DragonBot(AresBot):
                     self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
                     self._used_cheese_defense = True
         # Backstop check for if something went wrong
-        if self.minerals > 1200 and self.build_order_runner.build_completed == False:
+        if self.minerals > 10000 and self.build_order_runner.build_completed == False:
             self.build_order_runner.set_build_completed()
-            self.register_behavior(SpawnController(self.Standard_Army))
             self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
             
         
@@ -413,7 +412,7 @@ class DragonBot(AresBot):
         # Create a list of targets for the scout
         targets = self.expansion_locations_list[:5] + [self.enemy_start_locations[0]]
         
-        if self._commenced_attack:
+        if self._commenced_attack or self._under_attack:
         #follow the main army if it has commenced attack
             target = Main_Army.center.towards(self.attack_target, 20)
             for unit in Scout:
