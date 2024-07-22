@@ -218,7 +218,7 @@ class DragonBot(AresBot):
                 self._commenced_attack = True
 
         # Additional Probes
-        if self.townhalls.amount == 3 and self.workers.amount < 66:
+        if self.townhalls.ready.amount == 3 and self.workers.amount < 66:
             if self.can_afford(UnitTypeId.PROBE):
                 self.train(UnitTypeId.PROBE)
 
