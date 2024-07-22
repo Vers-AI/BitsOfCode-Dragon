@@ -124,7 +124,6 @@ class DragonBot(AresBot):
         await super(DragonBot, self).on_start()
         
         print("Game started")
-        self.client.game_step = 2    
         self.speedmining_positions = get_speedmining_positions(self)
         split_workers(self)   
 
