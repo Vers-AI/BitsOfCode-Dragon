@@ -218,6 +218,11 @@ class DragonBot(AresBot):
             elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
                 self._commenced_attack = True
 
+        # Additional Probes
+        if self.townhalls.amount == 3 and self.workers.amount < 66:
+            if self.can_afford(UnitTypeId.PROBE):
+                self.train(UnitTypeId.PROBE)
+
         ### FAIL SAFES
         #Activate the scout if it exists if not build one
         if Scout:
