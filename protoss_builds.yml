@@ -53,12 +53,14 @@ Builds:
             - 24 STALKER
             - 26 CHRONO @ GATEWAY
             - 26 ROBOTICSFACILITY
-            - 29 STALKER 
-            - 33 CHRONO @ CYBERNETICSCORE
+            - 27 STALKER
+            - 27 CHRONO @ GATEWAY
+            - 30 STALKER 
+            - 32 CHRONO @ CYBERNETICSCORE
             - 33 CHRONO @ NEXUS
-            - 33 GATEWAY x2 @ NAT
-            - 33 PYLON @ NAT
-            - 33 GAS x2
+            - 34 GATEWAY x2 @ NAT
+            - 34 PYLON @ NAT
+            - 34 GAS x2
             - 35 OBSERVER
             - 42 IMMORTAL
             - 50 ROBOTICSBAY
@@ -71,25 +73,28 @@ Builds:
             - 56 EXTENDEDTHERMALLANCE
             - 57 CHRONO @ ROBOTICSBAY
             - 57 STALKER x3 @ NAT
-            - 57 CHRONO @ ROBOTICSBAY
             - 58 GAS x2
+            - 59 CHRONO @ ROBOTICSBAY
             - 59 IMMORTAL x2
             - 59 CHRONO @ ROBOTICSFACILITY x2
             - 60 TWILIGHTCOUNCIL
-            - 68 WARPPRISM
             - 70 FORGE
             - 70 GATEWAY
             - 70 GATEWAY
-            - 70 GATEWAY
-            - 70 GATEWAY
-            - 70 GATEWAY
-            - 70 TEMPLARARCHIVE
-            - 72 CHARGE
-            - 72 CHRONO @ TWILIGHTCOUNCIL
-            - 72 PROTOSSGROUNDWEAPONSLEVEL1
+            - 70 CHARGE
+            - 70 CHRONO @ TWILIGHTCOUNCIL
+            - 70 PROTOSSGROUNDWEAPONSLEVEL1
+            - 70 CHRONO @ FORGE
+            - 72 GATEWAY
+            - 72 GATEWAY
             - 72 CHRONO @ FORGE
+            - 72 GATEWAY
+            - 72 TEMPLARARCHIVE
+            - 74 WARPPRISM
             - 82 HIGHTEMPLAR x2 @ NAT
-            - 82 CHRONO @ FORGE 
+            - 82 CHRONO @ FORGE
+            - 82 CHRONO @ TWILIGHTCOUNCIL 
             - 82 ZEALOT x6 @ NAT
+            # TODO break the zealots up to 6 individual lines
    
     
