@@ -199,7 +199,7 @@ class DragonBot(AresBot):
 
             if Warp_Prism:
                     prism_location = Warp_Prism[0].position
-                    self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location))
+                    self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location, freeflow_mode=True))
             else:
                 self.register_behavior(SpawnController(self.Standard_Army))
             
@@ -215,6 +215,9 @@ class DragonBot(AresBot):
         if self.townhalls.ready.amount == 3 and self.workers.amount < 66:
             if self.can_afford(UnitTypeId.PROBE):
                 self.train(UnitTypeId.PROBE)
+            for townhall in self.townhalls:
+                if not townhall.is_idle and townhall.energy >= 50:
+                    townhall(AbilityId.EFFECT_CHRONOBOOST, townhall)
 
         ### FAIL SAFES
         #Activate the scout if it exists if not build one
