@@ -100,10 +100,10 @@ class DragonBot(AresBot):
     @property
     def Standard_Army(self) -> dict:
         return {
-            UnitTypeId.IMMORTAL: {"proportion": 0.3, "priority": 2},
+            UnitTypeId.IMMORTAL: {"proportion": 0.35, "priority": 2},
             UnitTypeId.COLOSSUS: {"proportion": 0.1, "priority": 3},
-            UnitTypeId.HIGHTEMPLAR: {"proportion": 0.35, "priority": 1},
-            UnitTypeId.ZEALOT: {"proportion": 0.25, "priority": 0},
+            UnitTypeId.HIGHTEMPLAR: {"proportion": 0.45, "priority": 1},
+            UnitTypeId.ZEALOT: {"proportion": 0.1, "priority": 0},
         }
     
     @property
@@ -133,7 +133,7 @@ class DragonBot(AresBot):
         self.scout_targets = self.expansion_locations_list
         
         self.natural_expansion: Point2 = await self.get_next_expansion()
-        self._begin_attack_at_supply = 30.0
+        self._begin_attack_at_supply = 25.0
         
         self.expansions_generator = cycle(
             [pos for pos in self.expansion_locations_list]
@@ -195,13 +195,14 @@ class DragonBot(AresBot):
         ## Macro and Army control
         if self.build_order_runner.build_completed and not self._used_cheese_defense and not self._used_rush_defense:
             self.register_behavior(AutoSupply(base_location=self.start_location))
-            # self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))  # disabled for now
-
+            self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
+            freeflow: bool = self.minerals > 800 and self.vespene < 200
+        
             if Warp_Prism:
                     prism_location = Warp_Prism[0].position
-                    self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location, freeflow_mode=True))
+                    self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location, freeflow_mode=freeflow))
             else:
-                self.register_behavior(SpawnController(self.Standard_Army))
+                self.register_behavior(SpawnController(self.Standard_Army, freeflow_mode=freeflow))
             
             if self.get_total_supply(Main_Army) <= self._begin_attack_at_supply:
                 self._commenced_attack = False
