@@ -178,7 +178,6 @@ class DragonBot(AresBot):
         # Backstop check for if something went wrong
         if self.minerals > 2000 and self.build_order_runner.build_completed == False:
             self.build_order_runner.set_build_completed()
-            self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
             
         
 
@@ -319,7 +318,7 @@ class DragonBot(AresBot):
 
             all_close: Units = self.mediator.get_units_in_range(
                     start_points=[squad_position],
-                    distances=25,
+                    distances=15,
                     query_tree=UnitTreeQueryType.AllEnemy,
                     return_as_dict=False,
                 )[0].filter(lambda u: not u.is_memory and not u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)            
