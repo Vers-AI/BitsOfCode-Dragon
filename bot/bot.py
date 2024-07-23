@@ -81,15 +81,9 @@ class DragonBot(AresBot):
     
     @property
     def attack_target(self) -> Point2:
-        # if we already have a target and it's still alive, stick with it
-        if hasattr(self, '_attack_target') and self._attack_target in self.enemy_structures:
-            print("Target still alive", self._attack_target)
-            return self._attack_target.position
-
-        elif self.enemy_structures:
-            self._attack_target = cy_pick_enemy_target(self.enemy_structures)
-            print("Picking target", self._attack_target)
-            return self._attack_target.position
+        if self.enemy_structures:
+            # print("Picking target", self._attack_target)
+            return cy_closest_to(self.start_location, self.enemy_structures).position
             
         # not seen anything in early game, just head to enemy spawn
         elif self.time < 240.0:
@@ -106,10 +100,10 @@ class DragonBot(AresBot):
     @property
     def Standard_Army(self) -> dict:
         return {
-            UnitTypeId.IMMORTAL: {"proportion": 0.3, "priority": 0},
-            UnitTypeId.COLOSSUS: {"proportion": 0.2, "priority": 2},
-            UnitTypeId.HIGHTEMPLAR: {"proportion": 0.3, "priority": 1},
-            UnitTypeId.ZEALOT: {"proportion": 0.2, "priority": 3},
+            UnitTypeId.IMMORTAL: {"proportion": 0.3, "priority": 2},
+            UnitTypeId.COLOSSUS: {"proportion": 0.1, "priority": 3},
+            UnitTypeId.HIGHTEMPLAR: {"proportion": 0.35, "priority": 1},
+            UnitTypeId.ZEALOT: {"proportion": 0.25, "priority": 0},
         }
     
     @property
@@ -182,7 +176,7 @@ class DragonBot(AresBot):
                     self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
                     self._used_cheese_defense = True
         # Backstop check for if something went wrong
-        if self.minerals > 10000 and self.build_order_runner.build_completed == False:
+        if self.minerals > 2000 and self.build_order_runner.build_completed == False:
             self.build_order_runner.set_build_completed()
             self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
             
