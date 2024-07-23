@@ -318,7 +318,7 @@ class DragonBot(AresBot):
 
             all_close: Units = self.mediator.get_units_in_range(
                     start_points=[squad_position],
-                    distances=15,
+                    distances=13.5,
                     query_tree=UnitTreeQueryType.AllEnemy,
                     return_as_dict=False,
                 )[0].filter(lambda u: not u.is_memory and not u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)            
@@ -411,8 +411,10 @@ class DragonBot(AresBot):
         
         if self._commenced_attack or self._under_attack:
         #follow the main army if it has commenced attack
-            target = Main_Army.center.towards(self.attack_target, 20)
+            
             for unit in Scout:
+                direction_vector = (unit.position + Main_Army.center).normalized
+                target = Main_Army.center + direction_vector * 15
                 Scout_Actions.add(
                     PathUnitToTarget(
                         unit=unit,
