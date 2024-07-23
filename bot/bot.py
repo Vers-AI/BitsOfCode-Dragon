@@ -81,20 +81,36 @@ class DragonBot(AresBot):
     
     @property
     def attack_target(self) -> Point2:
+        main_army_position : Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)  # Assume this method returns the current position of the main army
+        
         if self.enemy_structures:
-            # print("Picking target", self._attack_target)
-            return cy_closest_to(self.start_location, self.enemy_structures).position
+            # Prioritize the closest enemy structure to the main army
+            closest_structure = cy_closest_to(main_army_position, self.enemy_structures).position
             
-        # not seen anything in early game, just head to enemy spawn
+            # Check if the closest structure is far away and if so, fallback to a stable target
+            if closest_structure.distance_to(main_army_position) > 25.0:
+                return self.fallback_target
+            
+            return closest_structure.position
+            
+        # Not seen anything in early game, just head to enemy spawn
         elif self.time < 240.0:
             return self.enemy_start_locations[0]
-        # else search the map
+        
+        # Else search the map
         else:
-            # cycle through expansion locations
+            # Cycle through expansion locations
             if self.is_visible(self.current_base_target):
                 self.current_base_target = next(self.expansions_generator)
-    
+        
             return self.current_base_target
+    
+    @property
+    def fallback_target(self) -> Point2:
+        if self.is_visible(self.current_base_target):
+            self.current_base_target = next(self.expansions_generator)
+        
+        return self.current_base_target
     
     # Army Compositions
     @property
@@ -221,7 +237,7 @@ class DragonBot(AresBot):
 
         ### FAIL SAFES
         #Activate the scout if it exists if not build one
-        if Scout:
+        if Scout and Main_Army:
             self.Control_Scout(Scout, Main_Army)
         else:
             if self.time > 4*60:
@@ -230,10 +246,7 @@ class DragonBot(AresBot):
                         if self.can_afford(UnitTypeId.OBSERVER):
                             self.train(UnitTypeId.OBSERVER)
                             
-        # Check for unpowered builds
-        # TODO - use On_Unit_destroyed to check if the destroyed is a pylon, if so check if buildings are unpowered, if so build pylon
-
-        
+     
         # if a Warp Prism exists, send it to follow the main army
         if Warp_Prism:
             self.Warp_Prism_Follower(Warp_Prism, Main_Army)
@@ -305,7 +318,7 @@ class DragonBot(AresBot):
                 await defending_worker.attack(cannon)
     
     def Control_Main_Army(self, Main_Army: Units, target: Point2) -> None:
-        squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=15.5)
+        squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=15)
         pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
         grid: np.ndarray = self.mediator.get_ground_grid
 
@@ -318,7 +331,7 @@ class DragonBot(AresBot):
 
             all_close: Units = self.mediator.get_units_in_range(
                     start_points=[squad_position],
-                    distances=13.5,
+                    distances=13,
                     query_tree=UnitTreeQueryType.AllEnemy,
                     return_as_dict=False,
                 )[0].filter(lambda u: not u.is_memory and not u.is_structure and u.type_id not in COMMON_UNIT_IGNORE_TYPES)            
@@ -326,7 +339,7 @@ class DragonBot(AresBot):
             if all_close:
                 melee: list[Unit] = [u for u in units if u.ground_range <= 3]
                 ranged: list[Unit] = [u for u in units if u.ground_range > 3]
-                target = cy_pick_enemy_target(all_close)                
+                en_target = cy_pick_enemy_target(all_close)                
                 if ranged:
                     # keep units safe when they are low in shields else stutter back
                     for unit in ranged:
@@ -334,23 +347,21 @@ class DragonBot(AresBot):
                         if unit.shield_health_percentage < 0.2:
                             ranged_maneuver.add(KeepUnitSafe(unit, grid))
                         else:
-                            ranged_maneuver.add(StutterUnitBack(unit, target=target, grid=grid))
+                            ranged_maneuver.add(StutterUnitBack(unit, target=en_target, grid=grid))
                         self.register_behavior(ranged_maneuver)
                 else:
                      # Melee Actions
                     melee_maneuver: CombatManeuver = CombatManeuver()
-                    melee_maneuver.add(AMoveGroup(group=melee, group_tags={u.tag for u in melee}, target=target.position))
+                    melee_maneuver.add(AMoveGroup(group=melee, group_tags={u.tag for u in melee}, target=en_target.position))
                     self.register_behavior(melee_maneuver)
                                     
                 
             else:
-                # TODO - Fix grouping up without messing with Target, by iterating over all units checking distance to squad position if too far come close
                 # # Check if the squad is already close to the target
-                if pos_of_main_squad.distance_to(squad_position) > 0.2 and pos_of_main_squad.distance_to(target) > 0.1:
+                if pos_of_main_squad.distance_to(squad_position) > 0.1:
                     # Move towards the position of the main squad to regroup
                     Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=pos_of_main_squad, grid=grid, sense_danger=False, success_at_distance=0.1))      
                 else:
-                   # Main_Army_Actions.add(PathGroupToTarget(start=squad_position, group=units, group_tags=squad_tags, target=target.position, grid=grid, sense_danger=True, success_at_distance=25))
                     Main_Army_Actions.add(AMoveGroup(group=units, group_tags=squad_tags, target=target.position))
 
                     
