@@ -91,10 +91,10 @@ Builds:
             - 72 GATEWAY
             - 72 TEMPLARARCHIVE
             - 74 WARPPRISM
-            - 82 HIGHTEMPLAR x2 @ NAT
+            - 82 HIGHTEMPLAR *2 @ NAT
             - 82 CHRONO @ FORGE
             - 82 CHRONO @ TWILIGHTCOUNCIL 
-            - 82 ZEALOT x6 @ NAT
+            - 82 ZEALOT *6 @ NAT
             # TODO break the zealots up to 6 individual lines
    
     
