@@ -76,9 +76,7 @@ class DragonBot(AresBot):
         # Flags
         self._commenced_attack: bool = False
         self._used_cheese_defense: bool = False
-        self._used_rush_defense: bool = False
         self._under_attack: bool = False
-        self.assigned_ranged: bool = False # for ranged units
     
     @property
     def attack_target(self) -> Point2:
@@ -138,7 +136,19 @@ class DragonBot(AresBot):
         ### Macro 
         # self.speedmining_positions = get_speedmining_positions(self)
         # split_workers(self)   
-        ### 
+        ###
+        # Marco Plans
+        standard_plan: MacroPlan = MacroPlan()
+        standard_plan.add(AutoSupply(base_location=self.start_location))
+        standard_plan.add(SpawnController(self.Standard_Army))
+        standard_plan.add(ProductionController(self.Standard_Army,base_location=self.start_location))
+        self.register_behavior(standard_plan) 
+
+        cheese_defense_plan: MacroPlan = MacroPlan()
+        cheese_defense_plan.add(AutoSupply(base_location=self.start_location))
+        cheese_defense_plan.add(SpawnController(self.cheese_defense_army,spawn_target=self.start_location))
+        cheese_defense_plan.add(ProductionController(self.cheese_defense_army,base_location=self.start_location))
+        self.register_behavior(cheese_defense_plan)
             
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
 
@@ -183,38 +193,21 @@ class DragonBot(AresBot):
         # If there are enemy units near our bases, respond to the threat
         if self.townhalls.exists and self.all_enemy_units.closer_than(30, self.townhalls.center):
             self.threat_response(Main_Army)
-
-        # Checks for cheese defense
-        if self.time > 2*60 and self.time < 3*60 + 30:
-            if worker_scouts.exists:
-                enemy_buildings = self.enemy_structures
-                if enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists:
-                    self.build_order_runner.set_build_completed()
-                    self.register_behavior(SpawnController(self.cheese_defense_army))
-                    self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
-                    self._used_cheese_defense = True
-        # Backstop check for if something went wrong
-        if self.minerals > 2500 and self.build_order_runner.build_completed == False:
-            self.build_order_runner.set_build_completed()
-            
+       
         
-
-        if self._used_cheese_defense or self._used_rush_defense:
-            
-            if self.get_total_supply(Main_Army) <= self._begin_attack_at_supply:
-                self._commenced_attack = False
-            elif self._commenced_attack and not self._under_attack:
-                self.Control_Main_Army(Main_Army, self.attack_target)
-
-            elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
-                self._commenced_attack = True
-
+        # TODO add checking for 1 base reaction
+        # Checks for cheese defense
+        if self.time > 2*60 and self.time < 3*60 + 30 and not self._under_attack:
+            if not self.mediator.get_enemy_expanded:
+                self.cheese_reaction()
+                self._used_cheese_defense = True   
+            print("Building cheese defense army")
         # TODO - Put macro into its own class
         ## Macro and Army control
         # mine(self, iteration)
         self.register_behavior(Mining(long_distance_mine=False))
 
-        if self.build_order_runner.build_completed and not (self._used_cheese_defense or self._used_rush_defense):
+        if self.build_order_runner.build_completed and not (self._used_cheese_defense or self._used_cheese_defense):
             self.register_behavior(AutoSupply(base_location=self.start_location))
             self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
             freeflow: bool = self.minerals > 800 and self.vespene < 200
@@ -232,6 +225,17 @@ class DragonBot(AresBot):
                 
             elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
                 self._commenced_attack = True
+        
+        # if there was cheese detected
+        if self._used_cheese_defense:
+            MacroPlan(self.cheese_defense_army)                    
+            if self.get_total_supply(Main_Army) <= self._begin_attack_at_supply:
+                self._commenced_attack = False
+            elif self._commenced_attack and not self._under_attack:
+                self.Control_Main_Army(Main_Army, self.attack_target)
+
+            elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
+                self._commenced_attack = True
 
         # Additional Probes
         if self.townhalls.ready.amount == 3 and self.workers.amount < 66:
@@ -242,6 +246,7 @@ class DragonBot(AresBot):
                     townhall(AbilityId.EFFECT_CHRONOBOOST, townhall)
 
         ### FAIL SAFES
+        
         #Activate the scout if it exists if not build one
         if Scout and Main_Army:
             self.Control_Scout(Scout, Main_Army)
@@ -252,7 +257,7 @@ class DragonBot(AresBot):
                         if self.can_afford(UnitTypeId.OBSERVER):
                             self.train(UnitTypeId.OBSERVER)
                             
-     
+        
         # if a Warp Prism exists, send it to follow the main army
         if Warp_Prism:
             self.Warp_Prism_Follower(Warp_Prism, Main_Army)
@@ -261,6 +266,10 @@ class DragonBot(AresBot):
         if self.units(UnitTypeId.HIGHTEMPLAR).amount >= 2:
             for templar in self.units(UnitTypeId.HIGHTEMPLAR).ready:
                 templar(AbilityId.MORPH_ARCHON)
+        
+        # Backstop check for if something went wrong
+        if self.minerals > 2500 and self.build_order_runner.build_completed == False:
+            self.build_order_runner.set_build_completed()
 
             
     async def on_unit_created(self, unit: Unit) -> None:
@@ -304,9 +313,12 @@ class DragonBot(AresBot):
 
 
 
-    # Function to defend against worker rushes and cannon rushes
+    ### Combat Functions: including 1 base and cheese reactions
     # TODO  - WorkerKiteBack to worker defense
     async def defend_worker_cannon_rush(self, enemy_probes, enemy_cannons):
+        self.build_order_runner.set_build_completed()
+        self._used_cheese_defense = True
+        self._under_attack = True
         # Select a worker
         if worker := self.mediator.select_worker(target_position=self.start_location):
             self.mediator.assign_role(tag=worker.tag, role=UnitRole.DEFENDING)
@@ -322,7 +334,36 @@ class DragonBot(AresBot):
         for cannon in enemy_cannons:
             if defending_worker := defending_workers.closest_to(cannon):
                 await defending_worker.attack(cannon)
-    
+    # reaction to cheese attacks
+    async def cheese_reaction(self, Main_Army: Units, target: Point2) -> None:
+        self.build_order_runner.set_build_completed()
+        self._used_cheese_defense = True
+        self._under_attack = True
+        ## Cheese Macro
+        if self.structures(UnitTypeId.PYLON).amount < 2:
+            if self.can_afford(UnitTypeId.PYLON):
+                self.build(UnitTypeId.PYLON, near=self.mediator.get_own_nat())
+        if self.structures(UnitTypeId.PYLON).ready and self.structures(UnitTypeId.GATEWAY).amount < 2:
+            if self.can_afford(UnitTypeId.GATEWAY):
+                self.build(UnitTypeId.GATEWAY, near=self.mediator.get_own_nat())
+        if self.structures(UnitTypeId.GATEWAY).ready and self.units(UnitTypeId.ZEALOT).amount < 2:
+            if self.can_afford(UnitTypeId.ZEALOT):
+                self.train(UnitTypeId.ZEALOT, closest_to=self.mediator.get_own_nat())
+        if self.structures(UnitTypeId.GATEWAY).ready and self.units(UnitTypeId.ZEALOT).amount >= 1:
+            if self.can_afford(UnitTypeId.SHIELDBATTERY):
+                self.build(UnitTypeId.SHIELDBATTERY, near=self.mediator.get_own_nat())
+        if self.structures(UnitTypeId.SHIELDBATTERY).ready and self.units(UnitTypeId.ZEALOT).amount >= 2:
+            if self.can_afford(UnitTypeId.PYLON):
+                self.build(UnitTypeId.PYLON, near=self.mediator.get_own_nat())
+        
+        ## Cheese Defense
+        if Main_Army:
+            self.Control_Main_Army(Main_Army, target)
+                
+            
+        
+
+
     def Control_Main_Army(self, Main_Army: Units, target: Point2) -> None:
         squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=15)
         pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
@@ -527,23 +568,13 @@ class DragonBot(AresBot):
                 
                 # Check for specific units and act accordingly
                 if unit_categories['pylons'] or len(unit_categories['enemyWorkerUnits']) >= 4 or unit_categories['cannons']:
-                    self.build_order_runner.set_build_completed()
                     self.defend_worker_cannon_rush(unit_categories['enemyWorkerUnits'], unit_categories['cannons'])
-                    self._used_rush_defense = True
-                    self._under_attack = True
                     print("Defending against worker/cannon rush")
                 elif len(unit_categories['zerglings']) > 2:
                     # TODO - add a defend zergling rush function
-                    self.build_order_runner.set_build_completed()
-                    self._used_rush_defense = True
-                    self._under_attack = True
+                    self.cheese_reaction(Main_Army, unit_categories['zerglings'][0].position)
                     print("Defending against zergling rush")
-                if self._used_rush_defense:
-                    # TODO modify the cheese detection to use a ares method
-                    if not ground_enemy_near_bases:
-                        self.register_behavior(SpawnController(self.cheese_defense_army))
-                        self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
-                        print("Building cheese defense army")
+
             else:
                 # If there's a threat and we have a main army, send the army to defend
                 if self.assess_threat(enemy_units, own_forces) > 5 and Main_Army:
