@@ -117,10 +117,10 @@ class DragonBot(AresBot):
     @property
     def Standard_Army(self) -> dict:
         return {
-            UnitTypeId.IMMORTAL: {"proportion": 0.35, "priority": 2},
+            UnitTypeId.IMMORTAL: {"proportion": 0.2, "priority": 2},
             UnitTypeId.COLOSSUS: {"proportion": 0.1, "priority": 3},
             UnitTypeId.HIGHTEMPLAR: {"proportion": 0.45, "priority": 1},
-            UnitTypeId.ZEALOT: {"proportion": 0.1, "priority": 0},
+            UnitTypeId.ZEALOT: {"proportion": 0.25, "priority": 0},
         }
     
     @property

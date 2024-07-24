@@ -79,19 +79,24 @@ Builds:
             - 58 GAS x2
             - 58 ZEALOT *3 @ NAT
             - 58 CHARGE
+            - 58 PROTOSSGROUNDARMORSLEVEL1
             - 58 CHRONO @ TWILIGHTCOUNCIL
             - 59 CHRONO @ ROBOTICSBAY
             - 59 IMMORTAL x2
-            - 59 CHRONO @ ROBOTICSFACILITY x2
+            - 59 CHRONO @ ROBOTICSFACILITY 
             - 60 ZEALOT *3 @ NAT
-            - 62 PROTOSSGROUNDWEAPONSLEVEL1
-            - 63 CHRONO @ FORGE
-            - 70 TEMPLARARCHIVE
-            - 70 GATEWAY *5
+            - 61 CHRONO @ FORGE
+            - 62 TEMPLARARCHIVE
+            - 62 GATEWAY 
+            - 62 GATEWAY
+            - 62 GATEWAY
+            - 62 GATEWAY
+            - 62 GATEWAY 
+            - 64 WARPPRISM
             - 72 CHRONO @ FORGE
-            - 72 HIGHTEMPLAR *6 @ NAT
-            - 74 WARPPRISM
-            - 82 CHRONO @ TWILIGHTCOUNCIL 
-            - 82 ZEALOT *6 @ NAT
+            - 72 HIGHTEMPLAR *2 @ NAT
+            - 82 CHRONO @ TWILIGHTCOUNCIL
+            - 82 CHRONO @ ROBOTICSFACILITY
+             
    
     
