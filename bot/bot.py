@@ -6,7 +6,8 @@ from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole, UnitTreeQueryTyp
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import AMove, ShootTargetInRange, KeepUnitSafe, PathUnitToTarget, StutterUnitBack
 from ares.behaviors.combat.group import AMoveGroup, PathGroupToTarget, KeepGroupSafe, StutterGroupBack
-from ares.behaviors.macro import SpawnController, ProductionController, AutoSupply
+from ares.behaviors.macro import SpawnController, ProductionController, AutoSupply, Mining
+from ares.behaviors.macro import MacroPlan
 from ares.managers.manager_mediator import ManagerMediator
 
 from ares.managers.squad_manager import UnitSquad
@@ -134,9 +135,11 @@ class DragonBot(AresBot):
         await super(DragonBot, self).on_start()
         
         print("Game started")
-        self.speedmining_positions = get_speedmining_positions(self)
-        split_workers(self)   
-
+        ### Macro 
+        # self.speedmining_positions = get_speedmining_positions(self)
+        # split_workers(self)   
+        ### 
+            
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
 
         self.current_base_target = self.enemy_start_locations[0]  # set the target to the enemy start location
@@ -167,7 +170,6 @@ class DragonBot(AresBot):
 
         self.resource_by_tag = {unit.tag: unit for unit in chain(self.mineral_field, self.gas_buildings)}
 
-        mine(self, iteration)
 
         # retrieve all attacking units & scouts
         Main_Army = self.mediator.get_units_from_role(role=UnitRole.ATTACKING)
@@ -192,7 +194,7 @@ class DragonBot(AresBot):
                     self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
                     self._used_cheese_defense = True
         # Backstop check for if something went wrong
-        if self.minerals > 2000 and self.build_order_runner.build_completed == False:
+        if self.minerals > 10000 and self.build_order_runner.build_completed == False:
             self.build_order_runner.set_build_completed()
             
         
@@ -207,8 +209,11 @@ class DragonBot(AresBot):
             elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
                 self._commenced_attack = True
 
-
+        # TODO - Put macro into its own class
         ## Macro and Army control
+        # mine(self, iteration)
+        self.register_behavior(Mining(long_distance_mine=False))
+
         if self.build_order_runner.build_completed and not (self._used_cheese_defense or self._used_rush_defense):
             self.register_behavior(AutoSupply(base_location=self.start_location))
             self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
@@ -517,7 +522,7 @@ class DragonBot(AresBot):
                             print("Cannon Detected")
                         elif unit.type_id == UnitTypeId.ZERGLING:
                             unit_categories['zerglings'].append(unit)
-                            print("Zergling Rush Detected")
+                            print("Zergling Detected")
                         
                 
                 # Check for specific units and act accordingly
@@ -527,7 +532,7 @@ class DragonBot(AresBot):
                     self._used_rush_defense = True
                     self._under_attack = True
                     print("Defending against worker/cannon rush")
-                elif unit_categories['zerglings']:
+                elif len(unit_categories['zerglings']) > 2:
                     # TODO - add a defend zergling rush function
                     self.build_order_runner.set_build_completed()
                     self._used_rush_defense = True
