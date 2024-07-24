@@ -55,14 +55,16 @@ Builds:
             - 26 ROBOTICSFACILITY
             - 27 STALKER
             - 27 CHRONO @ GATEWAY
-            - 30 STALKER 
+            - 28 GATEWAY *2 @ NAT
+            - 30 STALKER
             - 32 CHRONO @ CYBERNETICSCORE
             - 33 CHRONO @ NEXUS
-            - 34 GATEWAY x2 @ NAT
             - 34 PYLON @ NAT
             - 34 GAS x2
             - 35 OBSERVER
+            - 35 STALKER *3 @ NAT
             - 42 IMMORTAL
+            - 42 ZEALOT *3 @ NAT
             - 50 ROBOTICSBAY
             - 50 ROBOTICSFACILITY
             - 52 IMMORTAL
@@ -71,30 +73,25 @@ Builds:
             - 55 COLOSSUS x2
             - 55 CHRONO @ ROBOTICSFACILITY x2
             - 56 EXTENDEDTHERMALLANCE
+            - 56 TWILIGHTCOUNCIL
+            - 56 FORGE
             - 57 CHRONO @ ROBOTICSBAY
-            - 57 STALKER x3 @ NAT
             - 58 GAS x2
+            - 58 ZEALOT *3 @ NAT
+            - 58 CHARGE
+            - 58 CHRONO @ TWILIGHTCOUNCIL
             - 59 CHRONO @ ROBOTICSBAY
             - 59 IMMORTAL x2
             - 59 CHRONO @ ROBOTICSFACILITY x2
-            - 60 TWILIGHTCOUNCIL
-            - 70 FORGE
-            - 70 GATEWAY
-            - 70 GATEWAY
-            - 70 CHARGE
-            - 70 CHRONO @ TWILIGHTCOUNCIL
-            - 70 PROTOSSGROUNDWEAPONSLEVEL1
-            - 70 CHRONO @ FORGE
-            - 72 GATEWAY
-            - 72 GATEWAY
+            - 60 ZEALOT *3 @ NAT
+            - 62 PROTOSSGROUNDWEAPONSLEVEL1
+            - 63 CHRONO @ FORGE
+            - 70 TEMPLARARCHIVE
+            - 70 GATEWAY *5
             - 72 CHRONO @ FORGE
-            - 72 GATEWAY
-            - 72 TEMPLARARCHIVE
+            - 72 HIGHTEMPLAR *6 @ NAT
             - 74 WARPPRISM
-            - 82 HIGHTEMPLAR *2 @ NAT
-            - 82 CHRONO @ FORGE
             - 82 CHRONO @ TWILIGHTCOUNCIL 
             - 82 ZEALOT *6 @ NAT
-            # TODO break the zealots up to 6 individual lines
    
     
