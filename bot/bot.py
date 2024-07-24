@@ -194,7 +194,7 @@ class DragonBot(AresBot):
                     self.register_behavior(ProductionController(self.cheese_defense_army, base_location=self.start_location))
                     self._used_cheese_defense = True
         # Backstop check for if something went wrong
-        if self.minerals > 10000 and self.build_order_runner.build_completed == False:
+        if self.minerals > 2500 and self.build_order_runner.build_completed == False:
             self.build_order_runner.set_build_completed()
             
         
