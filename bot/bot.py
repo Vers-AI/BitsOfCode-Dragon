@@ -499,9 +499,9 @@ class DragonBot(AresBot):
                 # If threat_level is needed, add logic here to process it
         
             #Checks for Early Game Threats
-            if self.time < 5*60 and self.townhalls.first:
+            if self.time < 3*60 and self.townhalls.first:
                 # Initialize categories
-                unit_categories = {'pylons': [], 'enemyWorkerUnits': [], 'cannons': []}
+                unit_categories = {'pylons': [], 'enemyWorkerUnits': [], 'cannons': [], 'zerglings': []}
                 
                 # Retrieve and categorize units from tags
                 for _, enemy_tags in ground_enemy_near_bases.items():
@@ -515,6 +515,10 @@ class DragonBot(AresBot):
                         elif unit.type_id == UnitTypeId.PHOTONCANNON:
                             unit_categories['cannons'].append(unit)
                             print("Cannon Detected")
+                        elif unit.type_id == UnitTypeId.ZERGLING:
+                            unit_categories['zerglings'].append(unit)
+                            print("Zergling Rush Detected")
+                        
                 
                 # Check for specific units and act accordingly
                 if unit_categories['pylons'] or len(unit_categories['enemyWorkerUnits']) >= 4 or unit_categories['cannons']:
@@ -523,6 +527,12 @@ class DragonBot(AresBot):
                     self._used_rush_defense = True
                     self._under_attack = True
                     print("Defending against worker/cannon rush")
+                elif unit_categories['zerglings']:
+                    # TODO - add a defend zergling rush function
+                    self.build_order_runner.set_build_completed()
+                    self._used_rush_defense = True
+                    self._under_attack = True
+                    print("Defending against zergling rush")
                 if self._used_rush_defense:
                     # TODO modify the cheese detection to use a ares method
                     if not ground_enemy_near_bases:
