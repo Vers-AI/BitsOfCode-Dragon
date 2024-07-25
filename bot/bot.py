@@ -2,6 +2,7 @@ from typing import Optional
 from itertools import cycle
 
 from ares import AresBot
+
 from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole, UnitTreeQueryType
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import AMove, ShootTargetInRange, KeepUnitSafe, PathUnitToTarget, StutterUnitBack
@@ -13,7 +14,7 @@ from ares.managers.manager_mediator import ManagerMediator
 
 
 from ares.managers.squad_manager import UnitSquad
-from cython_extensions import cy_closest_to, cy_pick_enemy_target, cy_find_units_center_mass, cy_attack_ready
+from cython_extensions import cy_closest_to, cy_pick_enemy_target, cy_find_units_center_mass, cy_attack_ready, cy_unit_pending
 
 from itertools import chain
 
@@ -78,6 +79,7 @@ class DragonBot(AresBot):
         self._used_1_base_defense: bool = False
         self._under_attack: bool = False
         self._cheese_reaction_completed: bool = False
+        self._is_building: bool = False
     
     @property
     def attack_target(self) -> Point2:
@@ -340,7 +342,7 @@ class DragonBot(AresBot):
     def cheese_reaction(self) -> None:
         print("Cheese Reaction")
     
-        pylon_count = self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON)
+        pylon_count = self.structures(UnitTypeId.PYLON).amount + self.structure_pending(UnitTypeId.PYLON)
         gateway_count = self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)
         zealot_count = self.units(UnitTypeId.ZEALOT).amount
         shield_battery_ready = self.structures(UnitTypeId.SHIELDBATTERY).ready
@@ -358,7 +360,10 @@ class DragonBot(AresBot):
                 cyb(AbilityId.CANCEL)
         # TODO - Fix Reaction
         if pylon_count < 2:
-            if not self.already_pending(UnitTypeId.PYLON): 
+            print("Pylon Count: ", pylon_count)
+            print("pylon pending: ", self.already_pending(UnitTypeId.PYLON))
+            print("total pylons: ", self.structures(UnitTypeId.PYLON).amount)
+            if not self.structure_pending(UnitTypeId.PYLON): 
                 if self.can_afford(UnitTypeId.PYLON):
                     self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.PYLON, closest_to=self.game_info.map_center))
                     print("Pylon built")
@@ -366,7 +371,6 @@ class DragonBot(AresBot):
         if self.structures(UnitTypeId.PYLON).ready and gateway_count < 2:
             if self.can_afford(UnitTypeId.GATEWAY):
                 self.build(UnitTypeId.GATEWAY, near=natural)
-                print("Gateway built")
     
         if gateway_count > 0 and zealot_count < 2:
             if self.can_afford(UnitTypeId.ZEALOT):
