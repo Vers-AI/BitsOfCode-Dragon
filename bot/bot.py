@@ -190,8 +190,7 @@ class DragonBot(AresBot):
             enemy_buildings = self.enemy_structures
             if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
                 self._used_cheese_defense = True   
-                print("Building cheese detected at:",self.time)
-        # TODO - Put macro into its own class
+        # TODO - Put macro into its own .py file
         ## Macro and Army control
             
         
@@ -224,6 +223,11 @@ class DragonBot(AresBot):
                 self.build_order_runner.set_build_completed()
             
             if self._cheese_reaction_completed:
+                if not self._under_attack:
+                    if self.townhalls <= 3:
+                        if self.can_afford(UnitTypeId.NEXUS):
+                            self.expand_now()
+
             
                 cheese_defense_plan: MacroPlan = MacroPlan()
                 cheese_defense_plan.add(AutoSupply(base_location=self.start_location))
@@ -239,6 +243,7 @@ class DragonBot(AresBot):
                     self._commenced_attack = True
                         
                 self.register_behavior(cheese_defense_plan)
+                    
 
 
         # Additional Probes
@@ -339,38 +344,26 @@ class DragonBot(AresBot):
             if defending_worker := defending_workers.closest_to(cannon):
                 defending_worker.attack(cannon)
     # reaction to cheese attacks
-    def cheese_reaction(self) -> None:
-        print("Cheese Reaction")
-    
+    def cheese_reaction(self) -> None:    
         pylon_count = self.structures(UnitTypeId.PYLON).amount + self.structure_pending(UnitTypeId.PYLON)
-        gateway_count = self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)
+        gateway_count = self.structures(UnitTypeId.GATEWAY).amount + self.structure_pending(UnitTypeId.GATEWAY)
         zealot_count = self.units(UnitTypeId.ZEALOT).amount
         shield_battery_ready = self.structures(UnitTypeId.SHIELDBATTERY).ready
         natural = self.natural_expansion.towards(self.game_info.map_center, 1)
-        townhalls = self.townhalls
-        pending_townhalls = self.already_pending(UnitTypeId.NEXUS)
-        cyber = self.already_pending(UnitTypeId.CYBERNETICSCORE)
-
+        pending_townhalls = self.structure_pending(UnitTypeId.NEXUS)
+        
         if pending_townhalls == 1:
             for pt in self.townhalls.not_ready:
-                pt(AbilityId.CANCEL)
+                self.mediator.cancel_structure(structure=pt)
         
-        if cyber == 1:
-            for cyb in self.structures(UnitTypeId.CYBERNETICSCORE).not_ready:
-                cyb(AbilityId.CANCEL)
-        # TODO - Fix Reaction
         if pylon_count < 2:
-            print("Pylon Count: ", pylon_count)
-            print("pylon pending: ", self.already_pending(UnitTypeId.PYLON))
-            print("total pylons: ", self.structures(UnitTypeId.PYLON).amount)
             if not self.structure_pending(UnitTypeId.PYLON): 
                 if self.can_afford(UnitTypeId.PYLON):
                     self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.PYLON, closest_to=self.game_info.map_center))
-                    print("Pylon built")
     
         if self.structures(UnitTypeId.PYLON).ready and gateway_count < 2:
-            if self.can_afford(UnitTypeId.GATEWAY):
-                self.build(UnitTypeId.GATEWAY, near=natural)
+            if self.can_afford(UnitTypeId.GATEWAY) and self.structure_pending(UnitTypeId.GATEWAY) == 0:
+                self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.GATEWAY, closest_to=self.game_info.map_center))
     
         if gateway_count > 0 and zealot_count < 2:
             if self.can_afford(UnitTypeId.ZEALOT):
@@ -385,12 +378,13 @@ class DragonBot(AresBot):
                             th(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, gateways[0])
 
         if gateway_count > 0 and zealot_count >= 1:
-            if self.can_afford(UnitTypeId.SHIELDBATTERY):
-                self.build(UnitTypeId.SHIELDBATTERY, near=natural)
-    
-        if shield_battery_ready and zealot_count >= 2:
-            if self.can_afford(UnitTypeId.PYLON):
-                self.build(UnitTypeId.PYLON, near=natural)
+            if not self.structures(UnitTypeId.SHIELDBATTERY).ready and self.structures(UnitTypeId.CYBERNETICSCORE).ready:
+                if self.can_afford(UnitTypeId.SHIELDBATTERY) and self.structure_pending(UnitTypeId.SHIELDBATTERY) == 0:
+                    self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.game_info.map_center))
+        
+        if shield_battery_ready and zealot_count >= 2 and pylon_count < 3:
+            if self.can_afford(UnitTypeId.PYLON) and self.structure_pending(UnitTypeId.PYLON) == 0:
+                self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.PYLON, closest_to=self.game_info.map_center))
                 self._cheese_reaction_completed = True
         
        
@@ -602,7 +596,6 @@ class DragonBot(AresBot):
                     self.defend_worker_cannon_rush(unit_categories['enemyWorkerUnits'], unit_categories['cannons'])
                     print("Defending against worker/cannon rush")
                 elif len(unit_categories['zerglings']) > 2:
-                    # TODO - add a defend zergling rush function
                     self._used_cheese_defense = True
                     print("Defending against zergling rush")
 
@@ -611,14 +604,14 @@ class DragonBot(AresBot):
                 if self.assess_threat(enemy_units, own_forces) > 5 and Main_Army:
                     self._under_attack = True
                     # TODO - pass out num_units to the function to tell how many units in the threat
-                    threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
-                    threat_position = Point2(threat_position)
-                    self.Control_Main_Army(Main_Army, threat_position)
-                    print("Under Attack")
-                    if not self.build_order_runner.build_completed:
-                        self.build_order_runner.set_build_completed()
                 else:
                     self._under_attack = False
+            if self._under_attack:
+                threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
+                threat_position = Point2(threat_position)
+                self.Control_Main_Army(Main_Army, threat_position)
+
+
     
     def assess_threat(self,enemy_units_near_bases, own_forces):
         threat_level = 0
