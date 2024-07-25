@@ -6,9 +6,11 @@ from ares.consts import ALL_STRUCTURES, WORKER_TYPES, UnitRole, UnitTreeQueryTyp
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import AMove, ShootTargetInRange, KeepUnitSafe, PathUnitToTarget, StutterUnitBack
 from ares.behaviors.combat.group import AMoveGroup, PathGroupToTarget, KeepGroupSafe, StutterGroupBack
-from ares.behaviors.macro import SpawnController, ProductionController, AutoSupply, Mining
+from ares.behaviors.macro import SpawnController, ProductionController, AutoSupply, Mining, BuildStructure
 from ares.behaviors.macro import MacroPlan
 from ares.managers.manager_mediator import ManagerMediator
+
+
 
 from ares.managers.squad_manager import UnitSquad
 from cython_extensions import cy_closest_to, cy_pick_enemy_target, cy_find_units_center_mass, cy_attack_ready
@@ -338,7 +340,7 @@ class DragonBot(AresBot):
     def cheese_reaction(self) -> None:
         print("Cheese Reaction")
     
-        pylon_count = self.structures(UnitTypeId.PYLON).amount
+        pylon_count = self.structures(UnitTypeId.PYLON).amount + self.already_pending(UnitTypeId.PYLON)
         gateway_count = self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)
         zealot_count = self.units(UnitTypeId.ZEALOT).amount
         shield_battery_ready = self.structures(UnitTypeId.SHIELDBATTERY).ready
@@ -356,9 +358,10 @@ class DragonBot(AresBot):
                 cyb(AbilityId.CANCEL)
         # TODO - Fix Reaction
         if pylon_count < 2:
-            if self.can_afford(UnitTypeId.PYLON):
-                self.build(UnitTypeId.PYLON, near=natural)
-                print("Pylon built")
+            if not self.already_pending(UnitTypeId.PYLON): 
+                if self.can_afford(UnitTypeId.PYLON):
+                    self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.PYLON, closest_to=self.game_info.map_center))
+                    print("Pylon built")
     
         if self.structures(UnitTypeId.PYLON).ready and gateway_count < 2:
             if self.can_afford(UnitTypeId.GATEWAY):
