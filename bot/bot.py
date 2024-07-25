@@ -224,7 +224,7 @@ class DragonBot(AresBot):
             
             if self._cheese_reaction_completed:
                 if not self._under_attack:
-                    if self.townhalls <= 3:
+                    if self.townhalls.amount <= 3:
                         if self.can_afford(UnitTypeId.NEXUS):
                             self.expand_now()
 
