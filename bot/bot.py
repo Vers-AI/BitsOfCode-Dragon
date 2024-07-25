@@ -23,9 +23,6 @@ from sc2.unit import Unit
 from sc2.units import Units
 from sc2.position import Point2
 
-from bot.speedmining import get_speedmining_positions
-from bot.speedmining import split_workers
-from bot.speedmining import mine
 
 import numpy as np
 
@@ -76,7 +73,9 @@ class DragonBot(AresBot):
         # Flags
         self._commenced_attack: bool = False
         self._used_cheese_defense: bool = False
+        self._used_1_base_defense: bool = False
         self._under_attack: bool = False
+        self._cheese_reaction_completed: bool = False
     
     @property
     def attack_target(self) -> Point2:
@@ -133,22 +132,8 @@ class DragonBot(AresBot):
         await super(DragonBot, self).on_start()
         
         print("Game started")
-        ### Macro 
-        # self.speedmining_positions = get_speedmining_positions(self)
-        # split_workers(self)   
-        ###
-        # Marco Plans
-        standard_plan: MacroPlan = MacroPlan()
-        standard_plan.add(AutoSupply(base_location=self.start_location))
-        standard_plan.add(SpawnController(self.Standard_Army))
-        standard_plan.add(ProductionController(self.Standard_Army,base_location=self.start_location))
-        self.register_behavior(standard_plan) 
-
-        cheese_defense_plan: MacroPlan = MacroPlan()
-        cheese_defense_plan.add(AutoSupply(base_location=self.start_location))
-        cheese_defense_plan.add(SpawnController(self.cheese_defense_army,spawn_target=self.start_location))
-        cheese_defense_plan.add(ProductionController(self.cheese_defense_army,base_location=self.start_location))
-        self.register_behavior(cheese_defense_plan)
+        
+        
             
         self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
 
@@ -185,7 +170,7 @@ class DragonBot(AresBot):
         Main_Army = self.mediator.get_units_from_role(role=UnitRole.ATTACKING)
         Scout = self.mediator.get_units_from_role(role=UnitRole.SCOUTING)
         Warp_Prism = self.mediator.get_units_from_role(role=UnitRole.DROP_SHIP)
-        worker_scouts: Units = self.mediator.get_units_from_role(role=UnitRole.BUILD_RUNNER_SCOUT, unit_type=self.worker_type)
+        worker_scouts: Units = self.mediator.get_units_from_role(role=UnitRole.BUILD_RUNNER_SCOUT, unit_type=self.worker_type) # used to control worker scout after reaction
         
   
 
@@ -196,18 +181,19 @@ class DragonBot(AresBot):
        
         
         # TODO add checking for 1 base reaction
-        # Checks for cheese defense
-        if self.time > 2*60 and self.time < 3*60 + 30 and not self._under_attack:
-            if not self.mediator.get_enemy_expanded:
-                self.cheese_reaction()
+        # Checks for cheese: if the enemy only has 1 building and that is their townhall OR if its a hatchery and spawning pool at the 2-3 minute mark
+        if self.time > 1*60 + 30 and self.time < 2*60 + 10 and not self._under_attack:
+            enemy_buildings = self.enemy_structures
+            if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
                 self._used_cheese_defense = True   
-            print("Building cheese defense army")
+                print("Building cheese detected at:",self.time)
         # TODO - Put macro into its own class
         ## Macro and Army control
-        # mine(self, iteration)
+            
+        
         self.register_behavior(Mining(long_distance_mine=False))
 
-        if self.build_order_runner.build_completed and not (self._used_cheese_defense or self._used_cheese_defense):
+        if self.build_order_runner.build_completed and not (self._used_cheese_defense or self._used_1_base_defense):
             self.register_behavior(AutoSupply(base_location=self.start_location))
             self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
             freeflow: bool = self.minerals > 800 and self.vespene < 200
@@ -228,14 +214,28 @@ class DragonBot(AresBot):
         
         # if there was cheese detected
         if self._used_cheese_defense:
-            MacroPlan(self.cheese_defense_army)                    
-            if self.get_total_supply(Main_Army) <= self._begin_attack_at_supply:
-                self._commenced_attack = False
-            elif self._commenced_attack and not self._under_attack:
-                self.Control_Main_Army(Main_Army, self.attack_target)
+            self.cheese_reaction()
 
-            elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
-                self._commenced_attack = True
+            if not self.build_order_runner.build_completed:
+                self.build_order_runner.set_build_completed()
+            
+            if self._cheese_reaction_completed:
+            
+                cheese_defense_plan: MacroPlan = MacroPlan()
+                cheese_defense_plan.add(AutoSupply(base_location=self.start_location))
+                cheese_defense_plan.add(SpawnController(self.cheese_defense_army,spawn_target=self.start_location))
+                cheese_defense_plan.add(ProductionController(self.cheese_defense_army,base_location=self.start_location))
+                
+                if self.get_total_supply(Main_Army) <= self._begin_attack_at_supply:
+                    self._commenced_attack = False
+                elif self._commenced_attack and not self._under_attack:
+                    self.Control_Main_Army(Main_Army, self.attack_target)
+
+                elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
+                    self._commenced_attack = True
+                        
+                self.register_behavior(cheese_defense_plan)
+
 
         # Additional Probes
         if self.townhalls.ready.amount == 3 and self.workers.amount < 66:
@@ -315,7 +315,7 @@ class DragonBot(AresBot):
 
     ### Combat Functions: including 1 base and cheese reactions
     # TODO  - WorkerKiteBack to worker defense
-    async def defend_worker_cannon_rush(self, enemy_probes, enemy_cannons):
+    def defend_worker_cannon_rush(self, enemy_probes, enemy_cannons):
         self.build_order_runner.set_build_completed()
         self._used_cheese_defense = True
         self._under_attack = True
@@ -329,41 +329,65 @@ class DragonBot(AresBot):
         # Assign workers to attack enemy probes and cannons
         for probe in enemy_probes:
             if defending_worker := defending_workers.closest_to(probe):
-                await defending_worker.attack(probe)
+                defending_worker.attack(probe)
 
         for cannon in enemy_cannons:
             if defending_worker := defending_workers.closest_to(cannon):
-                await defending_worker.attack(cannon)
+                defending_worker.attack(cannon)
     # reaction to cheese attacks
-    async def cheese_reaction(self, Main_Army: Units, target: Point2) -> None:
-        self.build_order_runner.set_build_completed()
-        self._used_cheese_defense = True
-        self._under_attack = True
-        ## Cheese Macro
-        if self.structures(UnitTypeId.PYLON).amount < 2:
+    def cheese_reaction(self) -> None:
+        print("Cheese Reaction")
+    
+        pylon_count = self.structures(UnitTypeId.PYLON).amount
+        gateway_count = self.structures(UnitTypeId.GATEWAY).amount + self.already_pending(UnitTypeId.GATEWAY)
+        zealot_count = self.units(UnitTypeId.ZEALOT).amount
+        shield_battery_ready = self.structures(UnitTypeId.SHIELDBATTERY).ready
+        natural = self.natural_expansion.towards(self.game_info.map_center, 1)
+        townhalls = self.townhalls
+        pending_townhalls = self.already_pending(UnitTypeId.NEXUS)
+        cyber = self.already_pending(UnitTypeId.CYBERNETICSCORE)
+
+        if pending_townhalls == 1:
+            for pt in self.townhalls.not_ready:
+                pt(AbilityId.CANCEL)
+        
+        if cyber == 1:
+            for cyb in self.structures(UnitTypeId.CYBERNETICSCORE).not_ready:
+                cyb(AbilityId.CANCEL)
+        # TODO - Fix Reaction
+        if pylon_count < 2:
             if self.can_afford(UnitTypeId.PYLON):
-                self.build(UnitTypeId.PYLON, near=self.mediator.get_own_nat())
-        if self.structures(UnitTypeId.PYLON).ready and self.structures(UnitTypeId.GATEWAY).amount < 2:
+                self.build(UnitTypeId.PYLON, near=natural)
+                print("Pylon built")
+    
+        if self.structures(UnitTypeId.PYLON).ready and gateway_count < 2:
             if self.can_afford(UnitTypeId.GATEWAY):
-                self.build(UnitTypeId.GATEWAY, near=self.mediator.get_own_nat())
-        if self.structures(UnitTypeId.GATEWAY).ready and self.units(UnitTypeId.ZEALOT).amount < 2:
+                self.build(UnitTypeId.GATEWAY, near=natural)
+                print("Gateway built")
+    
+        if gateway_count > 0 and zealot_count < 2:
             if self.can_afford(UnitTypeId.ZEALOT):
-                self.train(UnitTypeId.ZEALOT, closest_to=self.mediator.get_own_nat())
-        if self.structures(UnitTypeId.GATEWAY).ready and self.units(UnitTypeId.ZEALOT).amount >= 1:
+                self.train(UnitTypeId.ZEALOT, closest_to=natural)
+                for th in self.townhalls:
+                    if th.energy >= 50:
+                        if gateways := [
+                            g
+                            for g in self.mediator.get_own_structures_dict[UnitTypeId.GATEWAY]
+                            if g.build_progress >= 1.0 and not g.is_idle
+                        ]:
+                            th(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, gateways[0])
+
+        if gateway_count > 0 and zealot_count >= 1:
             if self.can_afford(UnitTypeId.SHIELDBATTERY):
-                self.build(UnitTypeId.SHIELDBATTERY, near=self.mediator.get_own_nat())
-        if self.structures(UnitTypeId.SHIELDBATTERY).ready and self.units(UnitTypeId.ZEALOT).amount >= 2:
+                self.build(UnitTypeId.SHIELDBATTERY, near=natural)
+    
+        if shield_battery_ready and zealot_count >= 2:
             if self.can_afford(UnitTypeId.PYLON):
-                self.build(UnitTypeId.PYLON, near=self.mediator.get_own_nat())
+                self.build(UnitTypeId.PYLON, near=natural)
+                self._cheese_reaction_completed = True
         
-        ## Cheese Defense
-        if Main_Army:
-            self.Control_Main_Army(Main_Army, target)
-                
-            
+       
         
-
-
     def Control_Main_Army(self, Main_Army: Units, target: Point2) -> None:
         squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=15)
         pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
@@ -572,7 +596,7 @@ class DragonBot(AresBot):
                     print("Defending against worker/cannon rush")
                 elif len(unit_categories['zerglings']) > 2:
                     # TODO - add a defend zergling rush function
-                    self.cheese_reaction(Main_Army, unit_categories['zerglings'][0].position)
+                    self._used_cheese_defense = True
                     print("Defending against zergling rush")
 
             else:
