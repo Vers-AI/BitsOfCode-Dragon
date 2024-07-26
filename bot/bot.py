@@ -137,7 +137,12 @@ class DragonBot(AresBot):
         
         print("Game started")
             
+                
         
+            
+
+        self.current_base_target = self.enemy_start_locations[0]  # set the target to the enemy start location
+
         # Sort the expansion locations by distance to the enemy start location
         self.expansion_locations_list.sort(key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
 
@@ -177,6 +182,7 @@ class DragonBot(AresBot):
         # If there are enemy units near our bases, respond to the threat
         if self.townhalls.exists and self.all_enemy_units.closer_than(30, self.townhalls.center):
             self.threat_detection(Main_Army)
+            print("Threat detected")
        
         if not self._under_attack and not self.build_order_runner.build_completed:
             self.threat_sensor()
@@ -184,7 +190,8 @@ class DragonBot(AresBot):
         # TODO - Put macro into its own .py file
         ## Macro and Army control
             
-        self.register_behavior(Mining)
+        self.register_behavior(Mining())
+
 
         if self.build_order_runner.build_completed and not (self._used_cheese_defense or self._used_1_base_defense):
             B2GM_plan: MacroPlan = MacroPlan()
@@ -221,12 +228,14 @@ class DragonBot(AresBot):
                 if not self._under_attack:
                     if self.townhalls.amount <= 3:
                         if self.can_afford(UnitTypeId.NEXUS):
-                            self.expand_now()
+                            await self.expand_to_next_location()
+                           
+                        
 
             
                 cheese_defense_plan: MacroPlan = MacroPlan()
                 cheese_defense_plan.add(AutoSupply(base_location=self.start_location))
-                cheese_defense_plan.add(SpawnController(self.cheese_defense_army,spawn_target=self.start_location))
+                cheese_defense_plan.add(SpawnController(self.cheese_defense_army,spawn_target=self.start_location, freeflow_mode=self.freeflow))
                 cheese_defense_plan.add(ProductionController(self.cheese_defense_army,base_location=self.start_location))
                 
                 if self.get_total_supply(Main_Army) <= self._begin_attack_at_supply:
@@ -292,17 +301,7 @@ class DragonBot(AresBot):
             unit.move(self.natural_expansion.towards(self.game_info.map_center, 1))
         else:
             self.mediator.assign_role(tag=unit.tag, role=UnitRole.ATTACKING)
-            unit.attack(self.natural_expansion.towards(self.game_info.map_center, 1))
-        
-
-    async def on_building_construction_complete(self, building):
-        await super(DragonBot, self).on_building_construction_complete(building)
-        if building.type_id == UnitTypeId.NEXUS:
-            self.nexus_creation_times[building.tag] = self.time  # update the creation time when a Nexus is created
-            self.bases[building.tag] = building  # add the Nexus to the bases dictionary
-
-        
-        
+            unit.attack(self.natural_expansion.towards(self.game_info.map_center, 2))
         
     
     async def on_unit_took_damage(self, unit: Unit, amount_damage_taken: float) -> None:
@@ -348,7 +347,7 @@ class DragonBot(AresBot):
         pending_townhalls = self.structure_pending(UnitTypeId.NEXUS)
         cyb = self.structures(UnitTypeId.CYBERNETICSCORE).ready
         
-        if pending_townhalls == 1:
+        if pending_townhalls == 1 and self.time < 160:
             for pt in self.townhalls.not_ready:
                 self.mediator.cancel_structure(structure=pt)
         
@@ -574,10 +573,9 @@ class DragonBot(AresBot):
             enemy_buildings = self.enemy_structures
             if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
                 self._used_cheese_defense = True
-
-        # TODO Checks for 1 base
-        if not self.mediator.get_enemy_expanded:
-            print("Enemy Going for 1 base")
+            # TODO 1 Base Response
+            if self.is_visible(self.mediator.get_enemy_nat) and not self.mediator.get_enemy_expanded:
+                print("Enemy Going for 1 base")
     
     def threat_detection(self, Main_Army: Units) -> None:
         ground_enemy_near_bases: dict[int, set[int]] = self.mediator.get_ground_enemy_near_bases
@@ -720,7 +718,21 @@ class DragonBot(AresBot):
         # Return the final threat level
         return threat_level
     
-    
+    ### In house functions
+    async def expand_to_next_location(self) -> None:
+        """
+        Handles the logic for expanding to the next available base location.
+        """
+        if next_expand_loc := await self.get_next_expansion():
+            if worker := self.mediator.select_worker(
+                    target_position=next_expand_loc,
+                    force_close=True,
+            ):
+                self.mediator.build_with_specific_worker(
+                    worker=worker,
+                    structure_type=UnitTypeId.NEXUS,
+                    pos=next_expand_loc,
+                )
     
     async def on_end(self, game_result: Result) -> None:
         await super(DragonBot, self).on_end(game_result)
