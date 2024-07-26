@@ -136,13 +136,7 @@ class DragonBot(AresBot):
         await super(DragonBot, self).on_start()
         
         print("Game started")
-        
-        
             
-        self.nexus_creation_times = {nexus.tag: self.time for nexus in self.townhalls.ready}  # tracks the creation time of Nexus
-
-        self.current_base_target = self.enemy_start_locations[0]  # set the target to the enemy start location
-        self.bases = {nexus.tag: nexus for nexus in self.townhalls.ready}  # store the bases in a dictionary
         
         # Sort the expansion locations by distance to the enemy start location
         self.expansion_locations_list.sort(key=lambda loc: loc.distance_to(self.enemy_start_locations[0]))
@@ -157,6 +151,7 @@ class DragonBot(AresBot):
             [pos for pos in self.expansion_locations_list]
         )
 
+        self.freeflow: bool = self.minerals > 800 and self.vespene < 200
         print("Build Chosen:",self.build_order_runner.chosen_opening)
 
         from sc2.ids.unit_typeid import UnitTypeId
@@ -181,31 +176,28 @@ class DragonBot(AresBot):
         # Detect threats
         # If there are enemy units near our bases, respond to the threat
         if self.townhalls.exists and self.all_enemy_units.closer_than(30, self.townhalls.center):
-            self.threat_response(Main_Army)
+            self.threat_detection(Main_Army)
        
-        
-        # TODO add checking for 1 base reaction
-        # Checks for cheese: if the enemy only has 1 building and that is their townhall OR if its a hatchery and spawning pool at the 2-3 minute mark
-        if self.time > 1*60 + 30 and self.time < 2*60 + 10 and not self._under_attack:
-            enemy_buildings = self.enemy_structures
-            if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
-                self._used_cheese_defense = True   
+        if not self._under_attack and not self.build_order_runner.build_completed:
+            self.threat_sensor()
+          
         # TODO - Put macro into its own .py file
         ## Macro and Army control
             
-        
-        self.register_behavior(Mining(long_distance_mine=False))
+        self.register_behavior(Mining)
 
         if self.build_order_runner.build_completed and not (self._used_cheese_defense or self._used_1_base_defense):
-            self.register_behavior(AutoSupply(base_location=self.start_location))
-            self.register_behavior(ProductionController(self.Standard_Army, base_location=self.start_location))
-            freeflow: bool = self.minerals > 800 and self.vespene < 200
+            B2GM_plan: MacroPlan = MacroPlan()
+            B2GM_plan.add(AutoSupply(base_location=self.start_location))
+            B2GM_plan.add(ProductionController(self.Standard_Army, base_location=self.start_location))
+            
+            
         
             if Warp_Prism:
                     prism_location = Warp_Prism[0].position
-                    self.register_behavior(SpawnController(self.Standard_Army,spawn_target=prism_location, freeflow_mode=freeflow))
+                    B2GM_plan.add(SpawnController(self.Standard_Army,spawn_target=prism_location, freeflow_mode=self.freeflow))
             else:
-                self.register_behavior(SpawnController(self.Standard_Army, freeflow_mode=freeflow))
+                B2GM_plan.add(SpawnController(self.Standard_Army, freeflow_mode=self.freeflow))
             
             if self.get_total_supply(Main_Army) <= self._begin_attack_at_supply:
                 self._commenced_attack = False
@@ -214,9 +206,12 @@ class DragonBot(AresBot):
                 
             elif self.get_total_supply(Main_Army) >= self._begin_attack_at_supply:
                 self._commenced_attack = True
+
+            self.register_behavior(B2GM_plan)    
         
         # if there was cheese detected
-        if self._used_cheese_defense:
+        elif self._used_cheese_defense:
+            
             self.cheese_reaction()
 
             if not self.build_order_runner.build_completed:
@@ -351,6 +346,7 @@ class DragonBot(AresBot):
         shield_battery_ready = self.structures(UnitTypeId.SHIELDBATTERY).ready
         natural = self.natural_expansion.towards(self.game_info.map_center, 1)
         pending_townhalls = self.structure_pending(UnitTypeId.NEXUS)
+        cyb = self.structures(UnitTypeId.CYBERNETICSCORE).ready
         
         if pending_townhalls == 1:
             for pt in self.townhalls.not_ready:
@@ -381,6 +377,15 @@ class DragonBot(AresBot):
             if not self.structures(UnitTypeId.SHIELDBATTERY).ready and self.structures(UnitTypeId.CYBERNETICSCORE).ready:
                 if self.can_afford(UnitTypeId.SHIELDBATTERY) and self.structure_pending(UnitTypeId.SHIELDBATTERY) == 0:
                     self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.game_info.map_center))
+            if cyb:
+                if self.can_afford(AbilityId.RESEARCH_WARPGATE):
+                    cyb.first(AbilityId.RESEARCH_WARPGATE)
+                for th in self.townhalls:
+                    for cyb in self.mediator.get_own_structures_dict[UnitTypeId.CYBERNETICSCORE]:
+                        if cyb.build_progress >= 1.0 and not cyb.is_idle:
+                            th(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, cyb)
+                
+                    
         
         if shield_battery_ready and zealot_count >= 2 and pylon_count < 3:
             if self.can_afford(UnitTypeId.PYLON) and self.structure_pending(UnitTypeId.PYLON) == 0:
@@ -546,9 +551,35 @@ class DragonBot(AresBot):
 
             self.register_behavior(Scout_Actions)
     
+    def threat_sensor(self) -> None:
 
+        # Checks for worker rushes
+
+        if self.mediator.get_enemy_worker_rushed:
+                    print("Rushed worker detected")
+
+        # Checks for various chesese
+        # if (
+        #     self.mediator.get_enemy_ling_rushed
+        #     or (self.mediator.get_enemy_marauder_rush and self.time < 150.0)
+        #     or self.mediator.get_enemy_marine_rush
+        #     or self.mediator.get_is_proxy_zealot
+        #     or self.mediator.get_enemy_ravager_rush
+        #     or self.mediator.get_enemy_went_marine_rush
+        #     or self.mediator.get_enemy_four_gate
+        #     or self.mediator.get_enemy_roach_rushed
+        #     
+        # ):
+        if self.time > 1*60 + 30 and self.time < 2*60 + 10:
+            enemy_buildings = self.enemy_structures
+            if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
+                self._used_cheese_defense = True
+
+        # TODO Checks for 1 base
+        if not self.mediator.get_enemy_expanded:
+            print("Enemy Going for 1 base")
     
-    def threat_response(self, Main_Army: Units) -> None:
+    def threat_detection(self, Main_Army: Units) -> None:
         ground_enemy_near_bases: dict[int, set[int]] = self.mediator.get_ground_enemy_near_bases
         flying_enemy_near_bases: dict[int, set[int]] = self.mediator.get_flying_enemy_near_bases
         
@@ -592,9 +623,10 @@ class DragonBot(AresBot):
                         
                 
                 # Check for specific units and act accordingly
+                
                 if unit_categories['pylons'] or len(unit_categories['enemyWorkerUnits']) >= 4 or unit_categories['cannons']:
                     self.defend_worker_cannon_rush(unit_categories['enemyWorkerUnits'], unit_categories['cannons'])
-                    print("Defending against worker/cannon rush")
+                    print("cannon rush")
                 elif len(unit_categories['zerglings']) > 2:
                     self._used_cheese_defense = True
                     print("Defending against zergling rush")
