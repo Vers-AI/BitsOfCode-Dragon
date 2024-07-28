@@ -558,18 +558,18 @@ class DragonBot(AresBot):
                     print("Rushed worker detected")
 
         # Checks for various chesese
-        # if (
-        #     self.mediator.get_enemy_ling_rushed
-        #     or (self.mediator.get_enemy_marauder_rush and self.time < 150.0)
-        #     or self.mediator.get_enemy_marine_rush
-        #     or self.mediator.get_is_proxy_zealot
-        #     or self.mediator.get_enemy_ravager_rush
-        #     or self.mediator.get_enemy_went_marine_rush
-        #     or self.mediator.get_enemy_four_gate
-        #     or self.mediator.get_enemy_roach_rushed
-        #     
-        # ):
-        if self.time > 1*60 + 30 and self.time < 2*60 + 10:
+        if (
+            self.mediator.get_enemy_ling_rushed
+            or (self.mediator.get_enemy_marauder_rush and self.time < 150.0)
+            or self.mediator.get_enemy_marine_rush
+            or self.mediator.get_is_proxy_zealot
+            or self.mediator.get_enemy_ravager_rush
+            or self.mediator.get_enemy_went_marine_rush
+            or self.mediator.get_enemy_four_gate
+            or self.mediator.get_enemy_roach_rushed
+            
+        ):
+        # if self.time > 1*60 + 30 and self.time < 2*60 + 10: # cheese detection debug
             enemy_buildings = self.enemy_structures
             if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
                 self._used_cheese_defense = True
