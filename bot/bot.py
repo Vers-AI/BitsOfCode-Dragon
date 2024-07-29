@@ -558,18 +558,18 @@ class DragonBot(AresBot):
                     print("Rushed worker detected")
 
         # Checks for various chesese
-        if (
-            self.mediator.get_enemy_ling_rushed
-            or (self.mediator.get_enemy_marauder_rush and self.time < 150.0)
-            or self.mediator.get_enemy_marine_rush
-            or self.mediator.get_is_proxy_zealot
-            or self.mediator.get_enemy_ravager_rush
-            or self.mediator.get_enemy_went_marine_rush
-            or self.mediator.get_enemy_four_gate
-            or self.mediator.get_enemy_roach_rushed
+        # if (
+        #     self.mediator.get_enemy_ling_rushed
+        #     or (self.mediator.get_enemy_marauder_rush and self.time < 150.0)
+        #     or self.mediator.get_enemy_marine_rush
+        #     or self.mediator.get_is_proxy_zealot
+        #     or self.mediator.get_enemy_ravager_rush
+        #     or self.mediator.get_enemy_went_marine_rush
+        #     or self.mediator.get_enemy_four_gate
+        #     or self.mediator.get_enemy_roach_rushed
             
-        ):
-        # if self.time > 1*60 + 30 and self.time < 2*60 + 10: # cheese detection debug
+        # ):
+        if self.time > 1*60 + 30 and self.time < 2*60 + 10: # cheese detection debug
             enemy_buildings = self.enemy_structures
             if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
                 self._used_cheese_defense = True
@@ -596,10 +596,9 @@ class DragonBot(AresBot):
                 enemy_units: Units = self.enemy_units.tags_in(enemy_tags)
                 own_forces: Units = Main_Army 
                 self.assess_threat(enemy_units, own_forces)
-                # If threat_level is needed, add logic here to process it
         
             #Checks for Early Game Threats
-            if self.time < 3*60 and self.townhalls.first:
+            if self.time < 2*60 + 20 and self.townhalls.first:
                 # Initialize categories
                 unit_categories = {'pylons': [], 'enemyWorkerUnits': [], 'cannons': [], 'zerglings': []}
                 
@@ -629,18 +628,22 @@ class DragonBot(AresBot):
                     self._used_cheese_defense = True
                     print("Defending against zergling rush")
 
-            else:
-                # If there's a threat and we have a main army, send the army to defend
-                if self.assess_threat(enemy_units, own_forces) > 5 and Main_Army:
+            
+            # If there's a threat and we have a main army, send the army to defend
+            if Main_Army and self.time < 3*60 and self._used_cheese_defense:
+                if self.assess_threat(enemy_units, own_forces) >= 2:
                     self._under_attack = True
-                    # TODO - pass out num_units to the function to tell how many units in the threat
-                else:
+            elif self.assess_threat(enemy_units, own_forces) > 5 and Main_Army:
+                self._under_attack = True
+                # TODO - pass out num_units to the function to tell how many units in the threat
+            else:
                     self._under_attack = False
             if self._under_attack:
                 threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
                 threat_position = Point2(threat_position)
                 self.Control_Main_Army(Main_Army, threat_position)
-
+        
+        
 
     
     def assess_threat(self,enemy_units_near_bases, own_forces):
