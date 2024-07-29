@@ -67,8 +67,8 @@ class DragonBot(AresBot):
         """
         super().__init__(game_step_override)
         
-        self.townhall_saturations = {}               # lists the mineral saturation of townhalls in queues of 40 frames, we consider the townhall saturated if max_number + 1 >= ideal_number
-        self.assimilator_age = {}                    # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
+        # self.townhall_saturations = {}               # lists the mineral saturation of townhalls in queues of 40 frames, we consider the townhall saturated if max_number + 1 >= ideal_number
+        # self.assimilator_age = {}                    # this is here to tackle an issue with assimilator having 0 workers on them when finished, although the building worker is assigned to it
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
         self.scout_targets = {}                      # dictionary to keep track of scout targets
         self.bases = {}                              # dictionary to keep track of bases
@@ -226,12 +226,17 @@ class DragonBot(AresBot):
             
             if self._cheese_reaction_completed:
                 if not self._under_attack:
-                    if self.townhalls.amount <= 3:
+                    if self.townhalls.ready.amount <= 1 and self.structure_pending(UnitTypeId.NEXUS) == 0:
                         if self.can_afford(UnitTypeId.NEXUS):
                             await self.expand_to_next_location()
-                           
+                    elif self.townhalls.ready.amount <= 2 and self.structure_pending(UnitTypeId.NEXUS) == 0:
+                        # if self.can_afford(UnitTypeId.ASSIMILATOR) and self.structures(UnitTypeId.ASSIMILATOR).amount < 4:
+                        #     if self.structure_pending(UnitTypeId.ASSIMILATOR) <= 2:
+                        #         self.register_behavior(BuildStructure(base_location=self.natural_expansion, structure_id=UnitTypeId.ASSIMILATOR))
+                        if self.can_afford(UnitTypeId.NEXUS):
+                            await self.expand_to_next_location()
+                
                         
-
             
                 cheese_defense_plan: MacroPlan = MacroPlan()
                 cheese_defense_plan.add(AutoSupply(base_location=self.start_location))
@@ -251,7 +256,13 @@ class DragonBot(AresBot):
 
 
         # Additional Probes
-        if self.townhalls.ready.amount == 3 and self.workers.amount < 66:
+        if self._used_cheese_defense and self.townhalls.ready.amount <= 2 and self.workers.amount < 44:
+            if self.can_afford(UnitTypeId.PROBE):
+                self.train(UnitTypeId.PROBE)
+            for townhall in self.townhalls:
+                if not townhall.is_idle and townhall.energy >= 50:
+                    townhall(AbilityId.EFFECT_CHRONOBOOST, townhall)
+        elif self.townhalls.ready.amount == 3 and self.workers.amount < 66:
             if self.can_afford(UnitTypeId.PROBE):
                 self.train(UnitTypeId.PROBE)
             for townhall in self.townhalls:
@@ -342,12 +353,12 @@ class DragonBot(AresBot):
         pylon_count = self.structures(UnitTypeId.PYLON).amount + self.structure_pending(UnitTypeId.PYLON)
         gateway_count = self.structures(UnitTypeId.GATEWAY).amount + self.structure_pending(UnitTypeId.GATEWAY)
         zealot_count = self.units(UnitTypeId.ZEALOT).amount
-        shield_battery_ready = self.structures(UnitTypeId.SHIELDBATTERY).ready
+        has_shield_battery = (self.structures(UnitTypeId.SHIELDBATTERY).ready or self.structure_pending(UnitTypeId.SHIELDBATTERY))
         natural = self.natural_expansion.towards(self.game_info.map_center, 1)
         pending_townhalls = self.structure_pending(UnitTypeId.NEXUS)
         cyb = self.structures(UnitTypeId.CYBERNETICSCORE).ready
         
-        if pending_townhalls == 1 and self.time < 160:
+        if pending_townhalls == 1 and self.time < 1*60 + 45:
             for pt in self.townhalls.not_ready:
                 self.mediator.cancel_structure(structure=pt)
         
@@ -386,7 +397,7 @@ class DragonBot(AresBot):
                 
                     
         
-        if shield_battery_ready and zealot_count >= 2 and pylon_count < 3:
+        if has_shield_battery and zealot_count >= 2 and pylon_count < 3:
             if self.can_afford(UnitTypeId.PYLON) and self.structure_pending(UnitTypeId.PYLON) == 0:
                 self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.PYLON, closest_to=self.game_info.map_center))
                 self._cheese_reaction_completed = True
