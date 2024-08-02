@@ -49,26 +49,24 @@ Builds:
             - 21 PYLON
             - 21 GAS
             - 22 WARPGATERESEARCH
-            - 22 CHRONO @ CYBERNETICSCORE
+            - 22 CHRONO @ NEXUS # chroning instead of cyber
             - 24 STALKER
             - 26 CHRONO @ GATEWAY
             - 26 ROBOTICSFACILITY
             - 27 STALKER
-            - 27 CHRONO @ GATEWAY
+            - 27 CHRONO @ NEXUS #Chrono Gateway if PVP instead of NEXUS
             - 28 GATEWAY *2 @ NAT
             - 30 STALKER
-            - 32 CHRONO @ CYBERNETICSCORE
             - 33 CHRONO @ NEXUS
             - 34 PYLON @ NAT
-            - 34 GAS x2
-            - 35 OBSERVER
-            - 35 STALKER *3 @ NAT
-            - 42 IMMORTAL
-            - 42 ZEALOT *3 @ NAT
+            - 34 OBSERVER
+            - 35 GAS x2
+            - 36 IMMORTAL
+            - 36 CHRONO @  ROBOTICSFACILITY
+            - 48 STALKER *3 @ NAT
             - 50 ROBOTICSBAY
             - 50 ROBOTICSFACILITY
             - 52 IMMORTAL
-            - 52 CHRONO @ ROBOTICSFACILITY
             - 54 EXPAND
             - 55 COLOSSUS x2
             - 55 CHRONO @ ROBOTICSFACILITY x2
@@ -77,26 +75,22 @@ Builds:
             - 56 FORGE
             - 57 CHRONO @ ROBOTICSBAY
             - 58 GAS x2
-            - 58 ZEALOT *3 @ NAT
-            - 58 CHARGE
             - 58 PROTOSSGROUNDARMORSLEVEL1
-            - 58 CHRONO @ TWILIGHTCOUNCIL
-            - 59 CHRONO @ ROBOTICSBAY
+            - 58 CHARGE
+            - 59 CHRONO @ FORGE
             - 59 IMMORTAL x2
-            - 59 CHRONO @ ROBOTICSFACILITY 
-            - 60 ZEALOT *3 @ NAT
-            - 61 CHRONO @ FORGE
+            - 59 CHRONO @ TWILIGHTCOUNCIL 
+            - 62 GATEWAY 
+            - 62 GATEWAY
+            - 62 GATEWAY
+            - 62 GATEWAY
+            - 62 GATEWAY
             - 62 TEMPLARARCHIVE
-            - 62 GATEWAY 
-            - 62 GATEWAY
-            - 62 GATEWAY
-            - 62 GATEWAY
-            - 62 GATEWAY 
+            - 63 CHRONO @ FORGE
             - 64 WARPPRISM
-            - 72 CHRONO @ FORGE
-            - 72 HIGHTEMPLAR *2 @ NAT
-            - 82 CHRONO @ TWILIGHTCOUNCIL
-            - 82 CHRONO @ ROBOTICSFACILITY
+            - 64 IMMORTAL
+            - 66 HIGHTEMPLAR *4 @ NAT
+            - 66 ZEALOT *2 @ NAT
              
    
     
