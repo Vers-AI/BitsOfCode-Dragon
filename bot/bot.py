@@ -182,7 +182,6 @@ class DragonBot(AresBot):
         # If there are enemy units near our bases, respond to the threat
         if self.townhalls.exists and self.all_enemy_units.closer_than(30, self.townhalls.center):
             self.threat_detection(Main_Army)
-            print("Threat detected")
        
         if not self._under_attack and not self.build_order_runner.build_completed:
             self.threat_sensor()
@@ -607,6 +606,8 @@ class DragonBot(AresBot):
                 enemy_units: Units = self.enemy_units.tags_in(enemy_tags)
                 own_forces: Units = Main_Army 
                 self.assess_threat(enemy_units, own_forces)
+                # print threat level
+                # print(f"Threat level: {self.assess_threat(enemy_units, own_forces)}")
         
             #Checks for Early Game Threats
             if self.time < 2*60 + 20 and self.townhalls.first:
@@ -641,18 +642,22 @@ class DragonBot(AresBot):
 
             
             # If there's a threat and we have a main army, send the army to defend
-            if Main_Army and self.time < 3*60 and self._used_cheese_defense:
-                if self.assess_threat(enemy_units, own_forces) >= 2:
-                    self._under_attack = True
-            elif self.assess_threat(enemy_units, own_forces) > 5 and Main_Army:
-                self._under_attack = True
-                # TODO - pass out num_units to the function to tell how many units in the threat
-            else:
+            if Main_Army:
+                if self.time < 3*60 and self._used_cheese_defense:
+                    if self.assess_threat(enemy_units, own_forces) >= 2:
+                        self._under_attack = True
+                elif self._under_attack and self.assess_threat(enemy_units, own_forces) < 2:
                     self._under_attack = False
-            if self._under_attack:
-                threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
-                threat_position = Point2(threat_position)
-                self.Control_Main_Army(Main_Army, threat_position)
+                elif not self._under_attack and self.assess_threat(enemy_units, own_forces) >= 5:
+                    self._under_attack = True
+                    #print("Under attack")
+                    # TODO - pass out num_units to the function to tell how many units in the threat
+                else:
+                        self._under_attack = False
+                if self._under_attack:
+                    threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
+                    threat_position = Point2(threat_position)
+                    self.Control_Main_Army(Main_Army, threat_position)
         
         
 
@@ -726,8 +731,9 @@ class DragonBot(AresBot):
         # This part is left as an exercise for implementation
     
         # Adjust threat level based on your own defensive capabilities
-        if own_forces.amount > enemy_units_near_bases.amount * 2:
+        if not self._under_attack and (own_forces.amount > enemy_units_near_bases.amount * 2):
             threat_level -= 2  # Having a significantly larger force reduces the threat level
+            # print("Reducing threat level")
     
         # Return the final threat level
         return threat_level
