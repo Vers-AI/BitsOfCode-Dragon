@@ -72,6 +72,7 @@ class DragonBot(AresBot):
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
         self.scout_targets = {}                      # dictionary to keep track of scout targets
         self.bases = {}                              # dictionary to keep track of bases
+        self.total_health_shield_percentage = 0.0    # total health + sheild percentage of army
     
         # Flags
         self._commenced_attack: bool = False
@@ -84,7 +85,7 @@ class DragonBot(AresBot):
     
     @property
     def attack_target(self) -> Point2:
-        main_army_position : Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)  # Assume this method returns the current position of the main army
+        main_army_position : Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING) 
         
         if self.enemy_structures:
             # Prioritize the closest enemy structure to the main army
@@ -253,7 +254,13 @@ class DragonBot(AresBot):
                         
                 self.register_behavior(cheese_defense_plan)
                     
+        # if a 1 base was detected
+        if self._used_one_base_response:
+            self.One_Base_Reaction()
 
+        # Overcharge debug
+        if self._one_base_reaction_completed:
+            self.use_overcharge()
 
         # Additional Probes
         if self._used_cheese_response and self.townhalls.ready.amount <= 2 and self.workers.amount < 44:
@@ -407,24 +414,25 @@ class DragonBot(AresBot):
         pylon_count = self.structures(UnitTypeId.PYLON).amount + self.structure_pending(UnitTypeId.PYLON)
         gateway_count = self.structures(UnitTypeId.GATEWAY).amount + self.structure_pending(UnitTypeId.GATEWAY)
         stalker_count = self.units(UnitTypeId.STALKER).amount
-        has_sb = (self.structures(UnitTypeId.SHIELDBATTERY).ready or self.structure_pending(UnitTypeId.SHIELDBATTERY))
+        shield_battery_count = self.structures(UnitTypeId.SHIELDBATTERY).amount + self.structure_pending(UnitTypeId.SHIELDBATTERY)
         natural = self.natural_expansion.towards(self.game_info.map_center, 1)
         cyb = self.structures(UnitTypeId.CYBERNETICSCORE).ready
-
+    
         if pylon_count < 2:
             if not self.structure_pending(UnitTypeId.PYLON): 
                 if self.can_afford(UnitTypeId.PYLON):
                     self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.PYLON, closest_to=self.game_info.map_center))
-
+    
         if gateway_count > 0 and stalker_count >= 3:
-            if  has_sb.amount < 2:
-                if not self.structures(UnitTypeId.SHIELDBATTERY).ready and cyb:
+            if shield_battery_count < 2:
+                if cyb:
                     if self.can_afford(UnitTypeId.SHIELDBATTERY):
-                        self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.game_info.map_center))
-                elif has_sb.amount == 1:
-                    if self.can_afford(UnitTypeId.SHIELDBATTERY):
-                        self.register_behavior(BuildStructure(base_location=self.start_location, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.game_info.map_center))        
-            else:
+                        if self.structures(UnitTypeId.SHIELDBATTERY).closer_than(8, natural).amount + self.structure_pending(UnitTypeId.SHIELDBATTERY) == 0:
+                            self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.game_info.map_center))
+                        elif self.structures(UnitTypeId.SHIELDBATTERY).closer_than(8, self.start_location).amount == 0:
+                            self.register_behavior(BuildStructure(base_location=self.start_location, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.townhalls[0].position.towards(self.start_location, 1)))
+            
+            if shield_battery_count >= 2:
                 self._one_base_reaction_completed = True
                        
         
@@ -432,6 +440,9 @@ class DragonBot(AresBot):
         squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=15)
         pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
         grid: np.ndarray = self.mediator.get_ground_grid
+
+        self.total_health_shield_percentage = sum(unit.shield_health_percentage for unit in Main_Army) / len(Main_Army) if Main_Army else 0
+
 
         for squad in squads:
             Main_Army_Actions = CombatManeuver()
@@ -609,8 +620,10 @@ class DragonBot(AresBot):
             if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
                 self._used_cheese_response = True
             # TODO 1 Base Response
-            if self.is_visible(self.mediator.get_enemy_nat) and not self.mediator.get_enemy_expanded:
-                print("Enemy Going for 1 base")
+        if self.time == 3*60 + 30: # 1 base detection debug
+            # if self.is_visible(self.mediator.get_enemy_nat) and not self.mediator.get_enemy_expanded:
+            print("Enemy Going for 1 base")
+            self._used_one_base_response = True
     
     def threat_detection(self, Main_Army: Units) -> None:
         ground_enemy_near_bases: dict[int, set[int]] = self.mediator.get_ground_enemy_near_bases
@@ -682,9 +695,12 @@ class DragonBot(AresBot):
                     # TODO - pass out num_units to the function to tell how many units in the threat
                 else:
                         self._under_attack = False
-                if self._under_attack:
-                    
+                if self._under_attack: 
                     self.Control_Main_Army(Main_Army, threat_position)
+                    if self._one_base_reaction_completed:
+                        # check if need to use overcharge
+                        self.use_overcharge()
+
         
         
 
@@ -766,6 +782,41 @@ class DragonBot(AresBot):
         return threat_level
     
     ### In house functions
+    def use_overcharge(self) -> bool:
+        # Check if total health shield percentage of the army is below 50%
+        # if self.total_health_shield_percentage >= 0.5:
+        #     return False
+        
+        # Get the position of the main squad
+        main_squad_position: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
+
+        # Find the Nexus closest to the main squad
+        closest_nexus = None
+        closest_distance = float('inf')
+        for nexus in self.units(UnitTypeId.NEXUS).ready:
+            distance = main_squad_position.distance_to(nexus.position)
+            if distance < closest_distance:
+                closest_distance = distance
+                closest_nexus = nexus
+
+        if closest_nexus is None or closest_distance > 12:
+            return False
+        
+        # Check for a Shield Battery within 8 tiles of the closest Nexus
+        shield_batteries = self.units(UnitTypeId.SHIELDBATTERY).closer_than(8, closest_nexus)
+        if not shield_batteries:
+            return False
+
+        print("Using Overcharge!")
+        # Use Shield Battery Overcharge on one of the Shield Batteries if all conditions are met
+        if closest_nexus.energy >= 50:  # Ability costs 50 energy
+            shield_battery = shield_batteries.closest_to(closest_nexus)
+            closest_nexus(AbilityId.BATTERYOVERCHARGE_BATTERYOVERCHARGE(shield_battery.tag))
+            return True
+
+        return False
+
+    
     async def expand_to_next_location(self) -> None:
         """
         Handles the logic for expanding to the next available base location.
