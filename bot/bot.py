@@ -590,7 +590,7 @@ class DragonBot(AresBot):
     def threat_detection(self, Main_Army: Units) -> None:
         ground_enemy_near_bases: dict[int, set[int]] = self.mediator.get_ground_enemy_near_bases
         flying_enemy_near_bases: dict[int, set[int]] = self.mediator.get_flying_enemy_near_bases
-        
+        # TODO seperate response if its just air units
         if ground_enemy_near_bases or flying_enemy_near_bases:
             # Merge ground and air threats
             all_enemy = {}
@@ -599,6 +599,7 @@ class DragonBot(AresBot):
             for key, value in flying_enemy_near_bases.items():
                 if key in all_enemy:
                     all_enemy[key].update(value)
+                    print("Updated key for air units")
                 else:
                     all_enemy[key] = value.copy()
             # Retrieve actual enemy units and assess threat
@@ -643,6 +644,8 @@ class DragonBot(AresBot):
             
             # If there's a threat and we have a main army, send the army to defend
             if Main_Army:
+                threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
+                threat_position = Point2(threat_position)
                 if self.time < 3*60 and self._used_cheese_defense:
                     if self.assess_threat(enemy_units, own_forces) >= 2:
                         self._under_attack = True
@@ -655,8 +658,7 @@ class DragonBot(AresBot):
                 else:
                         self._under_attack = False
                 if self._under_attack:
-                    threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
-                    threat_position = Point2(threat_position)
+                    
                     self.Control_Main_Army(Main_Army, threat_position)
         
         
