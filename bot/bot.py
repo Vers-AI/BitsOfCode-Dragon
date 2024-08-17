@@ -14,7 +14,7 @@ from ares.managers.manager_mediator import ManagerMediator
 
 
 from ares.managers.squad_manager import UnitSquad
-from cython_extensions import cy_closest_to, cy_pick_enemy_target, cy_find_units_center_mass, cy_attack_ready, cy_unit_pending
+from cython_extensions import cy_closest_to, cy_pick_enemy_target, cy_find_units_center_mass, cy_attack_ready, cy_unit_pending, cy_distance_to
 
 from itertools import chain
 
@@ -260,7 +260,7 @@ class DragonBot(AresBot):
 
         # Overcharge debug
         if self._one_base_reaction_completed:
-            self.use_overcharge()
+            self.use_overcharge(Main_Army)
 
         # Additional Probes
         if self._used_cheese_response and self.townhalls.ready.amount <= 2 and self.workers.amount < 44:
@@ -699,7 +699,7 @@ class DragonBot(AresBot):
                     self.Control_Main_Army(Main_Army, threat_position)
                     if self._one_base_reaction_completed:
                         # check if need to use overcharge
-                        self.use_overcharge()
+                        self.use_overcharge(Main_Army)
 
         
         
@@ -782,36 +782,34 @@ class DragonBot(AresBot):
         return threat_level
     
     ### In house functions
-    def use_overcharge(self) -> bool:
+    def use_overcharge(self, Main_Army: Units) -> bool:
         # Check if total health shield percentage of the army is below 50%
         # if self.total_health_shield_percentage >= 0.5:
         #     return False
         
-        # Get the position of the main squad
-        main_squad_position: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
 
         # Find the Nexus closest to the main squad
         closest_nexus = None
         closest_distance = float('inf')
-        for nexus in self.units(UnitTypeId.NEXUS).ready:
-            distance = main_squad_position.distance_to(nexus.position)
+        for nexus in self.structures(UnitTypeId.NEXUS).ready:
+            distance = Main_Army.center.distance_to(nexus.position)
             if distance < closest_distance:
                 closest_distance = distance
                 closest_nexus = nexus
-
         if closest_nexus is None or closest_distance > 12:
             return False
         
         # Check for a Shield Battery within 8 tiles of the closest Nexus
-        shield_batteries = self.units(UnitTypeId.SHIELDBATTERY).closer_than(8, closest_nexus)
+        shield_batteries = self.structures(UnitTypeId.SHIELDBATTERY).closer_than(8, closest_nexus)
         if not shield_batteries:
+            print(f"No battery")
             return False
 
         print("Using Overcharge!")
         # Use Shield Battery Overcharge on one of the Shield Batteries if all conditions are met
         if closest_nexus.energy >= 50:  # Ability costs 50 energy
             shield_battery = shield_batteries.closest_to(closest_nexus)
-            closest_nexus(AbilityId.BATTERYOVERCHARGE_BATTERYOVERCHARGE(shield_battery.tag))
+            closest_nexus(AbilityId.OVERCHARGE_OVERCHARGE, shield_battery)
             return True
 
         return False
