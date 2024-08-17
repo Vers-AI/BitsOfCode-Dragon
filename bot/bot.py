@@ -799,17 +799,16 @@ class DragonBot(AresBot):
         if closest_nexus is None or closest_distance > 12:
             return False
         
-        # Check for a Shield Battery within 8 tiles of the closest Nexus
-        shield_batteries = self.structures(UnitTypeId.SHIELDBATTERY).closer_than(8, closest_nexus)
+        # Check for a Shield Battery within 9 tiles of the closest Nexus
+        shield_batteries = self.structures(UnitTypeId.SHIELDBATTERY).closer_than(9, closest_nexus)
         if not shield_batteries:
-            print(f"No battery")
             return False
 
-        print("Using Overcharge!")
         # Use Shield Battery Overcharge on one of the Shield Batteries if all conditions are met
-        if closest_nexus.energy >= 50:  # Ability costs 50 energy
+        if closest_nexus.energy >= 50 and shield_batteries.ready:  # Ability costs 50 energy
             shield_battery = shield_batteries.closest_to(closest_nexus)
-            closest_nexus(AbilityId.OVERCHARGE_OVERCHARGE, shield_battery)
+            closest_nexus(AbilityId.OVERCHARGE_OVERCHARGE, shield_battery
+            )
             return True
 
         return False
