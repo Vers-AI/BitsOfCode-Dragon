@@ -75,10 +75,11 @@ class DragonBot(AresBot):
     
         # Flags
         self._commenced_attack: bool = False
-        self._used_cheese_defense: bool = False
-        self._used_1_base_defense: bool = False
+        self._used_cheese_response: bool = False
+        self._used_one_base_response: bool = False
         self._under_attack: bool = False
         self._cheese_reaction_completed: bool = False
+        self._one_base_reaction_completed: bool = False
         self._is_building: bool = False
     
     @property
@@ -192,7 +193,7 @@ class DragonBot(AresBot):
         self.register_behavior(Mining())
 
 
-        if self.build_order_runner.build_completed and not (self._used_cheese_defense or self._used_1_base_defense):
+        if self.build_order_runner.build_completed and not self._used_cheese_response:
             B2GM_plan: MacroPlan = MacroPlan()
             B2GM_plan.add(AutoSupply(base_location=self.start_location))
             B2GM_plan.add(ProductionController(self.Standard_Army, base_location=self.start_location))
@@ -216,7 +217,7 @@ class DragonBot(AresBot):
             self.register_behavior(B2GM_plan)    
         
         # if there was cheese detected
-        elif self._used_cheese_defense:
+        elif self._used_cheese_response:
             
             self.cheese_reaction()
 
@@ -255,7 +256,7 @@ class DragonBot(AresBot):
 
 
         # Additional Probes
-        if self._used_cheese_defense and self.townhalls.ready.amount <= 2 and self.workers.amount < 44:
+        if self._used_cheese_response and self.townhalls.ready.amount <= 2 and self.workers.amount < 44:
             if self.can_afford(UnitTypeId.PROBE):
                 self.train(UnitTypeId.PROBE)
             for townhall in self.townhalls:
@@ -330,7 +331,7 @@ class DragonBot(AresBot):
     # TODO  - WorkerKiteBack to worker defense
     def defend_worker_cannon_rush(self, enemy_probes, enemy_cannons):
         self.build_order_runner.set_build_completed()
-        self._used_cheese_defense = True
+        self._used_cheese_response = True
         self._under_attack = True
         # Select a worker
         if worker := self.mediator.select_worker(target_position=self.start_location):
@@ -401,7 +402,31 @@ class DragonBot(AresBot):
                 self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.PYLON, closest_to=self.game_info.map_center))
                 self._cheese_reaction_completed = True
         
-       
+    # resonse if the enemy is only on 1 base
+    def One_Base_Reaction(self) -> None:
+        pylon_count = self.structures(UnitTypeId.PYLON).amount + self.structure_pending(UnitTypeId.PYLON)
+        gateway_count = self.structures(UnitTypeId.GATEWAY).amount + self.structure_pending(UnitTypeId.GATEWAY)
+        stalker_count = self.units(UnitTypeId.STALKER).amount
+        has_sb = (self.structures(UnitTypeId.SHIELDBATTERY).ready or self.structure_pending(UnitTypeId.SHIELDBATTERY))
+        natural = self.natural_expansion.towards(self.game_info.map_center, 1)
+        cyb = self.structures(UnitTypeId.CYBERNETICSCORE).ready
+
+        if pylon_count < 2:
+            if not self.structure_pending(UnitTypeId.PYLON): 
+                if self.can_afford(UnitTypeId.PYLON):
+                    self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.PYLON, closest_to=self.game_info.map_center))
+
+        if gateway_count > 0 and stalker_count >= 3:
+            if  has_sb.amount < 2:
+                if not self.structures(UnitTypeId.SHIELDBATTERY).ready and cyb:
+                    if self.can_afford(UnitTypeId.SHIELDBATTERY):
+                        self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.game_info.map_center))
+                elif has_sb.amount == 1:
+                    if self.can_afford(UnitTypeId.SHIELDBATTERY):
+                        self.register_behavior(BuildStructure(base_location=self.start_location, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.game_info.map_center))        
+            else:
+                self._one_base_reaction_completed = True
+                       
         
     def Control_Main_Army(self, Main_Army: Units, target: Point2) -> None:
         squads: list[UnitSquad] = self.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=15)
@@ -582,7 +607,7 @@ class DragonBot(AresBot):
         # if self.time > 1*60 + 30 and self.time < 2*60 + 10: # cheese detection debug
             enemy_buildings = self.enemy_structures
             if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
-                self._used_cheese_defense = True
+                self._used_cheese_response = True
             # TODO 1 Base Response
             if self.is_visible(self.mediator.get_enemy_nat) and not self.mediator.get_enemy_expanded:
                 print("Enemy Going for 1 base")
@@ -638,7 +663,7 @@ class DragonBot(AresBot):
                     self.defend_worker_cannon_rush(unit_categories['enemyWorkerUnits'], unit_categories['cannons'])
                     print("cannon rush")
                 elif len(unit_categories['zerglings']) > 2:
-                    self._used_cheese_defense = True
+                    self._used_cheese_response = True
                     print("Defending against zergling rush")
 
             
@@ -646,7 +671,7 @@ class DragonBot(AresBot):
             if Main_Army:
                 threat_position, num_units = cy_find_units_center_mass(enemy_units, 10.0)
                 threat_position = Point2(threat_position)
-                if self.time < 3*60 and self._used_cheese_defense:
+                if self.time < 3*60 and self._used_cheese_response:
                     if self.assess_threat(enemy_units, own_forces) >= 2:
                         self._under_attack = True
                 elif self._under_attack and self.assess_threat(enemy_units, own_forces) < 2:
