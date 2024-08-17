@@ -67,13 +67,13 @@ def main():
             "SiteDelta513AIE"
         ]
 
-        random_race = Race.Zerg #random.choice([Race.Zerg, Race.Terran, Race.Protoss])
+        random_race = Race.Terran #random.choice([Race.Zerg, Race.Terran, Race.Protoss])
         print("Starting local game...")
         run_game(
             maps.get(random.choice(map_list)),
             [
                 bot1,
-                Computer(random_race, Difficulty.Hard, ai_build=AIBuild.Rush),
+                Computer(random_race, Difficulty.Hard, ai_build=AIBuild.Air),
             ],
             realtime=False,
         )
