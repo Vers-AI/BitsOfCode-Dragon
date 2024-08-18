@@ -72,7 +72,7 @@ class DragonBot(AresBot):
         self.unit_roles = {}                         # dictionary to keep track of the roles of the units
         self.scout_targets = {}                      # dictionary to keep track of scout targets
         self.bases = {}                              # dictionary to keep track of bases
-        self.total_health_shield_percentage = 0.0    # total health + sheild percentage of army
+        self.total_health_shield_percentage = 1.0    # total health + sheild percentage of army
     
         # Flags
         self._commenced_attack: bool = False
@@ -441,7 +441,7 @@ class DragonBot(AresBot):
         pos_of_main_squad: Point2 = self.mediator.get_position_of_main_squad(role=UnitRole.ATTACKING)
         grid: np.ndarray = self.mediator.get_ground_grid
 
-        self.total_health_shield_percentage = sum(unit.shield_health_percentage for unit in Main_Army) / len(Main_Army) if Main_Army else 0
+        self.total_health_shield_percentage = sum(unit.shield_health_percentage for unit in Main_Army) / len(Main_Army) if Main_Army else 1.0
 
 
         for squad in squads:
@@ -450,7 +450,7 @@ class DragonBot(AresBot):
             squad_position: Point2 = squad.squad_position
             units: list[Unit] = squad.squad_units
             squad_tags: set[int] = squad.tags
-
+            # TODO investigate why units stop pursing once units get below a certain health
             all_close: Units = self.mediator.get_units_in_range(
                     start_points=[squad_position],
                     distances=13,
@@ -783,12 +783,13 @@ class DragonBot(AresBot):
     
     ### In house functions
     def use_overcharge(self, Main_Army: Units) -> bool:
-        # Check if total health shield percentage of the army is below 50%
-        # TODO test health criteria
-        # if self.total_health_shield_percentage >= 0.5:
-        #     return False
-        print(f"Health of army:",{self.total_health_shield_percentage})
-
+        # Ensure total_health_shield_percentage is a float between 0 and 1
+        print(f"Health of army: {self.total_health_shield_percentage}")
+    
+        if self.total_health_shield_percentage >= 0.7:
+            print("Army health is above 70%, not using overcharge.")
+            return False
+    
         # Find the Nexus closest to the main squad
         closest_nexus = None
         closest_distance = float('inf')
@@ -804,17 +805,18 @@ class DragonBot(AresBot):
         shield_batteries = self.structures(UnitTypeId.SHIELDBATTERY).closer_than(9, closest_nexus)
         if not shield_batteries:
             return False
-
+    
         # Use Shield Battery Overcharge on one of the Shield Batteries if all conditions are met
         if closest_nexus.energy >= 50 and shield_batteries.ready:  # Ability costs 50 energy
             shield_battery = shield_batteries.closest_to(closest_nexus)
-            closest_nexus(AbilityId.BATTERYOVERCHARGE_BATTERYOVERCHARGE,shield_battery)
+            closest_nexus(AbilityId.BATTERYOVERCHARGE_BATTERYOVERCHARGE, shield_battery)
             return True
-
+    
         return False
 
     
     async def expand_to_next_location(self) -> None:
+        # TODO: add logic to rebuild bases if they are destroyed
         """
         Handles the logic for expanding to the next available base location.
         """
