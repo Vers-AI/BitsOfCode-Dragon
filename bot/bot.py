@@ -430,7 +430,7 @@ class DragonBot(AresBot):
                         if self.structures(UnitTypeId.SHIELDBATTERY).closer_than(8, natural).amount + self.structure_pending(UnitTypeId.SHIELDBATTERY) == 0:
                             self.register_behavior(BuildStructure(base_location=natural, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.game_info.map_center))
                         elif self.structures(UnitTypeId.SHIELDBATTERY).closer_than(8, self.start_location).amount == 0:
-                            self.register_behavior(BuildStructure(base_location=self.start_location, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.townhalls[0].position.towards(self.start_location, 1)))
+                            self.register_behavior(BuildStructure(base_location=self.start_location, structure_id=UnitTypeId.SHIELDBATTERY, closest_to=self.townhalls[0].position.towards(self.start_location, -1)))
             
             if shield_battery_count >= 2:
                 self._one_base_reaction_completed = True
@@ -784,9 +784,10 @@ class DragonBot(AresBot):
     ### In house functions
     def use_overcharge(self, Main_Army: Units) -> bool:
         # Check if total health shield percentage of the army is below 50%
+        # TODO test health criteria
         # if self.total_health_shield_percentage >= 0.5:
         #     return False
-        
+        print(f"Health of army:",{self.total_health_shield_percentage})
 
         # Find the Nexus closest to the main squad
         closest_nexus = None
@@ -807,8 +808,7 @@ class DragonBot(AresBot):
         # Use Shield Battery Overcharge on one of the Shield Batteries if all conditions are met
         if closest_nexus.energy >= 50 and shield_batteries.ready:  # Ability costs 50 energy
             shield_battery = shield_batteries.closest_to(closest_nexus)
-            closest_nexus(AbilityId.OVERCHARGE_OVERCHARGE, shield_battery
-            )
+            closest_nexus(AbilityId.BATTERYOVERCHARGE_BATTERYOVERCHARGE,shield_battery)
             return True
 
         return False
