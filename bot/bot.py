@@ -259,8 +259,8 @@ class DragonBot(AresBot):
             self.One_Base_Reaction()
 
         # Overcharge debug
-        if self._one_base_reaction_completed:
-            self.use_overcharge(Main_Army)
+        # if self._one_base_reaction_completed:
+        #     self.use_overcharge(Main_Army)
 
         # Additional Probes
         if self._used_cheese_response and self.townhalls.ready.amount <= 2 and self.workers.amount < 44:
@@ -619,11 +619,11 @@ class DragonBot(AresBot):
             enemy_buildings = self.enemy_structures
             if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
                 self._used_cheese_response = True
-            # TODO 1 Base Response
-        if self.time == 3*60 + 30: # 1 base detection debug
-            # if self.is_visible(self.mediator.get_enemy_nat) and not self.mediator.get_enemy_expanded:
-            print("Enemy Going for 1 base")
-            self._used_one_base_response = True
+        # TODO 1 Base Trigger Response needs to be tested
+        if self.time < 4*60 + 30: # 1 base detection debug
+            if self.is_visible(self.mediator.get_enemy_nat) and not self.mediator.get_enemy_expanded:
+                print("Enemy Going for 1 base")
+                self._used_one_base_response = True
     
     def threat_detection(self, Main_Army: Units) -> None:
         ground_enemy_near_bases: dict[int, set[int]] = self.mediator.get_ground_enemy_near_bases
@@ -783,12 +783,9 @@ class DragonBot(AresBot):
     
     ### In house functions
     def use_overcharge(self, Main_Army: Units) -> bool:
-        # Ensure total_health_shield_percentage is a float between 0 and 1
-        print(f"Health of army: {self.total_health_shield_percentage}")
     
-        if self.total_health_shield_percentage >= 0.7:
-            print("Army health is above 70%, not using overcharge.")
-            return False
+        if self.total_health_shield_percentage >= 0.75:
+             return False
     
         # Find the Nexus closest to the main squad
         closest_nexus = None
