@@ -82,6 +82,7 @@ class DragonBot(AresBot):
         self._cheese_reaction_completed: bool = False
         self._one_base_reaction_completed: bool = False
         self._is_building: bool = False
+
     
     @property
     def attack_target(self) -> Point2:
@@ -184,9 +185,12 @@ class DragonBot(AresBot):
         # If there are enemy units near our bases, respond to the threat
         if self.townhalls.exists and self.all_enemy_units.closer_than(30, self.townhalls.center):
             self.threat_detection(Main_Army)
-       
-        if not self._under_attack and not self.build_order_runner.build_completed:
-            self.threat_sensor()
+        
+        if self.time > 1*60 and self.time < 4*60 + 10:         
+            # print(f"enemy expanded",self.mediator.get_enemy_expanded, "at:", self.time_formatted)
+              
+            if not self._under_attack and not self.build_order_runner.build_completed:
+                self.early_threat_sensor()
           
         # TODO - Put macro into its own .py file
         ## Macro and Army control
@@ -596,15 +600,15 @@ class DragonBot(AresBot):
 
             self.register_behavior(Scout_Actions)
     
-    def threat_sensor(self) -> None:
+    def early_threat_sensor(self) -> None:
 
         # Checks for worker rushes
-
+        #TODO add specific worker rush response
         if self.mediator.get_enemy_worker_rushed:
                     print("Rushed worker detected")
 
         # Checks for various chesese
-        if (
+        elif (
             self.mediator.get_enemy_ling_rushed
             or (self.mediator.get_enemy_marauder_rush and self.time < 150.0)
             or self.mediator.get_enemy_marine_rush
@@ -615,15 +619,14 @@ class DragonBot(AresBot):
             or self.mediator.get_enemy_roach_rushed
             
         ):
-        # if self.time > 1*60 + 30 and self.time < 2*60 + 10: # cheese detection debug
-            enemy_buildings = self.enemy_structures
-            if (enemy_buildings.amount == 1 and self.enemy_structures.of_type([UnitTypeId.NEXUS, UnitTypeId.COMMANDCENTER, UnitTypeId.HATCHERY]).exists) or (enemy_buildings.of_type([UnitTypeId.SPAWNINGPOOL]).exists):
-                self._used_cheese_response = True
-        # TODO 1 Base Trigger Response needs to be tested
-        if self.time < 4*60 + 30: # 1 base detection debug
-            if self.is_visible(self.mediator.get_enemy_nat) and not self.mediator.get_enemy_expanded:
-                print("Enemy Going for 1 base")
-                self._used_one_base_response = True
+        
+            self._used_cheese_response = True
+        
+        # checks for 1 base
+        elif self.time > 2*60 and not self.mediator.get_enemy_expanded:
+            #print("Enemy Going for 1 base")
+            self._used_one_base_response = True
+
     
     def threat_detection(self, Main_Army: Units) -> None:
         ground_enemy_near_bases: dict[int, set[int]] = self.mediator.get_ground_enemy_near_bases
@@ -647,7 +650,8 @@ class DragonBot(AresBot):
                 self.assess_threat(enemy_units, own_forces)
                 # print threat level
                 # print(f"Threat level: {self.assess_threat(enemy_units, own_forces)}")
-        
+
+            #TODO move this to early_threat_sensor
             #Checks for Early Game Threats
             if self.time < 2*60 + 20 and self.townhalls.first:
                 # Initialize categories
