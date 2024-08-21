@@ -186,16 +186,28 @@ class DragonBot(AresBot):
         if self.townhalls.exists and self.all_enemy_units.closer_than(30, self.townhalls.center):
             self.threat_detection(Main_Army)
         
-        if self.time > 1*60 and self.time < 4*60 + 10:         
-            # print(f"enemy expanded",self.mediator.get_enemy_expanded, "at:", self.time_formatted)
-              
-            if not self._under_attack and not self.build_order_runner.build_completed:
+
+        if not self._under_attack and not self.build_order_runner.build_completed:
+            # checking for early game threats
+            if self.time > 1*60 and self.time < 4*60 + 10:         
+                # print(f"enemy expanded",self.mediator.get_enemy_expanded, "at:", self.time_formatted)  
                 self.early_threat_sensor()
-          
+
+            # Making sure our units stay near the base if not under attack
+            if Main_Army and not self._commenced_attack:
+                if self.structures(UnitTypeId.SHIELDBATTERY).ready:
+                    target = self.structures(UnitTypeId.SHIELDBATTERY).ready.closest_to(self.natural_expansion).position.towards(self.game_info.map_center, 2)
+                else:
+                    target = self.townhalls.closest_to(self.natural_expansion).position.towards(self.game_info.map_center, 5)
+                self.Control_Main_Army(Main_Army, target)
+        
+        
         # TODO - Put macro into its own .py file
         ## Macro and Army control
             
         self.register_behavior(Mining())
+        
+
 
 
         if self.build_order_runner.build_completed and not self._used_cheese_response:
