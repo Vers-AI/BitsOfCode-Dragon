@@ -1,0 +1,96 @@
+# Save the game opening and result to disk?
+# Setting to `True` allows Ares to select a new opening after defeat
+UseData: False
+# How should we choose a build? Cycle is the only option for now
+BuildSelection: Cycle
+# For each Race / Opponent ID choose a build selection
+BuildChoices:
+    test_123:
+        BotName: Test
+        Cycle:
+            - B2GM_Starting_Build
+    Protoss:
+        BotName: ProtossRace
+        Cycle:
+            - B2GM_Starting_Build
+    Terran:
+        BotName: TerranRace
+        Cycle:
+            - B2GM_Starting_Build
+    Zerg:
+        BotName: ZergRace
+        Cycle:
+            - B2GM_Starting_Build
+    Random:
+        BotName: RandomRace
+        Cycle:
+            - B2GM_Starting_Build
+
+    # Can also use specific opponent ids (overrides race options above)
+    a_bot_opponent_id_from_aiarena:
+        BotName: test
+        Cycle:
+            - B2GM_Starting_Build
+
+Builds:
+    B2GM_Starting_Build:
+        # Build constant worker production till this supply
+        ConstantWorkerProductionTill: 44
+        # After 0 supply turn AutoSupply on
+        AutoSupplyAtSupply: 33
+        OpeningBuildOrder:
+            - 14 PYLON @ NAT
+            - 16 GATEWAY @ NAT
+            - 16 WORKER_SCOUT
+            - 16 CHRONO @ NEXUS
+            - 16 GAS
+            - 20 EXPAND
+            - 20 CORE @ NAT
+            - 21 PYLON
+            - 21 GAS
+            - 22 WARPGATERESEARCH
+            - 22 CHRONO @ NEXUS # chroning instead of cyber
+            - 24 STALKER
+            - 26 CHRONO @ GATEWAY
+            - 26 ROBOTICSFACILITY
+            - 27 STALKER
+            - 27 CHRONO @ NEXUS #Chrono Gateway if PVP instead of NEXUS
+            - 28 GATEWAY *2 @ NAT
+            - 30 STALKER
+            - 33 CHRONO @ NEXUS
+            - 34 PYLON @ NAT
+            - 34 OBSERVER
+            - 35 GAS x2
+            - 36 IMMORTAL
+            - 36 CHRONO @  ROBOTICSFACILITY
+            - 48 STALKER *3 @ NAT
+            - 50 ROBOTICSBAY
+            - 50 ROBOTICSFACILITY
+            - 52 IMMORTAL
+            - 54 EXPAND
+            - 55 COLOSSUS x2
+            - 55 CHRONO @ ROBOTICSFACILITY x2
+            - 56 EXTENDEDTHERMALLANCE
+            - 56 TWILIGHTCOUNCIL
+            - 56 FORGE
+            - 57 CHRONO @ ROBOTICSBAY
+            - 58 GAS x2
+            - 58 PROTOSSGROUNDARMORSLEVEL1
+            - 58 CHARGE
+            - 59 CHRONO @ FORGE
+            - 59 IMMORTAL x2
+            - 59 CHRONO @ TWILIGHTCOUNCIL 
+            - 62 GATEWAY 
+            - 62 GATEWAY
+            - 62 GATEWAY
+            - 62 GATEWAY
+            - 62 GATEWAY
+            - 62 TEMPLARARCHIVE
+            - 63 CHRONO @ FORGE
+            - 64 WARPPRISM
+            - 64 IMMORTAL
+            - 66 HIGHTEMPLAR *4 @ NAT
+            - 66 ZEALOT *2 @ NAT
+             
+   
+    
