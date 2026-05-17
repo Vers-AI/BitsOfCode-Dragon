@@ -42,7 +42,7 @@ The default StarCraft II in-game AI makes a terrible training partner. This proj
 ## Getting Started
 
 ### Prerequisites
-- Python 3.8 or higher
+- Python 3.11–3.12
 - [StarCraft II](https://starcraft2.blizzard.com/en-us/) (free edition works fine)
 - Poetry package manager
 
@@ -58,12 +58,17 @@ git clone --recursive https://github.com/Vers-AI/SC2_PiGBot.git
 cd SC2_PiGBot
 ```
 
-3. Install dependencies using Poetry:
+3. Initialize submodules (if you didn't use `--recursive`):
+```bash
+git submodule update --init --recursive
+```
+
+4. Install dependencies using Poetry:
 ```bash
 poetry install
 ```
 
-4. Configure StarCraft II path (if needed):
+5. Configure StarCraft II path (if needed):
    - If you have a non-standard StarCraft 2 installation or are using Linux, adjust `MAPS_PATH` in `run.py`
 
 ### Running the Bot
@@ -72,13 +77,54 @@ poetry install
 poetry run python run.py
 ```
 
+### Linting & Formatting
+
+```bash
+poetry run black .
+poetry run isort .
+```
+
+### Testing
+
+```bash
+poetry run python -m pytest tests/
+```
+
 ## Project Structure
 ```
-/bot/             # Core bot logic
-├── /utilities/   # Helper functions and utilities
-├── /managers/    # Bot behavior managers
-/data/            # Game data and configs
-/run.py           # Entry point to run the bot
+bot/
+  bot.py                    # Main AresBot subclass; wires all modules together
+  constants.py              # All tunable numeric constants (squad radii, thresholds, etc.)
+  combat/
+    __init__.py             # Re-exports public API
+    combat.py               # Core army control logic (squads, roles, engagement decisions)
+    unit_micro.py           # Per-unit micro: ranged, melee, disruptor, HT, sentry
+    formation.py            # Formation geometry helpers
+    target_scoring.py       # Priority target selection
+    force_field_split.py    # Sentry force field logic
+    group_chase.py          # Group chase behavior
+    group_snipe.py          # Group snipe behavior
+  managers/
+    macro.py                # Economy, production, build order execution
+    reactions.py            # Threat detection, assess_threat(), cheese reactions
+    scouting.py             # Scout management and intel gathering
+    structure_manager.py    # Chrono, recharge, mass recall, building management
+  models/
+    rush_detector_model.pkl # Trained rush detection model
+  utilities/
+    intel.py                # Enemy intel tracking, choke grid creation
+    debug.py                # Visual debug overlays
+    nova_manager.py         # Disruptor nova tracking
+    use_disruptor_nova.py   # Disruptor nova behavior
+    natural_wall_manager.py # Natural wall placement logic
+    rush_detection.py          # ML-based rush detector
+    performance_monitor.py  # Frame-time profiling
+    game_report.py          # End-of-game reporting
+ares-sc2/                   # Git submodule — do NOT modify src/
+config.yml                  # Runtime config (feature flags, build selection)
+data/                       # Match replays, memory files, telemetry
+tests/                      # Test bots (protoss, terran, zerg)
+run.py                      # Entry point to run the bot
 ```
 ## Contributing Guidelines
 
@@ -93,7 +139,10 @@ poetry run python run.py
 ### Coding Standards
 - Follow PEP 8 style guide for Python code
 - Write meaningful commit messages
-- Add comments for complex logic
+- Add comments that explain **why**, not **what** — the code shows the what
+- Always comment magic numbers and non-obvious thresholds
+- One-liner comments preferred; block comments only when the reasoning is complex
+- No comments that just restate the code
 - Update documentation when changing functionality
 
 ## Resources
