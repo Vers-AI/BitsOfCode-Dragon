@@ -15,6 +15,26 @@
 
 - **Type hints + PEP8**. Small, single-purpose functions. No new deps unless required.
 
+## Comments
+
+- **Explain why, not what.** The code already shows the what. Comments should answer questions the code can't.
+- **Good:** Game rationale, non-obvious thresholds, ARES-specific gotchas, performance constraints, links to relevant docs.
+  ```python
+  # Stalkers kite at 6.1 range — their max is 6, buffer prevents stutter
+  # See: ares-sc2/docs/tutorials/combat_maneuver_example.md
+  ```
+- **Bad:** Restating code, thinking aloud, chatty tone.
+  ```python
+  # loop through units and attack  ← don't do this
+  # maybe we should consider adding phoenixes here  ← don't do this
+  ```
+- **Magic numbers always get a comment.** If a constant has no clear name or isn't in `constants.py`, explain it.
+  ```python
+  if enemy_count >= 4:  # 4 reapers = full commitment threshold
+  ```
+- **One-liners preferred.** Use block comments only when the "why" is genuinely complex.
+- **No comments on obvious code.** If removing the comment changes nothing, remove it.
+
 - **When in doubt:** ask **1** clarifying question max, then make a best assumption and proceed.
 
 - **Docs:** add a 3-line header to changed files: Purpose | Key Decisions | Limitations.
