@@ -38,7 +38,7 @@ def init_context(bot) -> None:
         "env": _get_env(),
         "match_id": str(uuid.uuid4()),
         "arena_match_id": None,  # Filled by puller post-match
-        "opponent_id": getattr(bot.ai, 'opponent_id', None),
+        "opponent_id": getattr(bot, 'opponent_id', None),
         "bot_race": bot.race.name if hasattr(bot, 'race') else "Protoss",
         "enemy_race": bot.enemy_race.name,
         "map": bot.game_info.map_name,
