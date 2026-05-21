@@ -7,7 +7,7 @@ Limitations: Transition events only emit on value change; periodic snapshots sam
 """
 
 from sc2.ids.unit_typeid import UnitTypeId
-from ares.consts import UnitRole, WORKER_TYPES
+from ares.consts import UnitRole, WORKER_TYPES, TIE_OR_BETTER
 from sc2.data import Race
 from bot.managers.macro import get_economy_state
 from bot.utilities.telemetry import (
@@ -40,8 +40,8 @@ def _get_cheese_type(bot) -> str:
     return "none"
 
 
-def _get_fight_result(bot) -> bool | None:
-    """Get can_win_fight result, returning None on error."""
+def _get_fight_result(bot):
+    """Get can_win_fight EngagementResult, returning None on error."""
     try:
         own_combat = [u for u in bot.own_army if u.type_id not in WORKER_TYPES]
         enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES]
@@ -143,9 +143,11 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
         _ts=bot.time,
     )
 
+    _PHASE_TRANSITIONS = {0: "game_start", 1: "early_to_mid", 2: "mid_to_late"}
+    phase_reason = _PHASE_TRANSITIONS.get(bot.game_state, "unknown")
     log_transition(
         subsystem="reactions", action="phase_transition",
-        reason="game_phase_change",
+        reason=phase_reason,
         key="game_phase", value=bot.game_state,
         _ts=bot.time,
     )
@@ -161,10 +163,10 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
     # === Telemetry: Combat snapshot ===
 
     fight_result = _get_fight_result(bot)
-    event_fields = {
-        "can_win_fight": fight_result,
-        "_ts": bot.time,
-    }
+    event_fields = {"_ts": bot.time}
+
+    if fight_result is not None:
+        event_fields["can_win_fight"] = fight_result in TIE_OR_BETTER
 
     if hasattr(bot, 'current_attack_target') and bot.current_attack_target:
         event_fields["attack_target"] = str(bot.current_attack_target)
@@ -203,7 +205,7 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
         if enemy_structures:
             intel_fields["scouted_enemy_structures"] = enemy_structures
         intel_fields["visible_enemy_count"] = len(bot.enemy_units) if bot.enemy_units else 0
-        log_event(subsystem="intel", action="periodic", reason="timer", **intel_fields)
+        log_event(subsystem="intel", action="scout_update", reason="periodic", **intel_fields)
 
     # === Telemetry: Rush detection transitions (Zerg/Random only) ===
     if bot.enemy_race in {Race.Zerg, Race.Random}:
@@ -498,7 +500,7 @@ def emit_match_record(bot, game_result, game_time: float,
     cheese_type = _get_cheese_type(bot)
 
     match_fields = {
-        "result": str(game_result).lower(),
+        "result": "win" if str(game_result) == "Result.Victory" else ("loss" if str(game_result) == "Result.Defeat" else "tie"),
         "length": round(game_time, 1),
         "cheese_type": cheese_type,
         "commenced_attack": getattr(bot, '_commenced_attack', False),

@@ -18,7 +18,8 @@ SCHEMA_VERSION = 1
 
 TELEMETRY_SAMPLE_RATE = {"local": 0.1, "ci": 0.5, "ladder": 1.0}
 
-_context: dict = {}
+_event_context: dict = {}
+_match_context: dict = {}
 _previous_transitions: dict = {}
 _initialized: bool = False
 
@@ -30,14 +31,18 @@ def _get_env() -> str:
 
 def init_context(bot) -> None:
     """Bind game-level context once per game. Must be called in on_start()."""
-    global _context, _previous_transitions, _initialized
+    global _event_context, _match_context, _previous_transitions, _initialized
 
-    _context = {
+    _event_context = {
         "schema_version": SCHEMA_VERSION,
         "version": BOT_VERSION,
         "env": _get_env(),
         "match_id": str(uuid.uuid4()),
-        "arena_match_id": None,  # Filled by puller post-match
+    }
+
+    _match_context = {
+        **_event_context,
+        "arena_match_id": None,
         "opponent_id": getattr(bot, 'opponent_id', None),
         "bot_race": bot.race.name if hasattr(bot, 'race') else "Protoss",
         "enemy_race": bot.enemy_race.name,
@@ -55,12 +60,12 @@ def log_event(subsystem: str, action: str, reason: str, **kwargs) -> None:
     if not _initialized:
         return
 
-    env = _context.get("env", "local")
+    env = _event_context.get("env", "local")
     if random.random() > TELEMETRY_SAMPLE_RATE.get(env, 0.1):
         return
 
     ts = kwargs.pop("_ts", None)
-    record = {**_context, "subsystem": subsystem, "action": action, "reason": reason, **kwargs}
+    record = {**_event_context, "subsystem": subsystem, "action": action, "reason": reason, **kwargs}
     if ts is not None:
         record["ts"] = ts
 
@@ -73,7 +78,7 @@ def log_event_no_sample(subsystem: str, action: str, reason: str, **kwargs) -> N
         return
 
     ts = kwargs.pop("_ts", None)
-    record = {**_context, "subsystem": subsystem, "action": action, "reason": reason, **kwargs}
+    record = {**_event_context, "subsystem": subsystem, "action": action, "reason": reason, **kwargs}
     if ts is not None:
         record["ts"] = ts
 
@@ -86,7 +91,7 @@ def log_match(**kwargs) -> None:
         return
 
     record = {
-        **_context,
+        **_match_context,
         "ts": datetime.now(timezone.utc).isoformat(),
         **kwargs,
     }
@@ -111,14 +116,15 @@ def log_transition(subsystem: str, action: str, reason: str, key: str, value, **
 
 
 def get_context() -> dict:
-    """Return current context dict (for external access to match_id etc.)."""
-    return _context.copy()
+    """Return current match context dict (for external access to match_id etc.)."""
+    return _match_context.copy()
 
 
 def reset() -> None:
     """Reset all state. Called between games if needed."""
-    global _context, _previous_transitions, _initialized
-    _context = {}
+    global _event_context, _match_context, _previous_transitions, _initialized
+    _event_context = {}
+    _match_context = {}
     _previous_transitions = {}
     _initialized = False
 
