@@ -24,7 +24,9 @@ The match record is the **index card** for finding and grouping games. It holds 
 | `ts`                     | string | yes      | ISO timestamp                                         |
 | `version`                | string | yes      | Bot semver, e.g. `"0.9.0"`                           |
 | `env`                    | string | yes      | `"local"` / `"ci"` / `"ladder"`                      |
-| `match_id`               | string | yes      | AI Arena match ID or UUID                             |
+| `match_id`               | string | yes      | UUID generated at game start — stable join key         |
+| `arena_match_id`         | number | no       | AI Arena match ID — filled by puller post-match; `null` during game |
+| `opponent_id`            | string | no       | AI Arena opponent user ID (from `--OpponentId` CLI arg) |
 | **Context**              |        |          |                                                       |
 | `bot_race`               | string | no       | Our race, e.g. `"Protoss"`                            |
 | `enemy_race`             | string | no       | Opponent race, e.g. `"Zerg"`                          |
@@ -52,13 +54,14 @@ The match record is the **index card** for finding and grouping games. It holds 
 
 ### Event Record — many per game, written during play
 
-| Field            | Type   | Required | Description                                    |
-|------------------|--------|----------|------------------------------------------------|
-| `schema_version` | number | yes      | Schema version, currently `1`                  |
-| `ts`             | number | yes      | Game time in seconds                           |
-| `subsystem`      | string | yes      | Origin module (see subsystem schemas below)    |
-| `action`         | string | yes      | What the subsystem did                         |
-| `reason`         | string | yes      | Short label for why                            |
+| Field              | Type   | Required | Description                                              |
+|--------------------|--------|----------|----------------------------------------------------------|
+| `schema_version`   | number | yes      | Schema version, currently `1`                            |
+| `ts`               | number | yes      | Game time in seconds                                     |
+| `match_id`         | string | yes      | UUID — links events to the match record                 |
+| `subsystem`        | string | yes      | Origin module (see subsystem schemas below)              |
+| `action`           | string | yes      | What the subsystem did                                  |
+| `reason`           | string | yes      | Short label for why                                      |
 
 Additional fields are flattened at the top level — no nested `state` object. Each subsystem emits its own set of fields defined below.
 
@@ -158,7 +161,7 @@ Each subsystem defines its own `action` vocabulary and optional fields. The requ
 |---------------------|------------|------------------------------------|------------------------------------------|
 | `"classification"`  | Transition | `"score_updated"`, `"label_changed"` | `rush_label`, `score_12p`, `score_speed`, `rush_detected`, `auto_true_fired`, `rush_source` |
 | `"ml_update"`       | Transition | `"model_evaluated"`               | `ml_probs`, `ml_confidence`              |
-| `"scout_report"`    | Decision   | `"nat_scouted"`, `"pool_seen"`    | `nat_present_on_last_scout`, `last_nat_scout_time`, `enemy_nat_started_at`, `pool_seen_state`, `pool_seen_time`, `speed_research_started`, `speed_research_time` |
+| `"scout_report"`    | Decision   | `"nat_scouted"`, `"pool_seen"`    | `nat_present_on_last_scout`, `last_nat_scout_time`, `enemy_nat_started_at`, `pool_seen_state`, `pool_seen_time`, `speed_research_started`, `speed_research_time`, `extractor_seen_time`, `queen_started_time`, `first_ling_seen_time`, `first_ling_contact_nat_time`, `ling_has_speed`, `gas_workers_count` |
 
 | Field                        | Type   | Description                                              |
 |------------------------------|--------|----------------------------------------------------------|
@@ -177,6 +180,12 @@ Each subsystem defines its own `action` vocabulary and optional fields. The requ
 | `pool_seen_time`             | number | Game time bot first saw pool                              |
 | `speed_research_started`     | bool   | Whether bot detected speed research                      |
 | `speed_research_time`        | number | Game time bot detected speed research                    |
+| `extractor_seen_time`        | number | Game time bot first saw extractor (-1 if not seen)       |
+| `queen_started_time`         | number | Game time bot first saw queen (-1 if not seen)            |
+| `first_ling_seen_time`       | number | Game time bot first saw zergling (-1 if not seen)        |
+| `first_ling_contact_nat_time`| number | Game time lings first reached our natural (-1 if not seen) |
+| `ling_has_speed`             | bool   | Whether Metabolic Boost was detected on lings            |
+| `gas_workers_count`          | number | Number of drones mining gas at enemy extractor           |
 
 #### `"economy"` — Economy state transitions
 
@@ -246,7 +255,7 @@ log_event(subsystem="combat", action="engage", reason="army_superior",
           can_win_fight=True,
           role_attacking=24, role_defending=4,
           defender_composition={"Stalker": 3, "Sentry": 1})
-# → TELEM {"schema_version":1,"ts":124.3,"version":"0.9.0","env":"ladder","match_id":"abc123","subsystem":"combat","action":"engage","reason":"army_superior","can_win_fight":true,"role_attacking":24,"role_defending":4,"defender_composition":{"Stalker":3,"Sentry":1}}
+# → TELEM {"schema_version":1,"ts":124.3,"version":"0.9.0","env":"ladder","match_id":"a1b2c3d4-...","subsystem":"combat","action":"engage","reason":"army_superior","can_win_fight":true,"role_attacking":24,"role_defending":4,"defender_composition":{"Stalker":3,"Sentry":1}}
 ```
 
 ---
@@ -263,7 +272,9 @@ log_event(subsystem="combat", action="engage", reason="army_superior",
 
 ## Required Fields
 
-`schema_version`, `version`, `env`, `match_id` must always be present. Without them, downstream analysis cannot separate runs.
+`schema_version`, `version`, `env`, `match_id` must always be present on both match and event records. Without them, downstream analysis cannot separate runs.
+
+`arena_match_id` and `opponent_id` are match-record-only fields. `arena_match_id` is `null` during the game and filled by the puller post-match. `opponent_id` is captured from `--OpponentId` on ladder, `null` locally.
 
 ---
 
@@ -362,22 +373,67 @@ All replay tags collapse into a single `cheese_type` field on the match record.
 
 If multiple tags fire (unlikely but possible), use the first detected. The `cheese_type` field is the bot's final classification of opponent strategy.
 
-`print_*` functions remain for dev console readability — they still print human-readable output. They also emit a `TELEM` line alongside.
+`print_*` functions become thin wrappers — they still print human-readable output for dev debugging, but they also emit a `TELEM` line alongside. The `TELEM` output is the canonical data source; the printed output is secondary.
 
 ### `rush_detection.py:log_rush_detection_result()` → match record + event records
 
-The hand-rolled JSONL writer in `rush_detection.py` migrates to telemetry:
+The hand-rolled JSONL writer in `rush_detection.py` is **replaced** by telemetry. The training script (`scripts/train_rush_model.py`) currently reads from `data/rush_detection_log.jsonl` — it will be updated to read from the `TELEM` pipeline instead.
 
-- **Match record**: `cheese_type` field captures the final classification.
-- **Event records**: `rush_detect` subsystem emits events with actions `"classification"`, `"ml_update"`, and `"scout_report"` — see the rush_detect subsystem schema for full field definitions.
+**Why this works:** All 13 ML feature columns are now available in telemetry events:
 
-The separate `data/rush_detection_log.jsonl` file is deprecated — all data flows through `TELEM` now.
+| Training Feature | Telemetry Source | Event |
+|---|---|---|
+| `pool_start` | `pool_seen_time` | `rush_detect` `scout_report` |
+| `nat_start` | `enemy_nat_started_at` | `rush_detect` `scout_report` |
+| `last_nat_scout_time` | `last_nat_scout_time` | `rush_detect` `scout_report` |
+| `nat_present_on_last_scout` | `nat_present_on_last_scout` | `rush_detect` `scout_report` |
+| `gas_time` | `extractor_seen_time` | `rush_detect` `scout_report` |
+| `queen_time` | `queen_started_time` | `rush_detect` `scout_report` |
+| `ling_seen` | `first_ling_seen_time` | `rush_detect` `scout_report` |
+| `ling_contact` | `first_ling_contact_nat_time` | `rush_detect` `scout_report` |
+| `speed_start` | `speed_research_time` | `rush_detect` `scout_report` |
+| `ling_has_speed` | `ling_has_speed` | `rush_detect` `scout_report` |
+| `gas_workers` | `gas_workers_count` | `rush_detect` `scout_report` |
+| `score_12p` | `score_12p` | `rush_detect` `classification` |
+| `score_speed` | `score_speed` | `rush_detect` `classification` |
+| `rush_label` | `rush_label` | `rush_detect` `classification` |
+| `auto_true_fired` | `auto_true_fired` | `rush_detect` `classification` |
+| `result` | `result` | Match record |
+| `game_time_seconds` | `length` | Match record |
+| `map_name` | `map` | Match record |
+| `enemy_race` | `enemy_race` | Match record |
+| `rush_distance_seconds` | `rush_time_seconds` | Match record |
+
+**Migration steps:**
+1. Add `log_event()` calls to `_track_enemy_timings()` for `scout_report` events (when timing data updates).
+2. Add `log_event()` calls to `get_enemy_ling_rushed_v2()` for `classification` and `ml_update` events (when scores/labels change).
+3. Add `log_match()` call to `on_end()` for match record fields (replacing `log_rush_detection_result()`).
+4. Remove `log_rush_detection_result()` function from `rush_detection.py`.
+5. Delete `data/rush_detection_log.jsonl` — all data flows through `TELEM` now.
+
+**Training pipeline impact:** The current `log_rush_detection_result()` writes one record per game with all 13 ML features in a single row. With telemetry, features are spread across multiple events at different timestamps. The training script (`scripts/train_rush_model.py`) must be updated to:
+1. Filter TELEM lines for `subsystem="rush_detect"` by `match_id`
+2. Get the **final** `classification` event (for `rush_label`, `score_12p`, `score_speed`, `auto_true_fired`)
+3. Get the **latest** `scout_report` event before classification (for all timing features)
+4. Join with the match record (for `result`, `enemy_race`, `map`, `rush_time_seconds`)
+
+This is a standard DuckDB join — not complex, but it's a real change from the current single-line-per-game format.
 
 ---
 
 ## Data Pipeline (Out of Scope)
 
-A puller script (separate from the bot) downloads `stdout.log` and `stderr.log` from AI Arena after each match, filters for `TELEM`-prefixed lines, strips the prefix, and writes a clean `match_id.jsonl` into a local `games/` folder. DuckDB queries that folder directly via `read_json_auto('games/*.jsonl')`. No import step, no server.
+### Puller + Enrichment Pipeline (future)
+
+A puller script (separate from the bot) runs post-match and does three things:
+
+1. **Download logs** — fetch `stdout.log` and `stderr.log` from AI Arena, filter for `TELEM`-prefixed lines, strip the prefix, write into `games/<match_id>.jsonl`.
+2. **Enrich `arena_match_id`** — call `https://aiarena.net/api/match-participations/?bot=<BOT_ID>&ordering=-created` with the user's API token, find the most recent match matching `opponent_id` + `map` + timestamp, and write the real AI Arena `match_id` into every record's `arena_match_id` field.
+3. **Download replay** — fetch the `.SC2Replay` file for later replay parsing (game's-eye data: resources, supply, exact army composition, etc.).
+
+The enrichment step is the only place `arena_match_id` gets filled. During the game, it's `null`. This keeps the bot simple (no API calls during gameplay) while ensuring every record can be joined to AI Arena data later.
+
+DuckDB queries the `games/` folder directly via `read_json_auto('games/*.jsonl')`. No import step, no server.
 
 ---
 
@@ -389,11 +445,17 @@ A puller script (separate from the bot) downloads `stdout.log` and `stderr.log` 
 - `BOT_VERSION` constant in `__init__.py`
 - `SCHEMA_VERSION` constant in `telemetry.py`
 - Sampling policy by environment
-- Migrate `game_report.py` periodic/end-game output to emit `TELEM` lines
-- Migrate `rush_detection.py:log_rush_detection_result()` into `log_match()`
-- `print_*` functions remain for dev console readability
+- Replace `game_report.py` as the data pipeline — `print_*` functions become thin wrappers that print human-readable output **and** emit `TELEM` lines. The `TELEM` output is the canonical data source; the printed output is for dev convenience only.
+- Migrate `rush_detection.py:log_rush_detection_result()` into `log_match()` + `rush_detect` events
+- Deprecate `data/rush_detection_log.jsonl` — all data flows through `TELEM` now
 
-**Out of scope:** puller, DuckDB queries, dashboards, structlog dependency.
+**Out of scope (for now, but prepared for):**
+- Puller script that downloads logs from AI Arena and enriches `arena_match_id`
+- Replay download and parsing for game's-eye data
+- DuckDB queries and dashboards
+- structlog dependency
+
+**Preparation for future enrichment:** The schema already includes `arena_match_id` (null during game, filled post-match) and `opponent_id` (from `--OpponentId`). The puller will use the AI Arena API (`/api/match-participations/?bot=<BOT_ID>&ordering=-created`) to match on `opponent_id` + `map` + timestamp and write the real AI Arena match ID into every record.
 
 ---
 
@@ -402,5 +464,7 @@ A puller script (separate from the bot) downloads `stdout.log` and `stderr.log` 
 - JSONL only — no nested formats, no binary, no in-bot databases.
 - stdout for telemetry, stderr for errors — never mix.
 - Telemetry writes must be cheap and never block gameplay logic.
-- `match_id` matches AI Arena's ID on ladder; generated UUID otherwise (confirm whether AI Arena passes this).
+- `match_id` is a UUID generated at game start — it's the stable join key for all events in a match. Never changes.
+- `arena_match_id` is the AI Arena integer match ID — **not available during the game**. The bot controller passes `--OpponentId` (opponent's user ID) but not the match ID. The puller enriches this field post-match by querying `https://aiarena.net/api/match-participations/?bot=<BOT_ID>&ordering=-created` and matching on `opponent_id` + `map` + timestamp.
+- `opponent_id` is captured from the `--OpponentId` CLI arg on ladder. It's the AI Arena user ID of the opponent, and is the primary key for correlating with the API.
 - All optional fields are flattened at the top level of the record — no nested `state` object.
