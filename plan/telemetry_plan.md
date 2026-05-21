@@ -247,6 +247,8 @@ In `log_event()`: if `random.random() > sample_rate[env]`, skip silently.
 
 - **stdout** → telemetry lines, each prefixed with `TELEM `
 - **stderr** → errors and tracebacks only, never mixed
+- **ladder games** → stdout with `TELEM ` prefix (captured by bot controller into `stdout.log`)
+- **local games** → `data/local_telemetry.jsonl` only (raw JSONL, no prefix; terminal stays clean)
 
 Example:
 

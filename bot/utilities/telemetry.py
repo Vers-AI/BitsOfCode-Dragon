@@ -2,7 +2,8 @@
 Telemetry module
 Purpose: Structured JSONL logging via TELEM-prefixed stdout lines.
 Key Decisions: TELEM prefix for easy grep from AI Arena logs; sampling by env;
-              module-level state for transition detection (single-process, one game at a time).
+              module-level state for transition detection (single-process, one game at a time);
+              local games also append to data/local_telemetry.jsonl for easy DuckDB access.
 Limitations: No async/batched I/O needed — print() is synchronous but cheap for ~20 events/game.
 """
 
@@ -11,8 +12,11 @@ import random
 import sys
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from bot import BOT_VERSION
+
+_LOCAL_LOG = Path("data/local_telemetry.jsonl")
 
 SCHEMA_VERSION = 1
 
@@ -130,8 +134,17 @@ def reset() -> None:
 
 
 def _emit(record: dict) -> None:
-    """Print TELEM-prefixed JSON to stdout."""
+    """Write telemetry record. Ladder: stdout (captured by bot controller). Local: file only."""
     try:
-        print("TELEM " + json.dumps(record, default=str))
+        line = json.dumps(record, default=str)
+        env = _event_context.get("env", "local")
+        if env == "ladder":
+            # stdout is the transport out of the container
+            print("TELEM " + line)
+        else:
+            # Local: file only, terminal stays clean (use tail -f to watch)
+            _LOCAL_LOG.parent.mkdir(exist_ok=True)
+            with open(_LOCAL_LOG, "a") as f:
+                f.write(line + "\n")
     except (TypeError, ValueError) as e:
         print(f"TELEM_ERROR: Failed to serialize: {e}", file=sys.stderr)
