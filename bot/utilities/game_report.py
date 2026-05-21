@@ -499,8 +499,19 @@ def emit_match_record(bot, game_result, game_time: float,
     pm = bot.performance_monitor
     cheese_type = _get_cheese_type(bot)
 
+    result_str = str(game_result)
+    if result_str == "Result.Victory":
+        result = "win"
+    elif result_str == "Result.Defeat":
+        result = "loss"
+    elif result_str == "Result.Tie":
+        result = "tie"
+    else:
+        # Result.Undecided or unknown — likely a crash/disconnect
+        result = "undecided"
+
     match_fields = {
-        "result": "win" if str(game_result) == "Result.Victory" else ("loss" if str(game_result) == "Result.Defeat" else "tie"),
+        "result": result,
         "length": round(game_time, 1),
         "cheese_type": cheese_type,
         "commenced_attack": getattr(bot, '_commenced_attack', False),

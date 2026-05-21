@@ -34,7 +34,7 @@ The match record is the **index card** for finding and grouping games. It holds 
 | `chosen_opening`         | string | no       | Bot's build order choice (key decision input)         |
 | `rush_time_seconds`      | number | no       | Rush distance estimate in seconds (derive tiers in analysis) |
 | **Result**               |        |          |                                                       |
-| `result`                 | string | no       | `"win"` or `"loss"`                                   |
+| `result`                 | string | no       | `"win"` / `"loss"` / `"tie"` / `"undecided"` / `"incomplete"` |
 | `length`                 | number | no       | Game duration in seconds                               |
 | **Bot's game-level conclusions** | |    |                                                       |
 | `cheese_type`            | string | no       | Opponent strategy classification, e.g. `"12_pool"`, `"cannon_rush"`, `"none"` |
@@ -248,7 +248,7 @@ In `log_event()`: if `random.random() > sample_rate[env]`, skip silently.
 - **stdout** → telemetry lines, each prefixed with `TELEM `
 - **stderr** → errors and tracebacks only, never mixed
 - **ladder games** → stdout with `TELEM ` prefix (captured by bot controller into `stdout.log`)
-- **local games** → `data/local_telemetry.jsonl` only (raw JSONL, no prefix; terminal stays clean)
+- **local games** → `data/games/<match_id>.jsonl` (raw JSONL, no prefix; terminal stays clean)
 
 Example:
 
