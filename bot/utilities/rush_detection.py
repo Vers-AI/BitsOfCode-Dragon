@@ -7,8 +7,6 @@ Limitations: Requires enemy main location scouted; probe death reduces signal qu
 """
 
 from typing import TYPE_CHECKING
-import json
-from pathlib import Path
 import warnings
 
 import numpy as np
@@ -626,69 +624,4 @@ def get_enemy_ling_rushed_v2(bot: "PiG_Bot") -> bool:
     return False
 
 
-def log_rush_detection_result(bot: "PiG_Bot", game_result):
-    """
-    Log rush detection results at game end for ML training and analysis.
-    
-    Creates a JSON log entry with all timing data and the final outcome.
-    Appends to data/rush_detection_log.jsonl (one line per game).
-    Feature names match the ML spec for direct use in training.
-    
-    Call this from bot.on_end() method.
-    
-    Args:
-        bot: PiG_Bot instance
-        game_result: Result enum from on_end parameter
-    """
-    # Skip if we haven't initialized tracking yet
-    if not hasattr(bot, '_rush_label'):
-        return
-    
-    log_dir = Path("data")
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / "rush_detection_log.jsonl"
-    
-    # Get feature values, using -1 for missing (ML convention)
-    def get_time(attr, default=-1):
-        val = getattr(bot, attr, None)
-        return val if val is not None else default
-    
-    log_entry = {
-        # Metadata
-        "map_name": bot.game_info.map_name,
-        "enemy_race": str(bot.enemy_race),
-        "rush_distance_seconds": getattr(bot, '_rush_time_seconds', -1),
-        
-        # Raw timing features (for ML) - use -1 for missing
-        "pool_start": get_time('_pool_seen_time'),
-        "nat_start": get_time('_enemy_nat_started_at'),
-        "last_nat_scout_time": get_time('_last_nat_scout_time'),
-        "nat_present_on_last_scout": 1 if getattr(bot, '_nat_present_on_last_scout', None) else (0 if getattr(bot, '_nat_present_on_last_scout', None) is False else -1),
-        "gas_time": get_time('_extractor_seen_time'),
-        "queen_time": get_time('_queen_started_time'),
-        "ling_seen": get_time('_first_ling_seen_time'),
-        "ling_contact": get_time('_first_ling_contact_nat_time'),
-        "speed_start": get_time('_speed_research_time'),
-        "ling_has_speed": 1 if getattr(bot, '_ling_has_speed', False) else 0,
-        "gas_workers": getattr(bot, '_gas_workers_count', 0),
-        
-        # Rule scores (for ML)
-        "score_12p": getattr(bot, '_score_12p', 0),
-        "score_speed": getattr(bot, '_score_speed', 0),
-        
-        # Classification result
-        "auto_true_fired": getattr(bot, '_auto_true_fired', False),
-        "rush_label": getattr(bot, '_rush_label', "none"),
-        
-        # Game outcome (for training labels / analysis)
-        "result": str(game_result),
-        "game_time_seconds": bot.time,
-    }
-    
-    # Append to JSONL (one line per game)
-    try:
-        with open(log_file, 'a') as f:
-            f.write(json.dumps(log_entry) + '\n')
-        print(f"Rush detection logged to {log_file}")
-    except Exception as e:
-        print(f"Failed to log rush detection: {e}")
+

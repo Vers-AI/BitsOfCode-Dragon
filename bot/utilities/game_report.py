@@ -1,27 +1,100 @@
 """
 Game Report Utility
-Handles presentation and formatting of reports:
-- Startup report (called once in on_start)
-- Periodic intel reports (every 30 game seconds)
-- Replay tagging (for filtering replays later)
-- End-game performance report (uses PerformanceMonitor)
+Purpose: Handles presentation and formatting of reports AND telemetry events.
+Key Decisions: print_* functions retained for dev console readability; TELEM emissions
+              added alongside for structured data collection (see telemetry_plan.md).
+Limitations: Transition events only emit on value change; periodic snapshots sample by env.
 """
 
 from sc2.ids.unit_typeid import UnitTypeId
 from ares.consts import UnitRole, WORKER_TYPES
 from sc2.data import Race
 from bot.managers.macro import get_economy_state
+from bot.utilities.telemetry import (
+    log_event, log_transition, log_match, log_event_no_sample,
+)
+
+
+def _get_cheese_type(bot) -> str:
+    """Derive cheese_type from replay tags (first detected cheese wins)."""
+    if (bot.enemy_race in {Race.Zerg, Race.Random}
+            and hasattr(bot, '_ling_rushed_v2') and bot._ling_rushed_v2
+            and hasattr(bot, '_rush_label') and bot._rush_label in {'12_pool', 'speedling'}):
+        return bot._rush_label
+    if not bot._not_worker_rush:
+        return "worker_rush"
+    if bot._cannon_rush_response:
+        return "cannon_rush"
+    if bot.mediator.get_enemy_marine_rush:
+        return "marine_rush"
+    if bot.mediator.get_enemy_marauder_rush:
+        return "marauder_rush"
+    if bot.mediator.get_is_proxy_zealot:
+        return "proxy_zealot"
+    if bot.mediator.get_enemy_four_gate:
+        return "four_gate"
+    if bot.mediator.get_enemy_roach_rushed:
+        return "roach_rush"
+    if bot.mediator.get_enemy_ravager_rush:
+        return "ravager_rush"
+    return "none"
+
+
+def _get_fight_result(bot) -> bool | None:
+    """Get can_win_fight result, returning None on error."""
+    try:
+        own_combat = [u for u in bot.own_army if u.type_id not in WORKER_TYPES]
+        enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES]
+        return bot.mediator.can_win_fight(
+            own_units=own_combat,
+            enemy_units=enemy_combat,
+            timing_adjust=True,
+            good_positioning=True,
+            workers_do_no_damage=True
+        )
+    except Exception:
+        return None
+
+
+def _get_defender_composition(bot) -> dict[str, int]:
+    """Get defender unit type → count as JSON-serializable dict."""
+    try:
+        defending = bot.mediator.get_units_from_role(role=UnitRole.DEFENDING)
+        if not defending:
+            return {}
+        counts: dict[str, int] = {}
+        for unit in defending:
+            name = unit.type_id.name
+            counts[name] = counts.get(name, 0) + 1
+        return counts
+    except Exception:
+        return {}
+
+
+def _get_scouted_enemy_units(bot) -> dict[str, int]:
+    """Get scouted enemy unit type → count (bot's perception, not reality)."""
+    if not bot.enemy_units:
+        return {}
+    counts: dict[str, int] = {}
+    for unit in bot.enemy_units:
+        name = unit.type_id.name
+        counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def _get_scouted_enemy_structures(bot) -> dict[str, int]:
+    """Get scouted enemy structure type → count (bot's perception, not reality)."""
+    if not bot.enemy_structures:
+        return {}
+    counts: dict[str, int] = {}
+    for structure in bot.enemy_structures:
+        name = structure.type_id.name
+        counts[name] = counts.get(name, 0) + 1
+    return counts
 
 
 def print_startup_report(bot) -> None:
-    """Print one-time startup report with static game information.
-    
-    Called once in on_start() to log initial game state.
-    Always prints (not gated by bot.debug).
-    
-    Args:
-        bot: Bot instance
-    """
+    """Print one-time startup report and initialize telemetry context."""
     print("\n" + "="*60)
     print("  GAME STARTUP REPORT")
     print("="*60)
@@ -37,162 +110,239 @@ def print_startup_report(bot) -> None:
 
 
 def print_periodic_intel_report(bot, iteration: int) -> None:
-    """Print periodic intelligence report every 30 game seconds.
-    
-    Shows bot decision-making state for field analysis.
-    Always prints (not gated by bot.debug).
-    
-    Args:
-        bot: Bot instance
-        iteration: Current game iteration
-    """
-    # Report every 30 game seconds, starting at 30 seconds
-    # Use range-based check to handle step timing variations (robust to frame spikes)
+    """Print periodic intelligence report every 30 game seconds + emit telemetry events."""
     if bot.time < 30:
         return
-    
-    # Initialize tracker if needed
+
     if not hasattr(bot, '_last_intel_report_time'):
         bot._last_intel_report_time = 0.0
-    
-    # Check if we've crossed a 30-second boundary since last report
+
     next_report_time = bot._last_intel_report_time + 30.0
     if bot.time < next_report_time:
         return
-    
-    # Update tracker to the boundary we're reporting for (snap to 30s grid)
+
     bot._last_intel_report_time = (int(bot.time) // 30) * 30
-    
-    # Display rounded to nearest 30s boundary
+
     report_time = bot._last_intel_report_time
     game_time_minutes = int(report_time // 60)
     game_time_seconds = int(report_time % 60)
-    
+
+    # === Telemetry: Transition events (emit only on change) ===
+
+    log_transition(
+        subsystem="combat", action="state_change",
+        reason="attack_commenced",
+        key="commenced_attack", value=bot._commenced_attack,
+        _ts=bot.time,
+    )
+
+    log_transition(
+        subsystem="combat", action="state_change",
+        reason="under_attack",
+        key="under_attack", value=bot._under_attack,
+        _ts=bot.time,
+    )
+
+    log_transition(
+        subsystem="reactions", action="phase_transition",
+        reason="game_phase_change",
+        key="game_phase", value=bot.game_state,
+        _ts=bot.time,
+    )
+
+    economy_state = get_economy_state(bot)
+    log_transition(
+        subsystem="economy", action="state_transition",
+        reason="economy_state_change",
+        key="economy_state", value=economy_state,
+        _ts=bot.time,
+    )
+
+    # === Telemetry: Combat snapshot ===
+
+    fight_result = _get_fight_result(bot)
+    event_fields = {
+        "can_win_fight": fight_result,
+        "_ts": bot.time,
+    }
+
+    if hasattr(bot, 'current_attack_target') and bot.current_attack_target:
+        event_fields["attack_target"] = str(bot.current_attack_target)
+
+    try:
+        attacking = bot.mediator.get_units_from_role(role=UnitRole.ATTACKING)
+        defending = bot.mediator.get_units_from_role(role=UnitRole.DEFENDING)
+        base_defenders = bot.mediator.get_units_from_role(role=UnitRole.BASE_DEFENDER)
+
+        event_fields["role_attacking"] = len(attacking)
+        event_fields["role_defending"] = len(defending)
+        event_fields["role_base_defender"] = len(base_defenders)
+        event_fields["defender_composition"] = _get_defender_composition(bot)
+
+        from bot.constants import ATTACKING_SQUAD_RADIUS, DEFENDER_SQUAD_RADIUS
+        attacking_squads = bot.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=ATTACKING_SQUAD_RADIUS)
+        defending_squads = bot.mediator.get_squads(role=UnitRole.DEFENDING, squad_radius=ATTACKING_SQUAD_RADIUS)
+        base_squads = bot.mediator.get_squads(role=UnitRole.BASE_DEFENDER, squad_radius=DEFENDER_SQUAD_RADIUS)
+
+        event_fields["squads_atk"] = len(attacking_squads)
+        event_fields["squads_def"] = len(defending_squads)
+        event_fields["squads_base"] = len(base_squads)
+    except Exception:
+        pass
+
+    log_event(subsystem="combat", action="periodic", reason="timer", **event_fields)
+
+    # === Telemetry: Intel snapshot ===
+
+    enemy_units = _get_scouted_enemy_units(bot)
+    enemy_structures = _get_scouted_enemy_structures(bot)
+    if enemy_units or enemy_structures:
+        intel_fields: dict = {"_ts": bot.time}
+        if enemy_units:
+            intel_fields["scouted_enemy_units"] = enemy_units
+        if enemy_structures:
+            intel_fields["scouted_enemy_structures"] = enemy_structures
+        intel_fields["visible_enemy_count"] = len(bot.enemy_units) if bot.enemy_units else 0
+        log_event(subsystem="intel", action="periodic", reason="timer", **intel_fields)
+
+    # === Telemetry: Rush detection transitions (Zerg/Random only) ===
+    if bot.enemy_race in {Race.Zerg, Race.Random}:
+        _emit_rush_detection_transitions(bot)
+
+    # === Console report (unchanged) ===
+
     print("\n" + "="*60)
     print(f"  INTEL REPORT {game_time_minutes}:{game_time_seconds:02d}")
     print("="*60)
-    
-    # === COMBAT STATUS ===
+
     print("\n  COMBAT STATUS:")
     print(f"    Attack Commenced: {bot._commenced_attack}")
     print(f"    Under Attack: {bot._under_attack}")
     print(f"    Cheese Response: {bot._used_cheese_response}")
     print(f"    Game State: {bot.game_state} ({'Early' if bot.game_state == 0 else 'Mid' if bot.game_state == 1 else 'Late'})")
-    
-    # Fight simulation (filter workers for accurate combat assessment)
-    try:
-        own_combat = [u for u in bot.own_army if u.type_id not in WORKER_TYPES]
-        enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES]
-        fight_result = bot.mediator.can_win_fight(
-            own_units=own_combat,
-            enemy_units=enemy_combat,
-            timing_adjust=True,
-            good_positioning=True,
-            workers_do_no_damage=True
-        )
+
+    if fight_result is not None:
         print(f"    Can Win Fight: {fight_result}")
-    except Exception as e:
-        print(f"    Can Win Fight: Error ({e})")
-    
-    # === ARMY COMPOSITION ===
+    else:
+        print("    Can Win Fight: Error")
+
     print("\n  ARMY COMPOSITION:")
     _print_army_composition(bot)
-    
-    # === UNIT ROLES ===
+
     print("\n  UNIT ROLES:")
     _print_unit_roles(bot)
-    
-    # === ENEMY INTELLIGENCE ===
+
     print("\n  ENEMY INTELLIGENCE:")
     _print_enemy_intel(bot)
-    
-    # === ECONOMY ===
+
     print("\n  ECONOMY:")
     _print_economy_state(bot)
-    
-    # === TARGET & POSITIONING ===
+
     if hasattr(bot, 'current_attack_target') and bot.current_attack_target:
         print("\n  TARGETING:")
         print(f"    Current Target: {bot.current_attack_target}")
-    
-    # === RUSH DETECTION (Zerg only) ===
+
     if bot.enemy_race in {Race.Zerg, Race.Random}:
         _print_rush_detection_status(bot)
-    
+
     print("="*60 + "\n")
+
+
+def _emit_rush_detection_transitions(bot) -> None:
+    """Emit telemetry transition events for rush detection state changes."""
+    if not hasattr(bot, '_rush_label'):
+        return
+
+    log_transition(
+        subsystem="rush_detect", action="classification",
+        reason="label_changed",
+        key="rush_label", value=bot._rush_label,
+        _ts=bot.time,
+    )
+
+    if hasattr(bot, '_ling_rushed_v2'):
+        log_transition(
+            subsystem="rush_detect", action="classification",
+            reason="rush_detected",
+            key="rush_detected", value=bot._ling_rushed_v2,
+            _ts=bot.time,
+        )
+
+    if hasattr(bot, '_auto_true_fired') and bot._auto_true_fired:
+        log_event_no_sample(
+            subsystem="rush_detect", action="classification",
+            reason="auto_true_fired",
+            rush_label=getattr(bot, '_rush_label', 'none'),
+            score_12p=getattr(bot, '_score_12p', 0),
+            score_speed=getattr(bot, '_score_speed', 0),
+            rush_source=getattr(bot, '_rush_source', None),
+            _ts=bot.time,
+        )
+
+    if hasattr(bot, '_ml_probs') and bot._ml_probs:
+        log_event_no_sample(
+            subsystem="rush_detect", action="ml_update",
+            reason="model_evaluated",
+            ml_probs=getattr(bot, '_ml_probs', {}),
+            ml_confidence=getattr(bot, '_ml_confidence', 0.0),
+            _ts=bot.time,
+        )
 
 
 def get_replay_tags_to_send(bot) -> list[str]:
     """
     Collect replay tags that should be sent this iteration.
     Returns list of tags to send via chat_send().
-    
+
     Tags are only sent once per game (tracked in bot._replay_tags_sent).
-    
-    Args:
-        bot: Bot instance
-        
-    Returns:
-        List of tag strings to send
     """
-    # Initialize tags set if needed
     if not hasattr(bot, '_replay_tags_sent'):
         bot._replay_tags_sent = set()
-    
+
     tags = []
-    
-    # Tag rush type when detected (Zerg only, once per game)
-    # Labels: 12_pool, speedling, macro (macro = not a rush)
-    if (bot.enemy_race in {Race.Zerg, Race.Random} 
-        and hasattr(bot, '_ling_rushed_v2') 
-        and bot._ling_rushed_v2
-        and hasattr(bot, '_rush_label')
-        and bot._rush_label in {'12_pool', 'speedling'}
-        and 'Rush' not in bot._replay_tags_sent):
-        
+
+    if (bot.enemy_race in {Race.Zerg, Race.Random}
+            and hasattr(bot, '_ling_rushed_v2')
+            and bot._ling_rushed_v2
+            and hasattr(bot, '_rush_label')
+            and bot._rush_label in {'12_pool', 'speedling'}
+            and 'Rush' not in bot._replay_tags_sent):
+
         tags.append(f"Rush_{bot._rush_label}")
         bot._replay_tags_sent.add('Rush')
-    
-    # Tag worker rush
+
     if not bot._not_worker_rush and 'WorkerRush' not in bot._replay_tags_sent:
         tags.append("WorkerRush")
         bot._replay_tags_sent.add('WorkerRush')
-    
-    # Tag cannon rush
+
     if bot._cannon_rush_response and 'CannonRush' not in bot._replay_tags_sent:
         tags.append("CannonRush")
         bot._replay_tags_sent.add('CannonRush')
-    
-    # Tag marine rush
+
     if bot.mediator.get_enemy_marine_rush and 'MarineRush' not in bot._replay_tags_sent:
         tags.append("MarineRush")
         bot._replay_tags_sent.add('MarineRush')
-    
-    # Tag marauder rush
+
     if bot.mediator.get_enemy_marauder_rush and 'MarauderRush' not in bot._replay_tags_sent:
         tags.append("MarauderRush")
         bot._replay_tags_sent.add('MarauderRush')
-    
-    # Tag proxy zealot
+
     if bot.mediator.get_is_proxy_zealot and 'ProxyZealot' not in bot._replay_tags_sent:
         tags.append("ProxyZealot")
         bot._replay_tags_sent.add('ProxyZealot')
-    
-    # Tag four gate
+
     if bot.mediator.get_enemy_four_gate and 'FourGate' not in bot._replay_tags_sent:
         tags.append("FourGate")
         bot._replay_tags_sent.add('FourGate')
-    
-    # Tag roach rush
+
     if bot.mediator.get_enemy_roach_rushed and 'RoachRush' not in bot._replay_tags_sent:
         tags.append("RoachRush")
         bot._replay_tags_sent.add('RoachRush')
-    
-    # Tag ravager rush
+
     if bot.mediator.get_enemy_ravager_rush and 'RavagerRush' not in bot._replay_tags_sent:
         tags.append("RavagerRush")
         bot._replay_tags_sent.add('RavagerRush')
-    
+
     return tags
 
 
@@ -201,17 +351,15 @@ def _print_army_composition(bot) -> None:
     if not bot.own_army:
         print("    No army units")
         return
-    
-    # Count units by type
+
     unit_counts = {}
     for unit in bot.own_army:
         type_name = unit.type_id.name
         unit_counts[type_name] = unit_counts.get(type_name, 0) + 1
-    
-    # Print sorted by count (descending)
+
     for unit_type, count in sorted(unit_counts.items(), key=lambda x: x[1], reverse=True):
         print(f"    {unit_type}: {count}")
-    
+
     print(f"    Total Army: {len(bot.own_army)} units")
 
 
@@ -221,28 +369,26 @@ def _print_unit_roles(bot) -> None:
         attacking = bot.mediator.get_units_from_role(role=UnitRole.ATTACKING)
         defending = bot.mediator.get_units_from_role(role=UnitRole.DEFENDING)
         base_defenders = bot.mediator.get_units_from_role(role=UnitRole.BASE_DEFENDER)
-        
+
         print(f"    ATTACKING: {len(attacking)}")
         print(f"    DEFENDING: {len(defending)}")
-        
-        # Show defender unit composition if there are defenders
+
         if defending:
             defender_counts = {}
             for unit in defending:
                 type_name = unit.type_id.name
                 defender_counts[type_name] = defender_counts.get(type_name, 0) + 1
-            
+
             defender_list = ", ".join([f"{count}x{unit_type}" for unit_type, count in sorted(defender_counts.items())])
             print(f"      └─ Defenders: {defender_list}")
-        
+
         print(f"    BASE_DEFENDER: {len(base_defenders)}")
-        
-        # Squad counts
+
         from bot.constants import ATTACKING_SQUAD_RADIUS, DEFENDER_SQUAD_RADIUS
         attacking_squads = bot.mediator.get_squads(role=UnitRole.ATTACKING, squad_radius=ATTACKING_SQUAD_RADIUS)
         defending_squads = bot.mediator.get_squads(role=UnitRole.DEFENDING, squad_radius=ATTACKING_SQUAD_RADIUS)
         base_squads = bot.mediator.get_squads(role=UnitRole.BASE_DEFENDER, squad_radius=DEFENDER_SQUAD_RADIUS)
-        
+
         print(f"    Squads: ATK:{len(attacking_squads)} DEF:{len(defending_squads)} BASE:{len(base_squads)}")
     except Exception as e:
         print(f"    Error getting roles: {e}")
@@ -253,25 +399,23 @@ def _print_enemy_intel(bot) -> None:
     if not bot.enemy_units and not bot.enemy_structures:
         print("    No enemy scouted")
         return
-    
-    # Count enemy units
+
     if bot.enemy_units:
         unit_counts = {}
         for unit in bot.enemy_units:
             type_name = unit.type_id.name
             unit_counts[type_name] = unit_counts.get(type_name, 0) + 1
-        
+
         print("    Enemy Units:")
         for unit_type, count in sorted(unit_counts.items(), key=lambda x: x[1], reverse=True):
             print(f"      {unit_type}: {count}")
-    
-    # Count enemy structures
+
     if bot.enemy_structures:
         structure_counts = {}
         for structure in bot.enemy_structures:
             type_name = structure.type_id.name
             structure_counts[type_name] = structure_counts.get(type_name, 0) + 1
-        
+
         print("    Enemy Structures:")
         for struct_type, count in sorted(structure_counts.items(), key=lambda x: x[1], reverse=True):
             print(f"      {struct_type}: {count}")
@@ -281,7 +425,7 @@ def _print_economy_state(bot) -> None:
     """Print economy state (bases, workers, resources)."""
     gatherers = bot.mediator.get_units_from_role(role=UnitRole.GATHERING)
     economy_state = get_economy_state(bot)
-    
+
     print(f"    State: {economy_state}")
     print(f"    Bases: {len(bot.townhalls)}")
     print(f"    Workers: {len(bot.workers)} (Gathering: {len(gatherers)})")
@@ -295,31 +439,28 @@ def _print_rush_detection_status(bot) -> None:
     """Print rush detection intel (Zerg only - early game)."""
     if not hasattr(bot, '_rush_label') or bot.time > 240.0:
         return
-    
+
     print("\n  RUSH DETECTION (vs Zerg):")
-    
-    # Rush scores and classification
+
     score_12p = getattr(bot, '_score_12p', 0)
     score_speed = getattr(bot, '_score_speed', 0)
     rush_label = getattr(bot, '_rush_label', 'none')
     is_rushed = getattr(bot, '_ling_rushed_v2', False)
     auto_true = getattr(bot, '_auto_true_fired', False)
     rush_source = getattr(bot, '_rush_source', None)
-    
-    # ML probabilities (if available)
+
     ml_probs = getattr(bot, '_ml_probs', None)
     ml_confidence = getattr(bot, '_ml_confidence', None)
-    
+
     source_str = f" [{rush_source}]" if rush_source else ""
     print(f"    Label: {rush_label}{source_str} (12p={score_12p}, speed={score_speed})")
-    
+
     if ml_probs:
         prob_str = ", ".join(f"{k}={v*100:.0f}%" for k, v in sorted(ml_probs.items()))
         print(f"    ML Probs: {prob_str}")
-    
+
     print(f"    Rush Detected: {is_rushed} (auto-TRUE={auto_true})")
-    
-    # Natural scouting
+
     last_scout_time = getattr(bot, '_last_nat_scout_time', None)
     nat_present_last = getattr(bot, '_nat_present_on_last_scout', None)
     nat_started = getattr(bot, '_enemy_nat_started_at', None)
@@ -327,19 +468,77 @@ def _print_rush_detection_status(bot) -> None:
     scout_str = f"last@{last_scout_time:.0f}s" if last_scout_time else "not scouted"
     present_str = "yes" if nat_present_last else ("no" if nat_present_last is False else "?")
     print(f"    Enemy Natural: {nat_str} ({scout_str}, present={present_str})")
-    
-    # Pool info
+
     pool_state = getattr(bot, '_pool_seen_state', 'none')
     pool_time = getattr(bot, '_pool_seen_time', None)
     pool_time_str = f"{pool_time:.1f}s" if pool_time else "unknown"
     print(f"    Pool: {pool_state} (start≈{pool_time_str})")
-    
-    # Speed research
+
     speed_started = getattr(bot, '_speed_research_started', False)
     speed_time = getattr(bot, '_speed_research_time', None)
     speed_str = f"{speed_time:.1f}s" if speed_time else "not seen"
     if speed_started:
         print(f"    Speed Research: started at {speed_str}")
+
+
+def _get_rush_timing(attr: str, bot, default=-1):
+    """Get rush detection timing value, returning default for missing."""
+    val = getattr(bot, attr, None)
+    return val if val is not None else default
+
+
+def emit_match_record(bot, game_result, game_time: float,
+                      idle_worker_time: float, idle_production_time: float) -> None:
+    """Emit single match record telemetry event (called from on_end).
+    
+    Combines performance data, cheese classification, and rush detection
+    timing features into one record per game.
+    """
+    pm = bot.performance_monitor
+    cheese_type = _get_cheese_type(bot)
+
+    match_fields = {
+        "result": str(game_result).lower(),
+        "length": round(game_time, 1),
+        "cheese_type": cheese_type,
+        "commenced_attack": getattr(bot, '_commenced_attack', False),
+        "used_cheese_response": getattr(bot, '_used_cheese_response', False),
+        "sq": round(pm.get_current_sq(), 1),
+        "mineral_sq": round(pm.get_mineral_sq(), 1),
+        "gas_sq": round(pm.get_gas_sq(), 1),
+        "efficiency_rating": pm.get_efficiency_rating(),
+        "avg_unspent_minerals": round(pm.avg_unspent_minerals, 1),
+        "avg_unspent_vespene": round(pm.avg_unspent_vespene, 1),
+        "avg_income_minerals": round(pm.avg_income_minerals, 1),
+        "avg_income_vespene": round(pm.avg_income_vespene, 1),
+        "idle_worker_time": round(idle_worker_time, 1),
+        "idle_production_time": round(idle_production_time, 1),
+    }
+
+    # Rush detection timing features (present when vs Zerg/Random)
+    if hasattr(bot, '_rush_label'):
+        match_fields.update({
+            "rush_label": getattr(bot, '_rush_label', 'none'),
+            "rush_distance_seconds": round(getattr(bot, '_rush_time_seconds', 0.0), 1),
+            "pool_start": _get_rush_timing('_pool_seen_time', bot),
+            "nat_start": _get_rush_timing('_enemy_nat_started_at', bot),
+            "last_nat_scout_time": _get_rush_timing('_last_nat_scout_time', bot),
+            "nat_present_on_last_scout": (1 if getattr(bot, '_nat_present_on_last_scout', None)
+                                          else (0 if getattr(bot, '_nat_present_on_last_scout', None) is False
+                                                else -1)),
+            "gas_time": _get_rush_timing('_extractor_seen_time', bot),
+            "queen_time": _get_rush_timing('_queen_started_time', bot),
+            "ling_seen": _get_rush_timing('_first_ling_seen_time', bot),
+            "ling_contact": _get_rush_timing('_first_ling_contact_nat_time', bot),
+            "speed_start": _get_rush_timing('_speed_research_time', bot),
+            "ling_has_speed": 1 if getattr(bot, '_ling_has_speed', False) else 0,
+            "gas_workers": getattr(bot, '_gas_workers_count', 0),
+            "score_12p": getattr(bot, '_score_12p', 0),
+            "score_speed": getattr(bot, '_score_speed', 0),
+            "auto_true_fired": getattr(bot, '_auto_true_fired', False),
+        })
+
+    log_match(**match_fields)
 
 
 def print_end_game_report(
@@ -351,7 +550,7 @@ def print_end_game_report(
 ) -> None:
     """
     Print streamlined end-game report using PerformanceMonitor data.
-    
+
     Args:
         performance_monitor: PerformanceMonitor instance with collected data
         game_result: Result enum (Victory/Defeat/Tie)
@@ -359,15 +558,12 @@ def print_end_game_report(
         idle_worker_time: Total idle worker time in seconds
         idle_production_time: Total idle production time in seconds
     """
-    # Get combined SQ score from monitor
     sq = performance_monitor.get_current_sq()
     rating = performance_monitor.get_efficiency_rating()
-    
-    # Calculate combined metrics for display
+
     combined_income = performance_monitor.avg_income_minerals + performance_monitor.avg_income_vespene
     combined_unspent = performance_monitor.avg_unspent_minerals + performance_monitor.avg_unspent_vespene
-    
-    # Print clean report
+
     print("\n" + "="*50)
     print(f"  RESULT: {game_result}")
     print(f"  Game Time: {game_time / 60:.1f} min")

@@ -48,7 +48,8 @@ from ares.behaviors.macro import Mining
 from bot.utilities.use_disruptor_nova import UseDisruptorNova
 from bot.utilities.nova_manager import NovaManager
 from bot.utilities.performance_monitor import PerformanceMonitor
-from bot.utilities.game_report import print_end_game_report, print_startup_report, print_periodic_intel_report, get_replay_tags_to_send
+from bot.utilities.game_report import print_end_game_report, print_startup_report, print_periodic_intel_report, get_replay_tags_to_send, emit_match_record
+from bot.utilities.telemetry import init_context, reset as telemetry_reset
 
 
 
@@ -256,6 +257,9 @@ class PiG_Bot(AresBot):
         
         # Print startup report with all initial game info
         print_startup_report(self)
+
+        # Initialize telemetry context (binds match_id, env, game info)
+        init_context(self)
 
     async def on_step(self, iteration: int) -> None:
         """
@@ -603,7 +607,7 @@ class PiG_Bot(AresBot):
 
     async def on_end(self, game_result: Result) -> None:
         """
-        Called at the end of the game - prints performance report and logs rush detection data.
+        Called at the end of the game - prints performance report and emits telemetry.
         """
         print_end_game_report(
             performance_monitor=self.performance_monitor,
@@ -613,9 +617,17 @@ class PiG_Bot(AresBot):
             idle_production_time=self.state.score.idle_production_time
         )
         
-        # Log rush detection results for ML training
-        from bot.utilities.rush_detection import log_rush_detection_result
-        log_rush_detection_result(self, game_result)
+        # Emit single match record (performance + rush detection data)
+        emit_match_record(
+            bot=self,
+            game_result=game_result,
+            game_time=self.time,
+            idle_worker_time=self.state.score.idle_worker_time,
+            idle_production_time=self.state.score.idle_production_time
+        )
+        
+        # Reset telemetry state between games
+        telemetry_reset()
 
    
     
