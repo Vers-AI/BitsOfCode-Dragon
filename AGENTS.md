@@ -191,8 +191,8 @@ The `cython_extensions` package ships with ARES and provides fast C-compiled hel
 
 ### Bot Data & Performance
 
-- **Competition safety:** Any data collection must be **off by default** in competition builds. No blocking I/O in the game loop.
-- **Async + batched I/O:** Buffer logs/metrics; flush asynchronously outside the frame-critical path. Never do per-unit disk writes.
+- **Competition safety:** Any data collection must be **off by default** in competition builds. No per-frame or per-unit I/O in the game loop. Infrequent writes (once per 30s snapshot, once per game) are acceptable if each write is under 1KB.
+- **Async + batched I/O:** Buffer logs/metrics; flush asynchronously outside the frame-critical path. Never do per-unit disk writes or per-frame file flushes.
 - **Replay & memory files:** Store under `data/` with run-stamped folders. Include `map`, `opponent_race`, `build`, `commit`, `seed`.
 - **Deterministic runs:** Persist and log the RNG seed for each match; provide a simple command to re-run a match with the same seed.
 - **Schema/versioning:** Tag all bot “memory”/knowledge files with `schema_version`. Add a migrator when changing format.
@@ -205,7 +205,7 @@ The `cython_extensions` package ships with ARES and provides fast C-compiled hel
 - **Explain when useful:** If adding a new dataset/metric, provide a 2–3 sentence note: purpose, collection rate, and read path.
 
 ### Acceptance Criteria for Data Tasks
-- [ ] No blocking I/O in frame loop; async/batched writes only.
+- [ ] No per-frame or per-unit I/O in game loop; infrequent writes (≤1KB, ≥30s apart) are acceptable.
 - [ ] Deterministic: seed + config + commit hash recorded with outputs.
 - [ ] Schema versioned + validation on read; safe fallback on failure.
 - [ ] Competition-safe defaults (collection off; flags documented).
