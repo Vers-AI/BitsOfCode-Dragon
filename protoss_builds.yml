@@ -114,6 +114,7 @@ Builds:
         # Build constant worker production till this supply
         ConstantWorkerProductionTill: 44
         # After 0 supply turn AutoSupply on
+        ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 33
         OpeningBuildOrder:
             - 14 WORKER_SCOUT:
