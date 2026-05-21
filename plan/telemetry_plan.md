@@ -442,7 +442,7 @@ DuckDB queries the `games/` folder directly via `read_json_auto('games/*.jsonl')
 **In scope:**
 
 - `telemetry.py` module with `log_event()` and `log_match()` helpers
-- `BOT_VERSION` constant in `__init__.py`
+- `BOT_VERSION` constant in `bot/__init__.py` (already exists as `"0.9.0"`)
 - `SCHEMA_VERSION` constant in `telemetry.py`
 - Sampling policy by environment
 - Replace `game_report.py` as the data pipeline — `print_*` functions become thin wrappers that print human-readable output **and** emit `TELEM` lines. The `TELEM` output is the canonical data source; the printed output is for dev convenience only.
@@ -456,6 +456,49 @@ DuckDB queries the `games/` folder directly via `read_json_auto('games/*.jsonl')
 - structlog dependency
 
 **Preparation for future enrichment:** The schema already includes `arena_match_id` (null during game, filled post-match) and `opponent_id` (from `--OpponentId`). The puller will use the AI Arena API (`/api/match-participations/?bot=<BOT_ID>&ordering=-created`) to match on `opponent_id` + `map` + timestamp and write the real AI Arena match ID into every record.
+
+---
+
+## Implementation Decisions
+
+### match_id source
+
+AI Arena does **not** pass a match ID to bots — only `--OpponentId` (opponent's user ID). So `match_id` is **always a UUID** generated at game start. The real AI Arena match ID (`arena_match_id`) is filled post-match by the puller.
+
+### env detection
+
+Check `--LadderServer` in `sys.argv` (same check `run.py` already uses to distinguish ladder vs local). No env var or config change needed:
+
+```python
+def _detect_env() -> str:
+    if "--LadderServer" in sys.argv:
+        return "ladder"
+    return "local"   # CI can override via env var later
+```
+
+This mirrors the existing pattern in `run.py` line 64: `if "--LadderServer" in sys.argv`. The `ci` env is reserved for future CI runs — currently only `local` and `ladder` are produced.
+
+### BOT_VERSION initial value
+
+Already exists in `bot/__init__.py` as `BOT_VERSION = "0.9.0"`. The telemetry module imports it from there. Bumped manually on meaningful behavior changes, tagged as `git tag v0.9.0`.
+
+### Transition tracking
+
+Module-level state in `telemetry.py`. SC2 bots run one game per process — there's no concurrency concern. A simple dict tracks previous values:
+
+```python
+# In telemetry.py
+_prev: dict = {}   # e.g. {"commenced_attack": False, "game_phase": 0, ...}
+
+def log_transition(subsystem: str, field: str, new_value) -> bool:
+    """Return True if value changed (caller should emit the event)."""
+    if _prev.get(field) == new_value:
+        return False
+    _prev[field] = new_value
+    return True
+```
+
+Reset `_prev` at game start (called from `on_start` or `log_match`).
 
 ---
 
