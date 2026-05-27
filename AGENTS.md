@@ -11,7 +11,7 @@
 
 - **Low-variance output:** be deterministic; same request → same style/approach.
 
-- **No over-engineering:** avoid abstractions until ≥3 real call sites. Prefer functions over classes.
+- **No over-engineering:** avoid abstractions until ≥3 real call sites. Prefer functions for stateless logic; **use classes for stateful subsystems** (≥5 related state vars, or >300 LOC in a single function). Dataclasses for structured return types are always allowed.
 
 - **Type hints + PEP8**. Small, single-purpose functions. No new deps unless required.
 
@@ -35,7 +35,7 @@
 - **One-liners preferred.** Use block comments only when the "why" is genuinely complex.
 - **No comments on obvious code.** If removing the comment changes nothing, remove it.
 
-- **When in doubt:** ask **1** clarifying question max, then make a best assumption and proceed.
+- **When in doubt:** ask **1–2** clarifying questions max, then make a best assumption and proceed. Allow 2 when the task touches >2 subsystems (e.g., combat + reactions + scouting interactions).
 
 - **Docs:** add a 3-line header to changed files: Purpose | Key Decisions | Limitations.
 
@@ -65,7 +65,7 @@
 
   
 
-### Complexity Budget (per task = 3 points max)
+### Complexity Budget (per task = 5 points max)
 
 - +2 new file/module  
 
@@ -77,18 +77,17 @@
 
 - +1 cross-module refactor  
 
-If total >3 → **don’t implement** without explicit approval.
+If total >5 → **don't implement** without explicit approval.
+
+**Refactor exemption:** Splitting a file >500 LOC into focused modules, or extracting a class from a function >300 LOC, costs 0 points if the change *reduces* total lines or cyclomatic complexity. These are simplifications, not additions.
 
   
 
 ## Over-engineering triggers (auto-stop & simplify)
 
-- Added a class where a function suffices.
-
+- Added a class for logic that has <3 methods and no instance state (pure functions don't need classes).
 - New config/feature flags not requested.
-
-- Adapters/interfaces with only one implementation.
-
+- Adapters/interfaces with only one implementation (unless added for testability or a 2nd impl is planned soon).
 - New dependency replacing ≤10 lines of code.
 
 - Pipelines/state machines where a loop + guard works.
