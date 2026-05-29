@@ -18,9 +18,9 @@ from bot.utilities.telemetry import (
 def _get_cheese_type(bot) -> str:
     """Derive cheese_type from replay tags (first detected cheese wins)."""
     if (bot.enemy_race in {Race.Zerg, Race.Random}
-            and hasattr(bot, '_ling_rushed_v2') and bot._ling_rushed_v2
-            and hasattr(bot, '_rush_label') and bot._rush_label in {'12_pool', 'speedling'}):
-        return bot._rush_label
+            and hasattr(bot, '_cheese_detected') and bot._cheese_detected
+            and hasattr(bot, '_cheese_label') and bot._cheese_label in {'12_pool', 'speedling'}):
+        return bot._cheese_label
     if not bot._not_worker_rush:
         return "worker_rush"
     if bot._cannon_rush_response:
@@ -209,7 +209,7 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
 
     # === Telemetry: Rush detection transitions (Zerg/Random only) ===
     if bot.enemy_race in {Race.Zerg, Race.Random}:
-        _emit_rush_detection_transitions(bot)
+        _emit_cheese_detection_transitions(bot)
 
     # === Console report (unchanged) ===
 
@@ -245,45 +245,45 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
         print(f"    Current Target: {bot.current_attack_target}")
 
     if bot.enemy_race in {Race.Zerg, Race.Random}:
-        _print_rush_detection_status(bot)
+        _print_cheese_detection_status(bot)
 
     print("="*60 + "\n")
 
 
-def _emit_rush_detection_transitions(bot) -> None:
-    """Emit telemetry transition events for rush detection state changes."""
-    if not hasattr(bot, '_rush_label'):
+def _emit_cheese_detection_transitions(bot) -> None:
+    """Emit telemetry transition events for cheese detection state changes."""
+    if not hasattr(bot, '_cheese_label'):
         return
 
     log_transition(
-        subsystem="rush_detect", action="classification",
+        subsystem="cheese_detect", action="classification",
         reason="label_changed",
-        key="rush_label", value=bot._rush_label,
+        key="cheese_label", value=bot._cheese_label,
         _ts=bot.time,
     )
 
-    if hasattr(bot, '_ling_rushed_v2'):
+    if hasattr(bot, '_cheese_detected'):
         log_transition(
-            subsystem="rush_detect", action="classification",
-            reason="rush_detected",
-            key="rush_detected", value=bot._ling_rushed_v2,
+            subsystem="cheese_detect", action="classification",
+            reason="cheese_detected",
+            key="cheese_detected", value=bot._cheese_detected,
             _ts=bot.time,
         )
 
     if hasattr(bot, '_auto_true_fired') and bot._auto_true_fired:
         log_event_no_sample(
-            subsystem="rush_detect", action="classification",
+            subsystem="cheese_detect", action="classification",
             reason="auto_true_fired",
-            rush_label=getattr(bot, '_rush_label', 'none'),
+            rush_label=getattr(bot, '_cheese_label', 'none'),
             score_12p=getattr(bot, '_score_12p', 0),
             score_speed=getattr(bot, '_score_speed', 0),
-            rush_source=getattr(bot, '_rush_source', None),
+            rush_source=getattr(bot, '_cheese_source', None),
             _ts=bot.time,
         )
 
     if hasattr(bot, '_ml_probs') and bot._ml_probs:
         log_event_no_sample(
-            subsystem="rush_detect", action="ml_update",
+            subsystem="cheese_detect", action="ml_update",
             reason="model_evaluated",
             ml_probs=getattr(bot, '_ml_probs', {}),
             ml_confidence=getattr(bot, '_ml_confidence', 0.0),
@@ -304,13 +304,13 @@ def get_replay_tags_to_send(bot) -> list[str]:
     tags = []
 
     if (bot.enemy_race in {Race.Zerg, Race.Random}
-            and hasattr(bot, '_ling_rushed_v2')
-            and bot._ling_rushed_v2
-            and hasattr(bot, '_rush_label')
-            and bot._rush_label in {'12_pool', 'speedling'}
+            and hasattr(bot, '_cheese_detected')
+            and bot._cheese_detected
+            and hasattr(bot, '_cheese_label')
+            and bot._cheese_label in {'12_pool', 'speedling'}
             and 'Rush' not in bot._replay_tags_sent):
 
-        tags.append(f"Rush_{bot._rush_label}")
+        tags.append(f"Rush_{bot._cheese_label}")
         bot._replay_tags_sent.add('Rush')
 
     if not bot._not_worker_rush and 'WorkerRush' not in bot._replay_tags_sent:
@@ -437,19 +437,19 @@ def _print_economy_state(bot) -> None:
     print(f"    Income: {bot.state.score.collection_rate_minerals}/min minerals, {bot.state.score.collection_rate_vespene}/min gas")
 
 
-def _print_rush_detection_status(bot) -> None:
-    """Print rush detection intel (Zerg only - early game)."""
-    if not hasattr(bot, '_rush_label') or bot.time > 240.0:
+def _print_cheese_detection_status(bot) -> None:
+    """Print cheese detection intel (Zerg only - early game)."""
+    if not hasattr(bot, '_cheese_label') or bot.time > 240.0:
         return
 
     print("\n  RUSH DETECTION (vs Zerg):")
 
     score_12p = getattr(bot, '_score_12p', 0)
     score_speed = getattr(bot, '_score_speed', 0)
-    rush_label = getattr(bot, '_rush_label', 'none')
-    is_rushed = getattr(bot, '_ling_rushed_v2', False)
+    rush_label = getattr(bot, '_cheese_label', 'none')
+    is_rushed = getattr(bot, '_cheese_detected', False)
     auto_true = getattr(bot, '_auto_true_fired', False)
-    rush_source = getattr(bot, '_rush_source', None)
+    rush_source = getattr(bot, '_cheese_source', None)
 
     ml_probs = getattr(bot, '_ml_probs', None)
     ml_confidence = getattr(bot, '_ml_confidence', None)
@@ -528,10 +528,10 @@ def emit_match_record(bot, game_result, game_time: float,
         "idle_production_time": round(idle_production_time, 1),
     }
 
-    # Rush detection timing features (present when vs Zerg/Random)
-    if hasattr(bot, '_rush_label'):
+    # Cheese detection timing features (present when vs Zerg/Random)
+    if hasattr(bot, '_cheese_label'):
         match_fields.update({
-            "rush_label": getattr(bot, '_rush_label', 'none'),
+            "cheese_label": getattr(bot, '_cheese_label', 'none'),
             "rush_distance_seconds": round(getattr(bot, '_rush_time_seconds', 0.0), 1),
             "pool_start": _get_rush_timing('_pool_seen_time', bot),
             "nat_start": _get_rush_timing('_enemy_nat_started_at', bot),

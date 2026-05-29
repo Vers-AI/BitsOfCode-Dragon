@@ -241,19 +241,19 @@ class PiG_Bot(AresBot):
             self.rally_point = self.natural_expansion.towards(self.game_info.map_center, 5)
         
         # Compute rush distance tier for ling rush detection (used in reactions.py)
-        from bot.utilities.rush_detection import compute_rush_distance_tier
+        from bot.utilities.cheese_detection import compute_rush_distance_tier
         self.rush_distance_tier = compute_rush_distance_tier(self)
         
-        # Load ML rush detection model (if available)
+        # Load ML cheese detection model (if available)
         self.rush_model = None
         model_path = Path("bot/models/rush_detector_model.pkl")
         if model_path.exists():
             try:
                 self.rush_model = joblib.load(model_path)
             except Exception as e:
-                print(f"✗ Failed to load rush model: {e}")
+                print(f"✗ Failed to load cheese detection model: {e}")
         else:
-            print(f"⚠ No rush model found at {model_path} - using rules only")
+            print(f"⚠ No cheese detection model found at {model_path} - using rules only")
         
         # Print startup report with all initial game info
         print_startup_report(self)
@@ -278,10 +278,10 @@ class PiG_Bot(AresBot):
         for tag in get_replay_tags_to_send(self):
             await self.chat_send(f"Tag: {tag}")
         
-        # Send pending rush detection chat (set by rush_detection.py)
-        if hasattr(self, '_rush_chat_pending') and self._rush_chat_pending:
-            await self.chat_send(self._rush_chat_pending)
-            self._rush_chat_pending = None
+        # Send pending cheese detection chat (set by cheese_detection.py)
+        if hasattr(self, '_cheese_chat_pending') and self._cheese_chat_pending:
+            await self.chat_send(self._cheese_chat_pending)
+            self._cheese_chat_pending = None
         
         # Update performance metrics (SQ tracking)
         self.performance_monitor.update(iteration, self)
@@ -320,7 +320,7 @@ class PiG_Bot(AresBot):
 
         # Early game logic
         if not self.build_order_runner.build_completed:
-            from bot.utilities.rush_detection import _track_enemy_timings
+            from bot.utilities.cheese_detection import _track_enemy_timings
             _track_enemy_timings(self)  # Always track timings/speed during build order phase
             self.register_behavior(RestorePower()) # Restore power to depowered buildings
             if not self._under_attack:  # Still use early_threat_sensor for cheese detection

@@ -21,7 +21,7 @@ from cython_extensions import (
 )
 
 from bot.utilities.intel import get_enemy_cannon_rushed
-from bot.utilities.rush_detection import get_enemy_ling_rushed_v2
+from bot.utilities.cheese_detection import detect_cheese
 from bot.constants import (
     UNDER_ATTACK_VALUE_THRESHOLD,
     UNDER_ATTACK_RATIO_THRESHOLD,
@@ -292,7 +292,7 @@ def early_threat_sensor(bot):
         bot._cannon_rush_response = True
     
     elif (
-        (get_enemy_ling_rushed_v2(bot) if bot.enemy_race.name == "Zerg" else False)  # Only check ling rush against Zerg
+        (detect_cheese(bot))
         or (bot.mediator.get_enemy_marauder_rush and bot.time < 150.0)
         or bot.mediator.get_enemy_marine_rush
         or bot.mediator.get_is_proxy_zealot

@@ -155,22 +155,22 @@ Each subsystem defines its own `action` vocabulary and optional fields. The requ
 | `role_defending`         | number | Units assigned to DEFENDING role                         |
 | `defender_composition`   | object | JSON: unit type → count for defending units              |
 
-#### `"rush_detect"` — Rush classification and scouting
+#### `"cheese_detect"` — Cheese/all-in classification and scouting
 
 | Action              | Category   | Reason examples                    | Optional fields                          |
 |---------------------|------------|------------------------------------|------------------------------------------|
-| `"classification"`  | Transition | `"score_updated"`, `"label_changed"` | `rush_label`, `score_12p`, `score_speed`, `rush_detected`, `auto_true_fired`, `rush_source` |
+| `"classification"`  | Transition | `"score_updated"`, `"label_changed"` | `cheese_label`, `score_12p`, `score_speed`, `cheese_detected`, `auto_true_fired`, `cheese_source` |
 | `"ml_update"`       | Transition | `"model_evaluated"`               | `ml_probs`, `ml_confidence`              |
 | `"scout_report"`    | Decision   | `"nat_scouted"`, `"pool_seen"`    | `nat_present_on_last_scout`, `last_nat_scout_time`, `enemy_nat_started_at`, `pool_seen_state`, `pool_seen_time`, `speed_research_started`, `speed_research_time`, `extractor_seen_time`, `queen_started_time`, `first_ling_seen_time`, `first_ling_contact_nat_time`, `ling_has_speed`, `gas_workers_count` |
 
 | Field                        | Type   | Description                                              |
 |------------------------------|--------|----------------------------------------------------------|
-| `rush_label`                 | string | Current classification: `"12_pool"`, `"speedling"`, `"macro"`, `"none"` |
+| `cheese_label`               | string | Current classification: `"12_pool"`, `"speedling"`, `"macro"`, `"none"` |
 | `score_12p`                  | number | 12-pool heuristic score                                  |
 | `score_speed`                | number | Speedling heuristic score                               |
-| `rush_detected`              | bool   | Whether rush is confirmed                                |
+| `cheese_detected`            | bool   | Whether cheese/all-in is confirmed                        |
 | `auto_true_fired`            | bool   | Whether auto-override triggered                          |
-| `rush_source`                | string | What triggered detection                                 |
+| `cheese_source`              | string | What triggered detection                                 |
 | `ml_probs`                   | object | JSON: class → probability (e.g. `{"12_pool": 0.7, "speedling": 0.2, "macro": 0.1}`) |
 | `ml_confidence`              | number | ML model confidence (0–1)                                |
 | `nat_present_on_last_scout`  | bool   | Whether bot believed enemy natural was present           |
@@ -315,7 +315,7 @@ Each 30-second snapshot from the game report becomes multiple targeted events. F
 | Defender composition      | `defender_composition`    | `combat`    | Snapshot     | Continuously varying, JSON object         |
 | Squad counts              | `squads_atk`, etc.       | `combat`    | Snapshot     | Continuously varying                      |
 | `economy_state` label    | `economy_state`           | `economy`   | Transition   | Emit only on change                       |
-| Rush detection fields     | Various (see rush_detect schema) | `rush_detect` | Transition/Decision | See rush_detect schema       |
+| Cheese detection fields     | Various (see cheese_detect schema) | `cheese_detect` | Transition/Decision | See cheese_detect schema       |
 | Scouted enemy units       | `scouted_enemy_units`    | `intel`     | Snapshot     | JSON object: unit type → count            |
 | Scouted enemy structures  | `scouted_enemy_structures` | `intel`   | Snapshot     | JSON object: structure type → count       |
 
@@ -377,29 +377,29 @@ If multiple tags fire (unlikely but possible), use the first detected. The `chee
 
 `print_*` functions become thin wrappers — they still print human-readable output for dev debugging, but they also emit a `TELEM` line alongside. The `TELEM` output is the canonical data source; the printed output is secondary.
 
-### `rush_detection.py:log_rush_detection_result()` → match record + event records
+### `cheese_detection.py` — match record + event records (replaces old `log_rush_detection_result()`)
 
-The hand-rolled JSONL writer in `rush_detection.py` is **replaced** by telemetry. The training script (`scripts/train_rush_model.py`) currently reads from `data/rush_detection_log.jsonl` — it will be updated to read from the `TELEM` pipeline instead.
+The hand-rolled JSONL writer (formerly `log_rush_detection_result()` in `rush_detection.py`, writing to `data/rush_detection_log.jsonl`) is **replaced** by telemetry. The training script (`scripts/train_rush_model.py`) currently reads from `data/rush_detection_log.jsonl` — it will be updated to read from the `TELEM` pipeline instead.
 
 **Why this works:** All 13 ML feature columns are now available in telemetry events:
 
 | Training Feature | Telemetry Source | Event |
 |---|---|---|
-| `pool_start` | `pool_seen_time` | `rush_detect` `scout_report` |
-| `nat_start` | `enemy_nat_started_at` | `rush_detect` `scout_report` |
-| `last_nat_scout_time` | `last_nat_scout_time` | `rush_detect` `scout_report` |
-| `nat_present_on_last_scout` | `nat_present_on_last_scout` | `rush_detect` `scout_report` |
-| `gas_time` | `extractor_seen_time` | `rush_detect` `scout_report` |
-| `queen_time` | `queen_started_time` | `rush_detect` `scout_report` |
-| `ling_seen` | `first_ling_seen_time` | `rush_detect` `scout_report` |
-| `ling_contact` | `first_ling_contact_nat_time` | `rush_detect` `scout_report` |
-| `speed_start` | `speed_research_time` | `rush_detect` `scout_report` |
-| `ling_has_speed` | `ling_has_speed` | `rush_detect` `scout_report` |
-| `gas_workers` | `gas_workers_count` | `rush_detect` `scout_report` |
-| `score_12p` | `score_12p` | `rush_detect` `classification` |
-| `score_speed` | `score_speed` | `rush_detect` `classification` |
-| `rush_label` | `rush_label` | `rush_detect` `classification` |
-| `auto_true_fired` | `auto_true_fired` | `rush_detect` `classification` |
+| `pool_start` | `pool_seen_time` | `cheese_detect` `scout_report` |
+| `nat_start` | `enemy_nat_started_at` | `cheese_detect` `scout_report` |
+| `last_nat_scout_time` | `last_nat_scout_time` | `cheese_detect` `scout_report` |
+| `nat_present_on_last_scout` | `nat_present_on_last_scout` | `cheese_detect` `scout_report` |
+| `gas_time` | `extractor_seen_time` | `cheese_detect` `scout_report` |
+| `queen_time` | `queen_started_time` | `cheese_detect` `scout_report` |
+| `ling_seen` | `first_ling_seen_time` | `cheese_detect` `scout_report` |
+| `ling_contact` | `first_ling_contact_nat_time` | `cheese_detect` `scout_report` |
+| `speed_start` | `speed_research_time` | `cheese_detect` `scout_report` |
+| `ling_has_speed` | `ling_has_speed` | `cheese_detect` `scout_report` |
+| `gas_workers` | `gas_workers_count` | `cheese_detect` `scout_report` |
+| `score_12p` | `score_12p` | `cheese_detect` `classification` |
+| `score_speed` | `score_speed` | `cheese_detect` `classification` |
+| `cheese_label` | `cheese_label` | `cheese_detect` `classification` |
+| `auto_true_fired` | `auto_true_fired` | `cheese_detect` `classification` |
 | `result` | `result` | Match record |
 | `game_time_seconds` | `length` | Match record |
 | `map_name` | `map` | Match record |
@@ -409,13 +409,13 @@ The hand-rolled JSONL writer in `rush_detection.py` is **replaced** by telemetry
 **Migration steps:**
 1. Add `log_event()` calls to `_track_enemy_timings()` for `scout_report` events (when timing data updates).
 2. Add `log_event()` calls to `get_enemy_ling_rushed_v2()` for `classification` and `ml_update` events (when scores/labels change).
-3. Add `log_match()` call to `on_end()` for match record fields (replacing `log_rush_detection_result()`).
-4. Remove `log_rush_detection_result()` function from `rush_detection.py`.
-5. Delete `data/rush_detection_log.jsonl` — all data flows through `TELEM` now.
+3. Add `log_match()` call to `on_end()` for match record fields (replacing `log_cheese_detection_result()`).
+4. Remove `log_cheese_detection_result()` function from `cheese_detection.py`.
+5. Delete `data/cheese_detection_log.jsonl` — all data flows through `TELEM` now.
 
-**Training pipeline impact:** The current `log_rush_detection_result()` writes one record per game with all 13 ML features in a single row. With telemetry, features are spread across multiple events at different timestamps. The training script (`scripts/train_rush_model.py`) must be updated to:
-1. Filter TELEM lines for `subsystem="rush_detect"` by `match_id`
-2. Get the **final** `classification` event (for `rush_label`, `score_12p`, `score_speed`, `auto_true_fired`)
+**Training pipeline impact:** The current `log_cheese_detection_result()` writes one record per game with all 13 ML features in a single row. With telemetry, features are spread across multiple events at different timestamps. The training script (`scripts/train_rush_model.py`) must be updated to:
+1. Filter TELEM lines for `subsystem="cheese_detect"` by `match_id`
+2. Get the **final** `classification` event (for `cheese_label`, `score_12p`, `score_speed`, `auto_true_fired`)
 3. Get the **latest** `scout_report` event before classification (for all timing features)
 4. Join with the match record (for `result`, `enemy_race`, `map`, `rush_time_seconds`)
 
@@ -448,8 +448,8 @@ DuckDB queries the `games/` folder directly via `read_json_auto('games/*.jsonl')
 - `SCHEMA_VERSION` constant in `telemetry.py`
 - Sampling policy by environment
 - Replace `game_report.py` as the data pipeline — `print_*` functions become thin wrappers that print human-readable output **and** emit `TELEM` lines. The `TELEM` output is the canonical data source; the printed output is for dev convenience only.
-- Migrate `rush_detection.py:log_rush_detection_result()` into `log_match()` + `rush_detect` events
-- Deprecate `data/rush_detection_log.jsonl` — all data flows through `TELEM` now
+- Migrate `cheese_detection.py:log_cheese_detection_result()` into `log_match()` + `cheese_detect` events
+- Deprecate `data/cheese_detection_log.jsonl` — all data flows through `TELEM` now
 
 **Out of scope (for now, but prepared for):**
 - Puller script that downloads logs from AI Arena and enriches `arena_match_id`

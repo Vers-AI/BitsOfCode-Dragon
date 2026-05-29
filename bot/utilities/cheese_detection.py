@@ -1,7 +1,10 @@
 """
-Rush detection utilities for identifying early Zerg aggression.
+Cheese detection module for identifying early aggression strategies.
 
-Purpose: Classify Zerg opener as 12_pool, speedling, or none (hybrid rule + ML system)
+Purpose: Multi-detector system for classifying opponent cheese/all-in strategies.
+Currently supports Zerg (12_pool, speedling) via hybrid rule + ML system.
+Designed to be extended with additional detectors per race.
+
 Key Decisions: Pool timing is primary discriminator; auto-TRUE guards for clear rushes
 Limitations: Requires enemy main location scouted; probe death reduces signal quality
 """
@@ -401,7 +404,26 @@ def get_ling_rush_signals(bot: "PiG_Bot") -> dict:
     }
 
 
-def get_enemy_ling_rushed_v2(bot: "PiG_Bot") -> bool:
+def detect_cheese(bot: "PiG_Bot") -> bool:
+    """
+    Multi-detector cheese detection entry point.
+    
+    Currently dispatches to Zerg ling rush detection. Will be extended
+    with detectors for other races (Terran proxy, Protoss cannon rush, etc.).
+    
+    For Zerg opponents, this calls the ling rush classifier which classifies
+    the opener as 12_pool, speedling, or none (hybrid rule + ML system).
+    
+    Returns:
+        True if any cheese/all-in is detected, False otherwise
+    """
+    # Zerg: ling rush detection
+    if bot.enemy_race.name == "Zerg" or (bot.enemy_race.name == "Random" and not bot.mediator.get_enemy_nat):
+        return _detect_zerg_ling_rush(bot)
+    return False
+
+
+def _detect_zerg_ling_rush(bot: "PiG_Bot") -> bool:
     """
     Three-label zergling rush detection with Auto-TRUE guards.
     
@@ -414,15 +436,15 @@ def get_enemy_ling_rushed_v2(bot: "PiG_Bot") -> bool:
         True if rush detected (12_pool or speedling), False if none
     """
     # Initialize tracking attributes
-    if not hasattr(bot, '_ling_rushed_v2'):
-        bot._ling_rushed_v2 = False
-        bot._rush_label = "none"
+    if not hasattr(bot, '_cheese_detected'):
+        bot._cheese_detected = False
+        bot._cheese_label = "none"
         bot._score_12p = 0
         bot._score_speed = 0
         bot._auto_true_fired = False
     
     # Return early if already detected as rush
-    if bot._ling_rushed_v2:
+    if bot._cheese_detected:
         return True
     
     # Update signals (triggers _track_enemy_timings)
@@ -449,11 +471,11 @@ def get_enemy_ling_rushed_v2(bot: "PiG_Bot") -> bool:
     
     # Guard A: Any ling seen ≤ 1:45 → 12_pool
     if bot._first_ling_seen_time is not None and bot._first_ling_seen_time <= T_LING_EARLY:
-        bot._ling_rushed_v2 = True
-        bot._rush_label = "12_pool"
+        bot._cheese_detected = True
+        bot._cheese_label = "12_pool"
         bot._auto_true_fired = True
-        bot._rush_source = "auto-TRUE"
-        bot._rush_chat_pending = "(early lings detected)"
+        bot._cheese_source = "auto-TRUE"
+        bot._cheese_chat_pending = "(early lings detected)"
         print(f"{bot.time_formatted}: Rush detected (Auto-TRUE A): Ling seen at {bot._first_ling_seen_time:.1f}s → 12_pool")
         return True
     
@@ -461,11 +483,11 @@ def get_enemy_ling_rushed_v2(bot: "PiG_Bot") -> bool:
     if (bot._first_ling_contact_nat_time is not None and 
         bot._first_ling_contact_nat_time <= T_CONTACT_SLOW and
         not bot._ling_has_speed):
-        bot._ling_rushed_v2 = True
-        bot._rush_label = "12_pool"
+        bot._cheese_detected = True
+        bot._cheese_label = "12_pool"
         bot._auto_true_fired = True
-        bot._rush_source = "auto-TRUE"
-        bot._rush_chat_pending = "(slow-ling contact)"
+        bot._cheese_source = "auto-TRUE"
+        bot._cheese_chat_pending = "(slow-ling contact)"
         print(f"{bot.time_formatted}: Rush detected (Auto-TRUE B): Slow-ling contact at {bot._first_ling_contact_nat_time:.1f}s → 12_pool")
         return True
     
@@ -473,11 +495,11 @@ def get_enemy_ling_rushed_v2(bot: "PiG_Bot") -> bool:
     if (bot._first_ling_contact_nat_time is not None and 
         bot._first_ling_contact_nat_time <= T_CONTACT_SPEED and
         bot._ling_has_speed):
-        bot._ling_rushed_v2 = True
-        bot._rush_label = "speedling"
+        bot._cheese_detected = True
+        bot._cheese_label = "speedling"
         bot._auto_true_fired = True
-        bot._rush_source = "auto-TRUE"
-        bot._rush_chat_pending = "(speed-ling contact)"
+        bot._cheese_source = "auto-TRUE"
+        bot._cheese_chat_pending = "(speed-ling contact)"
         print(f"{bot.time_formatted}: Rush detected (Auto-TRUE C): Speed-ling contact at {bot._first_ling_contact_nat_time:.1f}s → speedling")
         return True
     
@@ -589,38 +611,38 @@ def get_enemy_ling_rushed_v2(bot: "PiG_Bot") -> bool:
         # Use ML if confident (>55%)
         if max_prob > 0.55:
             if ml_label in ("12_pool", "speedling"):
-                bot._ling_rushed_v2 = True
-                bot._rush_label = ml_label
-                bot._rush_source = "ML"
-                bot._rush_chat_pending = f"({max_prob*100:.0f}% ML confidence)"
+                bot._cheese_detected = True
+                bot._cheese_label = ml_label
+                bot._cheese_source = "ML"
+                bot._cheese_chat_pending = f"({max_prob*100:.0f}% ML confidence)"
                 print(f"{bot.time_formatted}: Rush detected (ML)! {ml_label} (p={max_prob:.2f})")
                 return True
             else:
                 # ML says "none" with confidence
-                bot._rush_label = "none"
-                bot._rush_source = "ML"
+                bot._cheese_label = "none"
+                bot._cheese_source = "ML"
                 return False
     
     # Rule-based fallback (ML not loaded or low confidence)
     if score_12p >= 5:
-        bot._ling_rushed_v2 = True
-        bot._rush_label = "12_pool"
-        bot._rush_source = "rules"
-        bot._rush_chat_pending = f"(rule score={score_12p})"
+        bot._cheese_detected = True
+        bot._cheese_label = "12_pool"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = f"(rule score={score_12p})"
         print(f"{bot.time_formatted}: Rush detected (rules)! 12_pool (score={score_12p})")
         return True
     
     if score_speed >= 5:
-        bot._ling_rushed_v2 = True
-        bot._rush_label = "speedling"
-        bot._rush_source = "rules"
-        bot._rush_chat_pending = f"(rule score={score_speed})"
+        bot._cheese_detected = True
+        bot._cheese_label = "speedling"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = f"(rule score={score_speed})"
         print(f"{bot.time_formatted}: Rush detected (rules)! speedling (score={score_speed})")
         return True
     
     # Default: none (not a rush)
-    bot._rush_label = "none"
-    bot._rush_source = None
+    bot._cheese_label = "none"
+    bot._cheese_source = None
     return False
 
 
