@@ -93,6 +93,42 @@ def _get_scouted_enemy_structures(bot) -> dict[str, int]:
     return counts
 
 
+def _get_active_intel_sources(bot) -> list[str]:
+    """Determine which scout types are currently providing vision/intel."""
+    sources: list[str] = []
+
+    try:
+        # Observer (any role: primary, army, patrol, detection, hunting)
+        observer_count = (
+            bot.units(UnitTypeId.OBSERVER).amount
+            + bot.units(UnitTypeId.OBSERVERSIEGEMODE).amount
+        )
+        if observer_count > 0:
+            sources.append("observer")
+
+        # Build runner worker scout
+        br_scouts = bot.mediator.get_units_from_role(
+            role=UnitRole.BUILD_RUNNER_SCOUT, unit_type=bot.worker_type
+        )
+        if br_scouts:
+            sources.append("worker_scout_br")
+
+        # Manual worker scout (SCOUTING role + worker type)
+        scouts = bot.mediator.get_units_from_role(role=UnitRole.SCOUTING)
+        worker_scouts = scouts.filter(lambda u: u.type_id in WORKER_TYPES) if scouts else []
+        if worker_scouts:
+            sources.append("worker_scout")
+
+        # Hallucinated Phoenix scout
+        hallu_phoenix = bot.units(UnitTypeId.PHOENIX).filter(lambda u: u.is_hallucination)
+        if hallu_phoenix:
+            sources.append("hallu_phoenix")
+    except Exception:
+        pass
+
+    return sources
+
+
 def print_startup_report(bot) -> None:
     """Print one-time startup report and initialize telemetry context."""
     print("\n" + "="*60)
@@ -200,6 +236,9 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
     enemy_structures = _get_scouted_enemy_structures(bot)
     if enemy_units or enemy_structures:
         intel_fields: dict = {"_ts": bot.time}
+        intel_sources = _get_active_intel_sources(bot)
+        if intel_sources:
+            intel_fields["intel_source"] = intel_sources
         if enemy_units:
             intel_fields["scouted_enemy_units"] = enemy_units
         if enemy_structures:
