@@ -98,6 +98,7 @@ class PiG_Bot(AresBot):
         self._rush_time_seconds = 0.0  # Rush time calculated in on_start
         self._under_attack = False
         self._not_worker_rush = True
+        self._worker_rush_detected_time = -1
         self._cannon_rush_response = False
         self._is_building = False
         

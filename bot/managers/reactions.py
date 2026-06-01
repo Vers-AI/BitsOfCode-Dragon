@@ -283,6 +283,8 @@ def early_threat_sensor(bot):
     Sets flags so the bot can respond (e.g., cheese_reaction).
     """
     if bot.mediator.get_enemy_worker_rushed and bot.game_state == 0:
+        if bot._worker_rush_detected_time < 0:
+            bot._worker_rush_detected_time = bot.time
         bot._not_worker_rush = False
         bot._used_cheese_response = True
     

@@ -250,6 +250,14 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
     if bot.enemy_race in {Race.Zerg, Race.Random}:
         _emit_cheese_detection_transitions(bot)
 
+    # === Telemetry: Worker rush transition (any race) ===
+    log_transition(
+        subsystem="cheese_detect", action="state_change",
+        reason="worker_rush",
+        key="worker_rush_active", value=not bot._not_worker_rush,
+        _ts=bot.time,
+    )
+
     # === Console report (unchanged) ===
 
     print("\n" + "="*60)
@@ -566,6 +574,10 @@ def emit_match_record(bot, game_result, game_time: float,
         "idle_worker_time": round(idle_worker_time, 1),
         "idle_production_time": round(idle_production_time, 1),
     }
+
+    # Worker rush detection timestamp
+    if bot._worker_rush_detected_time >= 0:
+        match_fields["worker_rush_detected_at"] = round(bot._worker_rush_detected_time, 1)
 
     # Cheese detection timing features (present when vs Zerg/Random)
     if hasattr(bot, '_cheese_label'):
