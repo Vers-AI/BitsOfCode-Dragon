@@ -546,12 +546,13 @@ bot/
   models/
     rush_detector_model.pkl        ← Existing: Zerg rush LogisticRegression (kept as fallback during transition)
     strategy_belief_model.pkl      ← New: pgmpy BN structure + fitted parameters (Phase 2)
+queries/
+  views.py                         ← Shared DuckDB view definitions + connection helper
 scripts/
-  train_strategy_belief.py         ← Train pgmpy BN from DuckDB (queries views directly)
-  train_rush_model.py              ← Existing: update to query DuckDB instead of deleted JSONL file
+  train_strategy_belief.py         ← Train pgmpy BN using queries/views.py
+  train_rush_model.py              ← Existing: update to use queries/views.py instead of deleted JSONL file
 data/
   games/                           ← Per-game JSONL telemetry (created on first write)
-  botalytics.duckdb                ← DuckDB database: ingests JSONL, queried by Streamlit + training scripts
   opponent_profiles.json           ← Cross-game opponent profiles (Phase 4 persistence)
 ```
 
@@ -600,17 +601,52 @@ Game Telemetry (JSONL / stdout TELEM)
          └──→ Training scripts        ← query DuckDB directly for model training
 ```
 
-DuckDB is the single source of truth for all historical game data. Training scripts query DuckDB directly — no intermediate CSV files, no separate aggregation steps. This is a significant advantage:
+DuckDB queries JSONL files directly via `read_json_auto('data/games/*.jsonl')` — no persisted database file, no import step, no server. Training scripts share view definitions via `queries/views.py`. This is a significant advantage:
 
-- **No ETL lag** — training scripts always read the latest data
+- **No ETL lag** — training scripts always read the latest data from the JSONL files
 - **No stale CSVs** — DuckDB queries are live; no "forget to regenerate the training set" bugs
+- **No database file to maintain** — the JSONL files ARE the database; DuckDB just reads them in-place
 - **SQL joins are trivial** — match records + events joined by `match_id` in a single query
 - **Streamlit provides visibility** — monitor data quality, class balance, and distribution drift before training
-- **Replay data joins** — once replay parsing is available, ground truth data joins to the same `match_id`
 
-### DuckDB Schema (Aligned With Telemetry)
+### Shared View Definitions: `queries/views.py`
 
-DuckDB ingests the JSONL telemetry via `read_json_auto('data/games/*.jsonl')`. The relevant tables/views for belief model training:
+All training scripts share common DuckDB view definitions. This avoids duplicating the SQL in each script:
+
+```python
+# queries/views.py
+QUERIES_DIR = Path(__file__).parent
+
+STRATEGY_TRAINING_VIEW = """
+CREATE OR REPLACE VIEW strategy_training AS
+SELECT
+    m.match_id, m.enemy_race, m.map, m.result, m.cheese_type AS label,
+    -- ... (full SQL from below)
+;
+"""
+
+ENGAGEMENT_TRAINING_VIEW = """
+CREATE OR REPLACE VIEW engagement_training AS
+SELECT
+    -- ... (engagement outcome data)
+;
+"""
+
+def get_connection(games_dir: str = "data/games/*.jsonl"):
+    """Connect to DuckDB and create shared views over JSONL files."""
+    import duckdb
+    con = duckdb.connect()
+    con.execute(f"CREATE VIEW IF NOT EXISTS events AS SELECT * FROM read_json_auto('{games_dir}')")
+    con.execute(STRATEGY_TRAINING_VIEW)
+    con.execute(ENGAGEMENT_TRAINING_VIEW)
+    return con
+```
+
+Training scripts import `get_connection` and query the pre-created views. No `.duckdb` file is stored on disk.
+
+### DuckDB Views (Aligned With Telemetry)
+
+The JSONL files in `data/games/` are queried directly. The relevant views for belief model training:
 
 | View | Purpose | Key JOIN |
 |------|---------|----------|
@@ -673,14 +709,29 @@ LEFT JOIN (
 WHERE m.enemy_race IS NOT NULL;
 ```
 
+### New: `queries/views.py`
+
+Shared DuckDB view definitions and a connection helper. All training scripts import `get_connection()` which:
+
+1. Creates an in-memory DuckDB connection
+2. Reads JSONL files via `read_json_auto('data/games/*.jsonl')`
+3. Creates shared views: `events`, `strategy_training`, `engagement_training`
+4. Returns the connection for querying
+
+No `.duckdb` file is stored on disk — the JSONL files are the database, DuckDB reads them in-place each time. This means:
+- No stale data — always reads the latest JSONL files
+- No separate import step — DuckDB discovers schema from the JSONL automatically
+- Single source of truth — `queries/views.py` is the only place view definitions live
+- Streamlit dashboards and training scripts share the same views
+
 ### Broken: `scripts/train_rush_model.py`
 
-The existing training script reads from `data/rush_detection_log.jsonl` which no longer exists. It must be rewritten to query DuckDB instead. This is the **smallest change to unblock model retraining** — the DuckDB query above already produces the same feature columns the old format provided.
+The existing training script reads from `data/rush_detection_log.jsonl` which no longer exists. It must be rewritten to use `queries/views.py` instead. This is the **smallest change to unblock model retraining** — the DuckDB view already produces the same feature columns the old format provided.
 
 ### Updated: `scripts/train_strategy_belief.py`
 
-1. Connect to DuckDB (`duckdb.connect('data/botalytics.duckdb')` or equivalent path)
-2. Query `strategy_training` view for training data
+1. Import `get_connection` from `queries.views`
+2. Query `strategy_training` view (pre-created by `get_connection`)
 3. Define BN structure (arcs from SC2 domain knowledge)
 4. Fit parameters with `MaximumLikelihoodEstimator`
 5. Validate accuracy against held-out test set
@@ -688,14 +739,14 @@ The existing training script reads from `data/rush_detection_log.jsonl` which no
 
 ### Updated: `scripts/train_rush_model.py`
 
-1. Connect to DuckDB
+1. Import `get_connection` from `queries.views`
 2. Query the same `strategy_training` view (backward-compat feature columns)
 3. Train LogisticRegression (existing approach)
 4. Save model to `bot/models/rush_detector_model.pkl`
 
-### Removed: Intermediate CSV Files
+### Removed: Intermediate CSV Files and Persistent DuckDB File
 
-No `scripts/aggregate_training_data.py` and no `data/training/*.csv`. DuckDB replaces the intermediate aggregation step entirely. Training scripts query DuckDB directly.
+No `scripts/aggregate_training_data.py` and no `data/training/*.csv`. No `data/botalytics.duckdb` persisted file. DuckDB reads JSONL files in-place via `read_json_auto()` and creates views in-memory. View definitions live in `queries/views.py`, shared by all consumers (training scripts, Streamlit dashboards, analysis notebooks).
 
 ---
 
@@ -706,7 +757,7 @@ Per AGENTS.md rules: +5 points max per task, refactor exemption for splits >500 
 | Phase | New Files | New Classes | New Deps | API Changes | Cross-Module | Total | Status |
 |-------|-----------|-------------|----------|-------------|-------------|-------|--------|
 | 1 | +3 | +3 (CompositionBelief, BeliefState, BeliefUpdater) | 0 | +1 (belief_state on bot, on_unit_destroyed) | +2 (combat, reactions, intel) | 5 | Within budget |
-| 2 | +2 | +1 (StrategyBelief) | +1 (pgmpy) | 0 | +1 (reactions) | 4 | Within budget |
+| 2 | +3 | +1 (StrategyBelief) | +1 (pgmpy) | 0 | +1 (reactions) | 4 | Within budget (+queries/views.py shared infra) |
 | 3 | +1 | +1 (ScoutVOI) | 0 | 0 | +1 (scouting) | 2 | Within budget |
 | 4 | +2 | +1 (OpponentBelief) | 0 | 0 | +1 (bot, strategy) | 2 | Within budget |
 
@@ -730,6 +781,6 @@ Each phase is a separate task. Budget resets per phase.
 
 1. **Biggest assumption**: That pgmpy's `VariableElimination` runs fast enough for per-frame inference on our networks (7-10 nodes). It should be — small networks, sparse connectivity, 3-4 states per node. But it must be profiled on the first implementation. Plan: if >0.5ms, cache inference results and only re-query when evidence changes (the evidence only changes when a scout report comes in, which is at most once per second).
 
-2. **Most likely failure/edge**: `data/` is empty — no games have been run locally with telemetry enabled, and the DuckDB database hasn't been populated yet. The training pipeline for Phase 2 (Strategy Belief) cannot ship without collecting 50+ games per race. The first thing to do is run games, confirm telemetry flows into DuckDB, verify via Streamlit, and then train models.
+2. **Most likely failure/edge**: `data/` is empty — no games have been run locally with telemetry enabled. The training pipeline for Phase 2 (Strategy Belief) cannot ship without collecting 50+ games per race. The first thing to do is run games, confirm telemetry JSONL files are being written to `data/games/`, verify the views in `queries/views.py` return data by querying DuckDB directly, and then train models.
 
 3. **Smallest change to improve robustness**: Populate `_enemy_unit_last_seen` (10 LOC in `update_enemy_intel_tracking()`). This is the foundation for composition belief decay and is currently a ghost — declared but never written to. It costs nothing, breaks nothing, and unblocks Phase 1.
