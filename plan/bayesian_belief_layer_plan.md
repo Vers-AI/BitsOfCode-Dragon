@@ -121,7 +121,7 @@ These are simple lookup tables derived from SC2 tech trees, not machine learning
 
 **What**: `P(strategy = s | timings, buildings, race, game_time)` — multi-class, multi-race strategy classifier replacing per-race booleans.
 
-**Current gap**: Rush detection covers Zerg ling rushes only. Cannon rush is a boolean in `intel.py`. No Terran proxy detection. `baneling_nest_seen_time` is tracked but unused. The ML model returns 3 classes (12_pool, speedling, none).
+**Current gap**: Rush detection covers Zerg ling rushes only. Cannon rush is a boolean in `intel.py`. No Terran proxy detection. `baneling_nest_seen_time` is tracked but unused. The ML model returns 3 classes (12_pool, speedling, none). The new taxonomy (Section "Strategy classes") replaces this with a 4-category system (cheese/all_in/timing_attack/macro) with per-race Level 2 build labels, covering all matchups.
 
 **Model**: `pgmpy` DiscreteBayesianNetwork with structure encoding SC2 domain knowledge:
 
@@ -135,26 +135,51 @@ strategy ──→ nat_timing
 strategy ──→ gas_timing
 ```
 
-**Strategy classes** (the taxonomy):
+**Strategy classes** (two-level taxonomy):
+
+Level 1 (strategy category) — the top-level prediction target for Strategy Belief:
 
 ```
-Enemy Strategy Belief
-├── standard          (macro play — the opponent is playing a normal game)
-├── cheese
-│   ├── 12_pool
-│   ├── speedling
-│   ├── cannon_rush
-│   ├── proxy_rax
-│   ├── proxy_zealot
-│   └── worker_rush
-├── timing_attack     (2-base aggression at a specific timing window)
-└── all_in            (committed early aggression, no transition to macro)
+Enemy Strategy Belief (Level 1)
+├── cheese         (early aggression before standard economy, no transition plan)
+├── all_in         (committed attack from 1-2 bases, no transition if it fails)
+├── timing_attack  (attack at a specific power spike, with a transition plan)
+└── macro          (standard economic play, focus on long-term advantage)
 ```
 
-- **`standard`** captures "they're playing macro" — P(standard) increasing means we believe they're doing a macro strategy
-- **`cheese`** subsumes rush (rush is a type of cheese)
+These map directly to Spawning Tool's proven taxonomy (Cheese, All-In, Timing Attack, Economic)
+used across thousands of community-labeled replays.
+
+Level 2 (build label) — the fine-grained prediction target for Composition Belief,
+conditioned on the Level 1 category and observed buildings:
+
+```
+Zerg (opponent):
+  cheese:      12_pool, proxy_hatch_spine
+  all_in:      roach_ravager_push, mutalisk_all_in, hydra_all_in
+  timing:      ling_bane_timing, roach_timing, drop_timing
+  macro:       standard_hatch_first, roach_macro, hydra_lurker, mutalisk_harass, brood_lord_late
+
+Protoss (opponent):
+  cheese:      cannon_rush, proxy_gateway
+  all_in:      four_gate, two_base_colossus, two_base_blink
+  timing:      stargate_timing, immortal_timing, chargelot_archon, dt_drop
+  macro:       three_base_macro, sky_toss, tempest_turtle
+
+Terran (opponent):
+  cheese:      proxy_rax, bunker_rush
+  all_in:      battlecruiser_rush, cyclone_push
+  timing:      bio_timing, widow_mine_drop, tank_timing
+  macro:       bio_macro, mech, ghost_late
+```
+
+Key design decisions:
+- **`macro`** replaces the old `standard` label — same meaning, clearer term, aligns with Spawning Tool
+- **`cheese`** subsumes rush (rush is a type of cheese), same as before
 - **`timing_attack`** is distinct from cheese — mid-game aggression off a macro opening
 - **`all_in`** captures committed aggression with no transition planned
+- Level 2 labels are observable from build order timings (building X before time T → label Y)
+- New labels can be added as edge cases emerge (e.g., `proxy_zealot` for PvP-specific cheese)
 
 Rule-based auto-TRUE guards stay (deterministic, cheap, correct for unambiguous cases). The BN handles the ambiguous zone with probabilities.
 
@@ -175,7 +200,7 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 **Decisions affected**:
 - `early_threat_sensor()` → consumes `P(strategy = cheese_class)` instead of per-race booleans
 - `cheese_reaction()` → threshold on `P_cheese > 0.6` instead of `if cannon_rush`
-- `macro.py` → nudge composition based on `P(timing_attack)` vs `P(standard)`
+- `macro.py` → nudge composition based on `P(timing_attack)` vs `P(macro)`
 - `_under_attack` flag → Strategy Belief informs whether a near-base threat is likely a committed push or just a probe
 
 **Files to create**:
@@ -253,7 +278,7 @@ Uses `scipy.stats.entropy()` on current composition belief distribution to compu
 Opponent Belief categories → Strategy Belief priors:
 ├── P(cheesy)     → inflates P(cheese) in Strategy Belief
 ├── P(aggressive) → inflates P(timing_attack) and P(all_in)
-└── P(macro)      → inflates P(standard)
+└── P(macro)      → inflates P(macro)
 ```
 
 Updated after each game from match record (result, cheese_type, game length, economy metrics). Prior for unknown opponent: uninformative `[1, 1, 1]`. Persists to `data/opponent_profiles.json`.
@@ -369,7 +394,7 @@ strategy.P_strategy(s: str) -> float                    # P(strategy = s)
 strategy.P_cheese -> float                              # P(any cheese strategy)
 strategy.P_timing_attack -> float                        # P(timing attack)
 strategy.P_all_in -> float                              # P(all-in)
-strategy.P_standard -> float                            # P(macro play)
+strategy.P_macro -> float                            # P(macro play)
 strategy.label -> str                                   # MAP estimate (backward compat)
 
 # Phase 3: Scout VOI
@@ -379,7 +404,7 @@ scout_voi.rank_targets() -> list[tuple[Point2, float]]  # Destination → expect
 # Phase 4: Opponent Belief
 opponent.P_cheesy -> float                              # P(opponent tends to cheese)
 opponent.P_aggressive -> float                           # P(opponent tends to be aggressive)
-opponent.P_macro -> float                                # P(opponent tends to play standard)
+opponent.P_macro -> float                                # P(opponent tends to play macro)
 opponent.games_played -> int                             # How many games we have vs this opponent
 opponent.adjusted_prior() -> dict                        # Strategy Belief prior dict
 ```
@@ -474,7 +499,7 @@ From replays, the bot can get **ground truth** that its own perception cannot pr
 | **Actual enemy structures** (what they built and when) | Ground truth for "structure → expected units" priors. "If we see a Factory at 5:00, what units did they actually build?" | Composition Belief (priors) |
 | **Actual engagement outcomes** (who won each fight, exact unit counts) | Ground truth for combat sim calibration. "Sim said VICTORY_MARGINAL, actual result was LOSS." | Engagement Analysis |
 | **Enemy production queues** (what they were building when we had vision) | Trains "expected unseen units from production" priors. | Composition Belief (priors) |
-| **Game time of key events** (attack timings, expand timings) | Ground truth for "timing_attack" classification in Strategy Belief. "What percentage of standard openings lead to a push at 7:00?" | Strategy Belief |
+| **Game time of key events** (attack timings, expand timings) | Ground truth for "timing_attack" classification in Strategy Belief. "What percentage of macro openings lead to a push at 7:00?" | Strategy Belief |
 | **Actual enemy resource collection rate** | Strongly correlated with strategy (aggressive → lower eco, macro → higher eco). Cannot be observed in-game. | Strategy Belief |
 | **Upgrades completed** (when the enemy completed upgrades) | Ground truth for tech transition detection. Complete data vs partial from observers. | Strategy Belief |
 
