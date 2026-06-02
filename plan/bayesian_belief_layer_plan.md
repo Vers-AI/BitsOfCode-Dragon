@@ -45,7 +45,7 @@ All belief updates use **closed-form conjugate priors** (Beta-Binomial, Dirichle
 
 ## The 4 Phases
 
-### Phase 1: Composition Belief — Enemy Army Probability
+### Phase 1: Composition Belief — Enemy Army Probability ✅ COMPLETE
 
 **What**: `P(unit still exists | age, type)` + structure-based priors for expected-but-unseen units.
 
@@ -109,11 +109,31 @@ These are simple lookup tables derived from SC2 tech trees, not machine learning
 - `bot/combat/combat.py` — pass weighted army to `can_win_fight()` and `handle_attack_toggles()`
 - `bot/constants.py` — add `UNIT_HALF_LIFE` constant dict
 
-**No new dependencies.** Uses `scipy.stats.expon` only.
+**No new dependencies.** Uses `0.5 ** (age / half_life)` directly — no scipy import needed at runtime.
 
 **LOC estimate**: ~150 in `bot/belief/`, ~30 in integration points
 
 **Validation**: Side-by-side comparison — emit composition belief freshness alongside existing intel freshness to telemetry. Confirm they agree on known cases (fresh units, stale units, edge cases).
+
+#### Implementation Status (Completed)
+
+**Files created**:
+- `bot/belief/__init__.py` — Re-exports BeliefState, BeliefUpdater, CompositionBelief, WeightedUnit
+- `bot/belief/belief_state.py` — Frozen dataclass holding BeliefState (composition only for Phase 1)
+- `bot/belief/composition_belief.py` — Core model: exponential decay, structure priors, weighted army, on_unit_destroyed
+- `bot/belief/belief_updater.py` — Produces new BeliefState each frame from observations
+- `tests/test_composition_belief.py` — 13 unit tests for decay formula, constants, structure priors
+
+**Files modified**:
+- `bot/constants.py` — Added UNIT_HALF_LIFE (65 unit types), DEFAULT_HALF_LIFE (20s), STRUCTURE_SEEN_UNIT_PRIOR (12 structures)
+- `bot/utilities/intel.py` — Populated `_enemy_unit_last_seen[tag] = bot.time` for visible units
+- `bot/bot.py` — BeliefUpdater and BeliefState in __init__; belief update in on_step() (feature-gated); record_destruction in on_unit_destroyed()
+- `bot/combat/combat.py` — 3 integration points: weighted army for can_win_fight, belief freshness for intel gate
+- `bot/managers/reactions.py` — threat_detection(): confidence-weighted army value when belief enabled
+- `bot/utilities/game_report.py` — Added `belief` periodic telemetry event
+- `config.yml` — Added `Belief.enable_composition: False` feature flag
+
+**Feature-gated**: All changes behind `config.yml: Belief.enable_composition: False`. When disabled, zero impact on existing behavior.
 
 ---
 

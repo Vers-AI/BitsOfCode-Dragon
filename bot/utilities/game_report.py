@@ -246,6 +246,21 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
         intel_fields["visible_enemy_count"] = len(bot.enemy_units) if bot.enemy_units else 0
         log_event(subsystem="intel", action="scout_update", reason="periodic", **intel_fields)
 
+    # === Telemetry: Composition belief snapshot (when enabled) ===
+    if bot.config.get("Belief", {}).get("enable_composition", False):
+        comp = bot.belief_state.composition
+        belief_fields: dict = {"_ts": bot.time}
+        belief_fields["belief_freshness"] = round(comp.freshness, 3)
+        belief_fields["belief_weighted_count"] = round(comp.total_weighted_count, 1)
+        weighted = comp.get_weighted_army(
+            exclude_workers=True, exclude_structures=True, exclude_ignored=True,
+            min_confidence=0.05,
+        )
+        belief_fields["belief_visible_units"] = sum(1 for wu in weighted if wu.confidence >= 0.9)
+        belief_fields["belief_memory_units"] = len(weighted) - belief_fields["belief_visible_units"]
+        belief_fields["belief_expected_types"] = list(comp.get_expected_unit_types().keys())
+        log_event(subsystem="belief", action="periodic", reason="composition", **belief_fields)
+
     # === Telemetry: Rush detection transitions (Zerg/Random only) ===
     if bot.enemy_race in {Race.Zerg, Race.Random}:
         _emit_cheese_detection_transitions(bot)

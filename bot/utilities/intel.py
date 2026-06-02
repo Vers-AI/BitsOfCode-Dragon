@@ -280,6 +280,9 @@ def update_enemy_intel_tracking(bot: "PiG_Bot") -> None:
         # We currently see enemy army
         bot._enemy_army_ever_seen = True
         bot._last_enemy_army_visible_time = bot.time
+        # Populate last-seen timestamps for composition belief decay
+        for unit in visible_army:
+            bot._enemy_unit_last_seen[unit.tag] = bot.time
     elif enemy_army:
         # We have memory of enemy army but can't see them now
         bot._enemy_army_ever_seen = True
@@ -289,8 +292,15 @@ def update_enemy_intel_tracking(bot: "PiG_Bot") -> None:
     # most urgent scenario (we need to find them). Previously gated on
     # _enemy_army_ever_seen, which prevented urgency from ever building
     # when the enemy army was never spotted (e.g., scout only saw workers).
-    intel = get_enemy_intel_quality(bot)
-    freshness = intel["freshness"]
+    # When composition belief is enabled, use its probability-weighted
+    # freshness instead of the binary age-threshold freshness — one source
+    # of truth for both combat decisions and scout dispatch.
+    use_belief = bot.config.get("Belief", {}).get("enable_composition", False)
+    if use_belief:
+        freshness = bot.belief_state.composition.freshness
+    else:
+        intel = get_enemy_intel_quality(bot)
+        freshness = intel["freshness"]
     
     # Build urgency when intel is not fresh (below FRESH_INTEL_THRESHOLD).
     # Previously used STALE_INTEL_THRESHOLD (0.2) which only triggered at

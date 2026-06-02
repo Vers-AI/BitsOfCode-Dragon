@@ -625,8 +625,13 @@ def control_observers(bot, all_observers: Units, main_army: Units) -> None:
     if bot._intel_urgency > HUNT_URGENCY_THRESHOLD:
         bot._observer_hunt_mode = True
     if bot._observer_hunt_mode:
-        intel = get_enemy_intel_quality(bot)
-        if intel["freshness"] >= FRESH_INTEL_THRESHOLD:
+        use_belief = bot.config.get("Belief", {}).get("enable_composition", False)
+        if use_belief:
+            freshness = bot.belief_state.composition.freshness
+        else:
+            intel = get_enemy_intel_quality(bot)
+            freshness = intel["freshness"]
+        if freshness >= FRESH_INTEL_THRESHOLD:
             bot._observer_hunt_mode = False
     
     hunter_tag: Optional[int] = None

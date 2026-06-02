@@ -20,6 +20,10 @@ WallGenerationMode: False
 UseData: True
 Debug: False #Enable debug output for ares
 
+# Belief layer feature flags for Phase 1
+Belief:
+    enable_composition: True  # Phase 1: Probability-weighted enemy army tracking
+
 Distances:
     GroundEnemyNearBases: 25.
     GroundEnemyLeavingBases: 30.

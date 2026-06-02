@@ -327,6 +327,102 @@ URGENCY_BUILD_RATE = 0.02
 URGENCY_DECAY_RATE = 0.005
 """Rate per frame that intel urgency decays when fresh (slower than build)"""
 
+# ===== BELIEF LAYER =====
+# Per-unit-type half-lives (seconds) for composition belief decay.
+# P(unit still exists | age, type) = 0.5^(age / half_life).
+# Workers survive longer (mining, not in fights); fragile units die fast; structures persist.
+UNIT_HALF_LIFE: dict[UnitTypeId, float] = {
+    # Workers — long half-life, they stay alive mining unless harassed
+    UnitTypeId.SCV: 60.0,
+    UnitTypeId.DRONE: 60.0,
+    UnitTypeId.PROBE: 60.0,
+    UnitTypeId.MULE: 45.0,
+    # Terran combat
+    UnitTypeId.MARINE: 20.0,
+    UnitTypeId.MARAUDER: 22.0,
+    UnitTypeId.REAPER: 15.0,
+    UnitTypeId.GHOST: 20.0,
+    UnitTypeId.HELLION: 18.0,
+    UnitTypeId.HELLIONTANK: 18.0,
+    UnitTypeId.CYCLONE: 20.0,
+    UnitTypeId.SIEGETANK: 25.0,
+    UnitTypeId.SIEGETANKSIEGED: 25.0,
+    UnitTypeId.THOR: 30.0,
+    UnitTypeId.VIKINGFIGHTER: 18.0,
+    UnitTypeId.VIKINGASSAULT: 18.0,
+    UnitTypeId.MEDIVAC: 30.0,
+    UnitTypeId.RAVEN: 25.0,
+    UnitTypeId.BANSHEE: 15.0,
+    UnitTypeId.BATTLECRUISER: 35.0,
+    UnitTypeId.LIBERATOR: 18.0,
+    UnitTypeId.LIBERATORAG: 18.0,
+    # Protoss combat
+    UnitTypeId.ZEALOT: 20.0,
+    UnitTypeId.STALKER: 20.0,
+    UnitTypeId.SENTRY: 22.0,
+    UnitTypeId.ADEPT: 20.0,
+    UnitTypeId.HIGHTEMPLAR: 15.0,
+    UnitTypeId.DARKTEMPLAR: 15.0,
+    UnitTypeId.ARCHON: 25.0,
+    UnitTypeId.IMMORTAL: 25.0,
+    UnitTypeId.COLOSSUS: 22.0,
+    UnitTypeId.WARPPRISM: 30.0,
+    UnitTypeId.PHOENIX: 15.0,
+    UnitTypeId.VOIDRAY: 20.0,
+    UnitTypeId.ORACLE: 15.0,
+    UnitTypeId.CARRIER: 30.0,
+    UnitTypeId.TEMPEST: 30.0,
+    UnitTypeId.MOTHERSHIP: 35.0,
+    UnitTypeId.DISRUPTOR: 15.0,
+    # Zerg combat
+    UnitTypeId.ZERGLING: 15.0,
+    UnitTypeId.ZERGLINGBURROWED: 15.0,
+    UnitTypeId.ROACH: 20.0,
+    UnitTypeId.ROACHBURROWED: 20.0,
+    UnitTypeId.RAVAGER: 20.0,
+    UnitTypeId.HYDRALISK: 20.0,
+    UnitTypeId.HYDRALISKBURROWED: 20.0,
+    UnitTypeId.MUTALISK: 15.0,
+    UnitTypeId.CORRUPTOR: 22.0,
+    UnitTypeId.BROODLORD: 25.0,
+    UnitTypeId.INFESTOR: 20.0,
+    UnitTypeId.INFESTORBURROWED: 20.0,
+    UnitTypeId.SWARMHOSTBURROWEDMP: 22.0,
+    UnitTypeId.SWARMHOSTMP: 22.0,
+    UnitTypeId.VIPER: 20.0,
+    UnitTypeId.ULTRALISK: 25.0,
+    UnitTypeId.QUEEN: 22.0,
+    UnitTypeId.BANELING: 12.0,
+    UnitTypeId.BANELINGBURROWED: 12.0,
+    # Key structures (visible as units in combat)
+    UnitTypeId.BUNKER: 90.0,
+    UnitTypeId.MISSILETURRET: 60.0,
+    UnitTypeId.PHOTONCANNON: 60.0,
+    UnitTypeId.SPINECRAWLER: 90.0,
+    UnitTypeId.SPORECRAWLER: 60.0,
+}
+
+DEFAULT_HALF_LIFE = 20.0
+"""Default half-life for unit types not in UNIT_HALF_LIFE — standard combat unit assumption"""
+
+STRUCTURE_SEEN_UNIT_PRIOR: dict[UnitTypeId, dict[UnitTypeId, float]] = {
+    # Terran structures → likely units
+    UnitTypeId.BARRACKS: {UnitTypeId.MARINE: 0.6, UnitTypeId.MARAUDER: 0.3, UnitTypeId.REAPER: 0.1},
+    UnitTypeId.FACTORY: {UnitTypeId.SIEGETANK: 0.4, UnitTypeId.HELLION: 0.3, UnitTypeId.CYCLONE: 0.2, UnitTypeId.THOR: 0.1},
+    UnitTypeId.STARPORT: {UnitTypeId.MEDIVAC: 0.3, UnitTypeId.VIKINGFIGHTER: 0.3, UnitTypeId.LIBERATOR: 0.2, UnitTypeId.BANSHEE: 0.1, UnitTypeId.RAVEN: 0.1},
+    # Protoss structures → likely units
+    UnitTypeId.GATEWAY: {UnitTypeId.ZEALOT: 0.5, UnitTypeId.STALKER: 0.3, UnitTypeId.SENTRY: 0.1, UnitTypeId.ADEPT: 0.1},
+    UnitTypeId.ROBOTICSFACILITY: {UnitTypeId.IMMORTAL: 0.4, UnitTypeId.WARPPRISM: 0.2, UnitTypeId.COLOSSUS: 0.2, UnitTypeId.DISRUPTOR: 0.2},
+    UnitTypeId.STARGATE: {UnitTypeId.VOIDRAY: 0.3, UnitTypeId.PHOENIX: 0.2, UnitTypeId.ORACLE: 0.2, UnitTypeId.CARRIER: 0.15, UnitTypeId.TEMPEST: 0.15},
+    # Zerg structures → likely units
+    UnitTypeId.HATCHERY: {UnitTypeId.QUEEN: 0.5, UnitTypeId.ZERGLING: 0.3, UnitTypeId.DRONE: 0.2},
+    UnitTypeId.SPAWNINGPOOL: {UnitTypeId.ZERGLING: 0.6, UnitTypeId.QUEEN: 0.3, UnitTypeId.ROACH: 0.1},
+    UnitTypeId.ROACHWARREN: {UnitTypeId.ROACH: 0.7, UnitTypeId.RAVAGER: 0.3},
+    UnitTypeId.HYDRALISKDEN: {UnitTypeId.HYDRALISK: 0.7, UnitTypeId.LURKERMP: 0.3},
+    UnitTypeId.SPIRE: {UnitTypeId.MUTALISK: 0.5, UnitTypeId.CORRUPTOR: 0.3, UnitTypeId.BROODLORD: 0.2},
+}
+"""Structure-based priors: P(unit_type produced | structure_type seen)"""
+
 # ===== CHOKE/RAMP DETECTION =====
 RAMP_CHOKE_RADIUS = 2.5
 """Radius around ramp top/bottom for choke grid marking (actual ramp ~2-3 tiles wide)"""

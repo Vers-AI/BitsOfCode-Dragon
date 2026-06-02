@@ -50,6 +50,7 @@ from bot.utilities.nova_manager import NovaManager
 from bot.utilities.performance_monitor import PerformanceMonitor
 from bot.utilities.game_report import print_end_game_report, print_startup_report, print_periodic_intel_report, get_replay_tags_to_send, emit_match_record
 from bot.utilities.telemetry import init_context, reset as telemetry_reset
+from bot.belief import BeliefUpdater, BeliefState, create_empty_belief_state
 
 
 
@@ -173,6 +174,10 @@ class PiG_Bot(AresBot):
         # Detection cannon state (per-base Pylon+Cannon behind mineral lines)
         self._detection_cannon_state: dict[int, str] = {}  # nexus tag → state
         self._detection_cannon_triggered: bool = False  # Sticky: True once a cloaked threat is ever seen
+
+        # Belief layer (Phase 1: Composition Belief)
+        self._belief_updater: BeliefUpdater = BeliefUpdater()
+        self.belief_state: BeliefState = create_empty_belief_state()
 
 
 
@@ -302,6 +307,16 @@ class PiG_Bot(AresBot):
         
         # Update enemy intel tracking (for combat sim trust)
         update_enemy_intel_tracking(self)
+
+        # Update belief layer (Phase 1: Composition Belief)
+        # Feature-gated: when disabled, belief_state stays at defaults
+        if self.config.get("Belief", {}).get("enable_composition", False):
+            self.belief_state = self._belief_updater.update(
+                bot=self,
+                cached_army=self.mediator.get_cached_enemy_army,
+                visible_structures=self.enemy_structures,
+                game_time=self.time,
+            )
 
         # Reset per-frame flags (set by combat during this step)
         self._blind_ramp_target = None
@@ -501,6 +516,11 @@ class PiG_Bot(AresBot):
     async def on_unit_destroyed(self, unit_tag: int) -> None:
         """Track when units get destroyed."""
         await super(PiG_Bot, self).on_unit_destroyed(unit_tag)
+        
+        # Record enemy destruction in belief layer (ground truth — P(exists) → 0.0)
+        # Only enemy tags matter; friendly tags would bloat _destroyed with no-ops
+        if self._belief_updater.is_known_enemy_tag(unit_tag):
+            self._belief_updater.record_destruction(unit_tag)
         
         # Handle observer reassignment if destroyed (army is highest priority)
         if unit_tag == self.observer_assignments.get("army"):

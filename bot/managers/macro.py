@@ -859,8 +859,17 @@ def select_army_composition(bot, main_army: Units) -> dict:
     # === Nudge pipeline: counter-table → resource-pressure → priority reorder ===
     
     # Step 1: Counter-table nudge (only if intel is fresh enough)
-    intel = get_enemy_intel_quality(bot)
-    if intel["has_intel"] and intel["freshness"] > STALE_INTEL_THRESHOLD:
+    # When composition belief is enabled, use its probability-weighted freshness
+    use_belief = bot.config.get("Belief", {}).get("enable_composition", False)
+    if use_belief:
+        has_intel = bot._enemy_army_ever_seen
+        freshness = bot.belief_state.composition.freshness
+    else:
+        intel = get_enemy_intel_quality(bot)
+        has_intel = intel["has_intel"]
+        freshness = intel["freshness"]
+
+    if has_intel and freshness > STALE_INTEL_THRESHOLD:
         enemy_units = _get_enemy_combat_units(bot)
         comp = nudge_proportions(selected_composition, enemy_units)
     else:

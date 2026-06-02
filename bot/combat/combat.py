@@ -1605,6 +1605,9 @@ def handle_attack_toggles(
     # Type assertion since return_details=False (default) returns int
     assert isinstance(enemy_threat_level, int), "assess_threat without return_details should return int"
 
+    # Composition belief: use probability-weighted unit filtering when enabled
+    use_belief = bot.config.get("Belief", {}).get("enable_composition", False)
+
     enemy_army = bot.enemy_army
     # Early game safety - don't attack during cheese reactions
     is_early_defensive_mode = bot._used_cheese_response
@@ -1645,10 +1648,17 @@ def handle_attack_toggles(
             
             if enemies_near_army:
                 # In active combat - check if we're losing badly enough for mass recall
-                combat_enemy_units = [
-                    u for u in bot.mediator.get_cached_enemy_army
-                    if u.type_id not in WORKER_TYPES and not u.is_structure
-                ]
+                if use_belief:
+                    weighted = bot.belief_state.composition.get_weighted_army(
+                        exclude_workers=True, exclude_structures=True, exclude_ignored=True,
+                        min_confidence=0.05,
+                    )
+                    combat_enemy_units = [wu.unit for wu in weighted]
+                else:
+                    combat_enemy_units = [
+                        u for u in bot.mediator.get_cached_enemy_army
+                        if u.type_id not in WORKER_TYPES and not u.is_structure
+                    ]
                 fight_result = bot.mediator.can_win_fight(
                     own_units=main_army, enemy_units=combat_enemy_units,
                     workers_do_no_damage=True,
@@ -1671,11 +1681,18 @@ def handle_attack_toggles(
         # For normal mode, re-evaluate fight result after minimum duration
         else:
             # Filter enemy units: exclude workers and structures
-            # Keep all cached units regardless of age - cache handles death/morph removal
-            combat_enemy_units = [
-                u for u in bot.mediator.get_cached_enemy_army
-                if u.type_id not in WORKER_TYPES and not u.is_structure
-            ]
+            # Use belief-weighted filtering when enabled
+            if use_belief:
+                weighted = bot.belief_state.composition.get_weighted_army(
+                    exclude_workers=True, exclude_structures=True, exclude_ignored=True,
+                    min_confidence=0.05,
+                )
+                combat_enemy_units = [wu.unit for wu in weighted]
+            else:
+                combat_enemy_units = [
+                    u for u in bot.mediator.get_cached_enemy_army
+                    if u.type_id not in WORKER_TYPES and not u.is_structure
+                ]
             fight_result = bot.mediator.can_win_fight(
                 own_units=main_army,
                 enemy_units=combat_enemy_units,
@@ -1717,15 +1734,29 @@ def handle_attack_toggles(
         # Gate 2: Very stale intel (<0.05) - genuinely blind, don't initiate attacks
         # At 0.2 this blocked too aggressively; a brief scout glimpse would push freshness
         # above 0.2, then decay below within ~10s, locking out attacks for most of the game.
-        if intel["freshness"] < STALE_INTEL_THRESHOLD:
+        # When composition belief is enabled, use its freshness (probability-weighted)
+        # instead of the binary age-threshold freshness.
+        freshness = intel["freshness"]
+        if use_belief:
+            freshness = bot.belief_state.composition.freshness
+        if freshness < STALE_INTEL_THRESHOLD:
             return select_defensive_anchor(bot, main_army)
         
         # Filter enemy units: exclude workers and structures
-        # Keep all cached units regardless of age - cache handles death/morph removal
-        combat_enemy_units = [
-            u for u in bot.mediator.get_cached_enemy_army
-            if u.type_id not in WORKER_TYPES and not u.is_structure
-        ]
+        # When composition belief is enabled, use confidence-weighted filtering
+        # instead of the raw cache (which includes stale ghost units at full weight)
+        if use_belief:
+            weighted = bot.belief_state.composition.get_weighted_army(
+                exclude_workers=True, exclude_structures=True, exclude_ignored=True,
+                min_confidence=0.05,
+            )
+            combat_enemy_units = [wu.unit for wu in weighted]
+        else:
+            # Original: use all cached units regardless of staleness
+            combat_enemy_units = [
+                u for u in bot.mediator.get_cached_enemy_army
+                if u.type_id not in WORKER_TYPES and not u.is_structure
+            ]
         fight_result = bot.mediator.can_win_fight(
             own_units=main_army,
             enemy_units=combat_enemy_units,
