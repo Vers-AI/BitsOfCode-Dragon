@@ -7,7 +7,7 @@ from sc2.unit import Unit
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.ability_id import AbilityId
 from sc2.data import Race
-from ares.consts import LOSS_DECISIVE_OR_WORSE, TIE_OR_BETTER, UnitTreeQueryType, EngagementResult, VICTORY_DECISIVE_OR_BETTER, VICTORY_MARGINAL_OR_BETTER, LOSS_OVERWHELMING_OR_WORSE, LOSS_DECISIVE_OR_WORSE, WORKER_TYPES, VICTORY_CLOSE_OR_BETTER
+from ares.consts import LOSS_DECISIVE_OR_WORSE, TIE_OR_BETTER, UnitTreeQueryType, VICTORY_DECISIVE_OR_BETTER, VICTORY_MARGINAL_OR_BETTER, LOSS_OVERWHELMING_OR_WORSE, WORKER_TYPES
 
 from ares.behaviors.combat import CombatManeuver
 from ares.behaviors.combat.individual import (
@@ -47,9 +47,7 @@ from bot.constants import (
     WARP_PRISM_POSITION_SEARCH_STEP,
     EARLY_GAME_TIME_LIMIT,
     EARLY_GAME_SAFE_GROUND_CHECK_BASES,
-    SIEGE_TANK_SUPPLY_ADVANTAGE_REQUIRED,
     SQUAD_NEARBY_FRIENDLY_RANGE_SQ,
-    FRESH_INTEL_THRESHOLD,
     STALE_INTEL_THRESHOLD,
     FORMATION_AHEAD_BASE,
     FORMATION_AHEAD_SCALE,
@@ -1623,19 +1621,12 @@ def handle_attack_toggles(
     render_base_defender_debug(bot)
     render_observer_debug(bot)
 
-    # Siege tank special case: Combat simulator underestimates siege tanks due to splash damage
-    # and positional advantage, so require overwhelming force before engaging them
-    if bot.enemy_units({UnitTypeId.SIEGETANK, UnitTypeId.SIEGETANKSIEGED}):
-        own_supply = sum(bot.calculate_supply_cost(u.type_id) for u in main_army)
-        enemy_supply = sum(bot.calculate_supply_cost(u.type_id) for u in bot.enemy_army)
-        if own_supply < enemy_supply * SIEGE_TANK_SUPPLY_ADVANTAGE_REQUIRED:
-            bot._commenced_attack = False
-            if bot.townhalls:
-                nearest_base = cy_closest_to(main_army.center, bot.townhalls)
-                return nearest_base.position
-            else:
-                return bot.start_location
-    
+    # Siege tanks: combat sim underestimates splash/positioning, so we elevate the
+    # required sim threshold to VICTORY_MARGINAL_OR_BETTER instead of bypassing the
+    # sim entirely with a raw supply ratio. This lets composition (e.g. Immortals)
+    # win the sim while still demanding a safety margin into tanks.
+    has_siege_tanks = bool(bot.enemy_units({UnitTypeId.SIEGETANK, UnitTypeId.SIEGETANKSIEGED}))
+
     # Evaluate current attack state with engagement hysteresis
     if bot._commenced_attack:
         # Maintain commitment for minimum duration to prevent rapid oscillation
@@ -1723,12 +1714,10 @@ def handle_attack_toggles(
             # Combat sim has ZERO enemy data - don't trust it, stay defensive
             return select_defensive_anchor(bot, main_army)
         
-        # Gate 2: Adjust required victory threshold based on intel freshness
-        # Fresh (>FRESH_INTEL_THRESHOLD): trust combat sim normally
-        # Stale (STALE_INTEL_THRESHOLD to FRESH_INTEL_THRESHOLD): require higher confidence
-        # Very stale (<STALE_INTEL_THRESHOLD): don't initiate attacks, need fresh intel
+        # Gate 2: Very stale intel (<0.05) - genuinely blind, don't initiate attacks
+        # At 0.2 this blocked too aggressively; a brief scout glimpse would push freshness
+        # above 0.2, then decay below within ~10s, locking out attacks for most of the game.
         if intel["freshness"] < STALE_INTEL_THRESHOLD:
-            # Intel is very stale - don't initiate attack, stay defensive until we scout
             return select_defensive_anchor(bot, main_army)
         
         # Filter enemy units: exclude workers and structures
@@ -1743,27 +1732,19 @@ def handle_attack_toggles(
             workers_do_no_damage=True,
         )
         
-        # Adjust required threshold based on intel freshness
-        if intel["freshness"] >= FRESH_INTEL_THRESHOLD:
-            # Fresh intel - trust combat sim with adjusted thresholds
-            if is_early_defensive_mode:
-                # Build order not done - require marginal advantage
-                if fight_result in VICTORY_MARGINAL_OR_BETTER:
-                    bot._commenced_attack = True
-                    bot._attack_commenced_time = bot.time
-                    return attack_target
-            else:
-                # Build order complete - attack even on tie or better
-                if fight_result in TIE_OR_BETTER:
-                    bot._commenced_attack = True
-                    bot._attack_commenced_time = bot.time
-                    return attack_target
-        else:
-            # Moderately stale intel - require close victory or better
-            if fight_result in VICTORY_CLOSE_OR_BETTER:
-                bot._commenced_attack = True
-                bot._attack_commenced_time = bot.time
-                return attack_target
+        # Determine required sim result based on conditions:
+        # - Cheese defense or siege tanks present: VICTORY_MARGINAL_OR_BETTER (safety margin)
+        # - Normal mode: TIE_OR_BETTER (attack when sim says even or better)
+        # Siege tanks: combat sim underestimates splash/positioning, so demand a margin.
+        # Intel freshness above STALE_INTEL_THRESHOLD (0.05) no longer inflates the
+        # threshold — with some intel, TIE_OR_BETTER is reasonable (the sim already
+        # overestimates enemy strength from cached units).
+        required_result = VICTORY_MARGINAL_OR_BETTER if (is_early_defensive_mode or has_siege_tanks) else TIE_OR_BETTER
+        
+        if fight_result in required_result:
+            bot._commenced_attack = True
+            bot._attack_commenced_time = bot.time
+            return attack_target
         
         # Default: use strategic anchor positioning (smart defensive placement)
         return select_defensive_anchor(bot, main_army)

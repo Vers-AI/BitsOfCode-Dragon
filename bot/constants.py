@@ -110,9 +110,6 @@ ACTIVE_ENGAGE_ANGLE = 0.3
 """~17° tolerance for is_facing check in active engagement fallback"""
 
 # ===== COMBAT SIMULATOR THRESHOLDS =====
-SIEGE_TANK_SUPPLY_ADVANTAGE_REQUIRED = 2.0
-"""Supply advantage multiplier needed to attack into siege tanks (combat sim often underestimates them)"""
-
 SQUAD_NEARBY_FRIENDLY_RANGE_SQ = 255.0
 """Squared distance (16^2) to find nearby friendly units for squad-level combat simulation"""
 
@@ -317,8 +314,12 @@ STALENESS_WINDOW = 40.0
 FRESH_INTEL_THRESHOLD = 0.7
 """Freshness score above which intel is considered 'fresh' - use normal combat sim thresholds"""
 
-STALE_INTEL_THRESHOLD = 0.2
-"""Freshness score below which intel is 'very stale' - don't initiate attacks, need scouting"""
+STALE_INTEL_THRESHOLD = 0.05
+"""Freshness score below which intel is 'very stale' - don't initiate attacks, need scouting.
+
+At 0.2, a single observer glimpse (~0.3-0.4 freshness) decayed below threshold within ~10s,
+locking out attacks entirely for most of the game. 0.05 reserves the hard block for genuinely
+blind scenarios (no intel for 38+ seconds)."""
 
 URGENCY_BUILD_RATE = 0.02
 """Rate per frame that intel urgency builds when stale (~0.4/sec at 22fps)"""
