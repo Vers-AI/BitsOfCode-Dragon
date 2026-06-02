@@ -139,10 +139,5 @@ data/*.jsonl
 data/rush_detection_log.jsonl
 
 
-# Private plan docs
-Plan
-Plan/
-example/
-
 #logs
 logs/
