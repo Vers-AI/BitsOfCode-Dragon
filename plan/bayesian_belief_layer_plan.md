@@ -868,3 +868,95 @@ Each phase is a separate task. Budget resets per phase.
 2. **Most likely failure/edge**: `data/` is empty — no games have been run locally with telemetry enabled. The training pipeline for Phase 2 (Strategy Belief) cannot ship without collecting 50+ games per race. The first thing to do is run games, confirm telemetry JSONL files are being written to `data/games/`, verify the views in `queries/views.py` return data by querying DuckDB directly, and then train models.
 
 3. **Smallest change to improve robustness**: Populate `_enemy_unit_last_seen` (10 LOC in `update_enemy_intel_tracking()`). This is the foundation for composition belief decay and is currently a ghost — declared but never written to. It costs nothing, breaks nothing, and unblocks Phase 1.
+---
+
+## Schema Audit & Data Pipeline Readiness (2026-06-03)
+
+### Telemetry API: `match-level-full` Endpoint
+
+The `/api/features/match-level-full` endpoint provides 45 fields per game. The training script (`scripts/train_strategy_belief.py`) correctly reads the fields it references from this endpoint.
+
+**Available and populated (all 143 games):**
+- `strategy_category` — ground truth labels from replay analysis (macro: 72, timing: 39, cheese: 30, all_in: 2)
+- `cheese_type` — specific cheese variant (none: 94, 12_pool: 25, speedling: 23, cannon_rush: 1)
+- `enemy_race`, `result`, `version`, `map` — always populated
+- `avg_army_value`, `avg_workers`, `engagement_count/won/lost`, `avg_can_win`, `avg_can_win_early` — combat metrics
+- `under_attack_count`, `attack_count` — aggression indicators
+- `duration_min`, `game_steps`, `replay_game_length` — game duration
+- `bot_race`, `bot_build_label`, `bot_strategy_category` — bot's own strategy
+- `build_label` — opponent build from replay analysis
+- `real_sq`, `mineral_sq`, `gas_sq`, `sq` — spending quality metrics (post-game)
+- `avg_collection_rate`, `avg_unspent` — economy metrics (post-game aggregate)
+
+**Partially populated (57/143 games, Zerg/Random only):**
+- `rush_detected` — 40% of games
+- `avg_12pool_prob`, `avg_speedling_prob` — 40% of games
+- `max_rush_confidence` — 40% of games
+
+**NOT in match-level-full (requires per-match fetch from `/api/matches/{id}/events?subsystem=rush_detect`):**
+- `pool_start`, `gas_time`, `queen_time`, `speed_start` — Zerg timing features
+- `ling_seen`, `ling_contact`, `gas_workers`, `ling_has_speed` — Zerg scouting features
+- `nat_start`, `last_nat_scout_time`, `nat_present_on_last_scout` — expansion scouting
+
+**⚠️ BROKEN: Per-match rush_detect events endpoint returns empty.** The training script fetches timing data from `/api/matches/{id}/events?subsystem=rush_detect` but this endpoint returns `[]` for tested match IDs. This means all Zerg timing features in `build_training_data()` default to -1 (missing), which severely limits the BN's ability to distinguish Zerg strategies.
+
+### Potential Features (Not Yet Used by Training Script)
+
+These fields are available in the API but not yet consumed by `train_strategy_belief.py`. Marked as **potential** because some are post-game aggregates the bot cannot access mid-game.
+
+| Field | Type | Mid-game Available? | Usefulness |
+|-------|------|---------------------|------------|
+| `avg_collection_rate` | float | ⚠️ Maybe — check if bot's intel module collects per-frame income | **High** — primary SQ driver, could distinguish macro from cheese early |
+| `avg_unspent` | float | ⚠️ Maybe — bot tracks `avg_unspent_minerals/vespene` in telemetry | **High** — low unspent = good spending, high unspent = economy collapse |
+| `max_squads_atk` / `max_squads_atk_early` | int | No — post-game aggregate | Medium — proxy for aggression level |
+| `max_squads_def` / `max_squads_def_early` | int | No — post-game aggregate | Medium — proxy for defensive posture |
+| `max_squads_base` | int | No — post-game aggregate | Low |
+| `economy_transitions` | int | No — post-game count | Medium — number of eco transitions suggests macro play |
+| `critical_events` | float | No — post-game aggregate | Low — ambiguous signal |
+| `recovery_events` | float | No — post-game aggregate | Medium — recovery from pressure suggests all_in was repelled |
+| `stable_events` | float | No — post-game aggregate | Low — ambiguous |
+| `real_sq` / `mineral_sq` / `gas_sq` | float | No — computed from replay snapshots post-game | **Training only** — ground truth for SQ, useful for validation |
+| `chosen_opening` | str | No — post-game | Medium — bot's own opening choice |
+
+### What Needs Fixing
+
+1. **rush_detect per-match events endpoint** — Returns empty for tested matches. This is the most critical gap. Without Zerg timing features, the BN can only use `duration_bin`, `rush_conf_bin`, and `enemy_race` to classify strategy. Fix: either (a) ensure the endpoint serves data for matches that have rush_detect events, or (b) add the timing fields to `match-level-full` as pre-aggregated columns (similar to how `avg_12pool_prob` is already included).
+
+2. **`avg_12pool_prob` and `avg_speedling_prob` are NULL for 60% of games** — The rush detection ML model isn't running for all game versions. The `rush_detected` boolean is also NULL for 86 of 143 games. This suggests the model wasn't deployed for earlier versions or isn't triggered for non-Zerg opponents. Fix: ensure rush detection runs for all games, or accept that these features are Zerg-only and handle NULLs in the BN.
+
+3. **Strategy label coverage** — Only 2 games are labeled `all_in`. The BN will struggle to learn this class. Consider: (a) merging `all_in` into `timing_attack` or `cheese` based on game characteristics, or (b) collecting more games with clear all_in patterns.
+
+4. **`nat_start` and expansion scouting** — Currently hardcoded to -1 in the training script. These are critical features for distinguishing macro (fast expansion) from cheese (no expansion). Fix: add these to the match-level-full endpoint, or populate them from the per-match rush_detect events endpoint once it's fixed.
+
+### SQ Analysis: Why SQ Drops from Grandmaster to Gold
+
+From the telemetry analysis (143 games, versions 0.9.0–0.9.1):
+
+| Metric | Wins (Attacked) | Losses (No Attack) | Delta |
+|--------|----------------|---------------------|-------|
+| Avg Income (min+gas)/min | 3,627 | 223 | **-94%** |
+| Avg SQ | 158 | 32 | **-80%** |
+| Avg Unspent | 6,032 | 720 | -88% |
+| Avg Army Value | (high) | (near zero) | **Collapsed** |
+
+**Root cause: The economy collapses in 50% of games before the bot can build an army.** Income drops from 3,600/min to 158/min. With no income, the bot can't build units, so `can_win_fight` returns False, so the bot never attacks, so it loses.
+
+The SQ metric is working correctly — when the bot has economy, it scores Grandmaster (180). The problem is that economy only survives in ~50% of games. The Bayesian Belief Layer addresses the *decision-making* side (when to attack), but the underlying economy survival problem is separate and needs work on early-game defense and worker protection.
+
+### Strategy Categorization Pipeline
+
+**Current state:** Strategy labels come from the replay processor (`replay_processor.py`) which uses heuristic rules to classify games into cheese/all_in/timing_attack/macro. The labels are stored in the `replay_metadata` subsystem as `strategy_category` and `build_label`.
+
+**Known issues with labeling:**
+- Auto-labeler overclassifies as "cheese" (94% in early runs, tuned down)
+- Only 2 games labeled `all_in` out of 143 — need more data or better heuristics
+- Labels for Terran and Protoss rely on build order heuristics that are less mature than Zerg
+- The `build_label` field uses Spawning Tool taxonomy but some labels are custom
+
+**The training script's `derive_strategy_label()` fallback chain:**
+1. API `strategy_category` column (if populated by replay analysis)
+2. `cheese_type` → Level-1 mapping (Zerg ground truth)
+3. Heuristic from game-level metrics (under_attack_count, attack_count, avg_can_win_early, duration)
+4. Default: "macro"
+
+This is reasonable but the heuristic tier (3) is weak — it only catches obvious cases. The BN model should improve on this once timing features are available.
