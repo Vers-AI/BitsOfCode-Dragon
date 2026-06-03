@@ -261,6 +261,27 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
         belief_fields["belief_expected_types"] = list(comp.get_expected_unit_types().keys())
         log_event(subsystem="belief", action="periodic", reason="composition", **belief_fields)
 
+    # === Telemetry: Strategy belief snapshot (when enabled) ===
+    if (bot.config.get("Belief", {}).get("enable_strategy", False)
+            and bot.belief_state.strategy is not None):
+        pred = bot.belief_state.strategy.last_prediction
+        if pred is not None:
+            strat_fields: dict = {"_ts": bot.time}
+            strat_fields["strategy_label"] = pred.label.value
+            strat_fields["strategy_level2"] = pred.level2
+            strat_fields["strategy_source"] = pred.source
+            strat_fields["p_cheese"] = round(pred.p_cheese, 3)
+            strat_fields["p_all_in"] = round(pred.p_all_in, 3)
+            strat_fields["p_timing"] = round(pred.p_timing, 3)
+            strat_fields["p_macro"] = round(pred.p_macro, 3)
+            strat_fields["strategy_confidence"] = round(pred.confidence, 3)
+            log_event(subsystem="belief", action="periodic", reason="strategy", **strat_fields)
+            # Console output for live validation
+            print(f"  Strategy: {pred.label.value}({pred.source}) "
+                  f"C:{pred.p_cheese:.0%} A:{pred.p_all_in:.0%} "
+                  f"T:{pred.p_timing:.0%} M:{pred.p_macro:.0%} "
+                  f"[{pred.level2}]")
+
     # === Telemetry: Rush detection transitions (Zerg/Random only) ===
     if bot.enemy_race in {Race.Zerg, Race.Random}:
         _emit_cheese_detection_transitions(bot)
@@ -616,6 +637,21 @@ def emit_match_record(bot, game_result, game_time: float,
             "score_speed": getattr(bot, '_score_speed', 0),
             "auto_true_fired": getattr(bot, '_auto_true_fired', False),
         })
+
+    # Strategy belief fields (when enabled)
+    if (bot.config.get("Belief", {}).get("enable_strategy", False)
+            and bot.belief_state.strategy is not None):
+        pred = bot.belief_state.strategy.last_prediction
+        if pred is not None:
+            match_fields.update({
+                "strategy_label": pred.label.value,
+                "strategy_level2": pred.level2,
+                "strategy_source": pred.source,
+                "strategy_p_cheese": round(pred.p_cheese, 3),
+                "strategy_p_all_in": round(pred.p_all_in, 3),
+                "strategy_p_timing": round(pred.p_timing, 3),
+                "strategy_p_macro": round(pred.p_macro, 3),
+            })
 
     log_match(**match_fields)
 

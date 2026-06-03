@@ -423,6 +423,78 @@ STRUCTURE_SEEN_UNIT_PRIOR: dict[UnitTypeId, dict[UnitTypeId, float]] = {
 }
 """Structure-based priors: P(unit_type produced | structure_type seen)"""
 
+# ===== STRATEGY BELIEF =====
+from enum import Enum
+
+
+class StrategyCategory(Enum):
+    """Level-1 strategy categories — top-level prediction target."""
+    CHEESE = "cheese"
+    ALL_IN = "all_in"
+    TIMING_ATTACK = "timing_attack"
+    MACRO = "macro"
+
+
+STRATEGY_CATEGORY_PRIOR: dict[StrategyCategory, float] = {
+    StrategyCategory.CHEESE: 0.15,
+    StrategyCategory.ALL_IN: 0.10,
+    StrategyCategory.TIMING_ATTACK: 0.25,
+    StrategyCategory.MACRO: 0.50,
+}
+"""Default prior probabilities for Level-1 strategy categories.
+Flat-ish prior biased toward macro — most games are macro games."""
+
+STRATEGY_LABELS: dict[StrategyCategory, dict] = {
+    StrategyCategory.CHEESE: {
+        "Zerg": ["12_pool", "proxy_hatch_spine"],
+        "Protoss": ["cannon_rush", "proxy_gateway"],
+        "Terran": ["proxy_rax", "bunker_rush"],
+    },
+    StrategyCategory.ALL_IN: {
+        "Zerg": ["roach_ravager_push", "mutalisk_all_in", "hydra_all_in"],
+        "Protoss": ["four_gate", "two_base_colossus", "two_base_blink"],
+        "Terran": ["battlecruiser_rush", "cyclone_push"],
+    },
+    StrategyCategory.TIMING_ATTACK: {
+        "Zerg": ["ling_bane_timing", "roach_timing", "drop_timing"],
+        "Protoss": ["stargate_timing", "immortal_timing", "chargelot_archon", "dt_drop"],
+        "Terran": ["bio_timing", "widow_mine_drop", "tank_timing"],
+    },
+    StrategyCategory.MACRO: {
+        "Zerg": ["standard_hatch_first", "roach_macro", "hydra_lurker", "mutalisk_harass", "brood_lord_late"],
+        "Protoss": ["three_base_macro", "sky_toss", "tempest_turtle"],
+        "Terran": ["bio_macro", "mech", "ghost_late"],
+    },
+}
+"""Level-2 build labels per category and race.
+Maps 1:1 to the taxonomy in the plan document."""
+
+STRATEGY_TIMING_GUARDS: dict[str, dict] = {
+    "zerg": {
+        "pool_12p_window": (38.0, 42.0),
+        "pool_speed_window": (48.0, 52.0),
+        "ling_early": 105.0,
+        "ling_contact_slow": 120.0,
+        "ling_contact_speed": 160.0,
+        "speed_research_early": 85.0,
+        "queen_by": 120.0,
+        "nat_confirmed_missing": 105.0,
+        "nat_on_time": 80.0,
+    },
+    "protoss": {
+        "cannon_rush_window": 180.0,
+        "proxy_gateway_window": 180.0,
+        "four_gate_timing": 240.0,
+    },
+    "terran": {
+        "proxy_rax_window": 180.0,
+        "marauder_rush_window": 150.0,
+        "bunker_rush_window": 180.0,
+    },
+}
+"""Timing thresholds for auto-TRUE guards, organized by race.
+Values in game-time seconds."""
+
 # ===== CHOKE/RAMP DETECTION =====
 RAMP_CHOKE_RADIUS = 2.5
 """Radius around ramp top/bottom for choke grid marking (actual ramp ~2-3 tiles wide)"""

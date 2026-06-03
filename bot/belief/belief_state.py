@@ -6,13 +6,14 @@ Purpose: Frozen dataclass holding all belief models. Each frame, BeliefUpdater
 Key Decisions: Frozen dataclass prevents accidental mutation by consumers.
                BeliefState is replaced each frame, never mutated in-place.
 
-Limitations: Phase 1 only — Composition Belief. Strategy, ScoutVOI, and Opponent
-             beliefs will be added in future phases.
+Limitations: Phase 1 — Composition Belief. Phase 2 — Strategy Belief (optional).
+              ScoutVOI and Opponent beliefs will be added in future phases.
 """
 
 from dataclasses import dataclass
 
 from bot.belief.composition_belief import CompositionBelief
+from bot.belief.strategy_belief import StrategyBelief
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class BeliefState:
     """
 
     composition: CompositionBelief
+    strategy: StrategyBelief | None = None
 
 
 def create_empty_belief_state() -> BeliefState:

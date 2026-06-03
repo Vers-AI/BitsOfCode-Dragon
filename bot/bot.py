@@ -175,8 +175,9 @@ class PiG_Bot(AresBot):
         self._detection_cannon_state: dict[int, str] = {}  # nexus tag → state
         self._detection_cannon_triggered: bool = False  # Sticky: True once a cloaked threat is ever seen
 
-        # Belief layer (Phase 1: Composition Belief)
-        self._belief_updater: BeliefUpdater = BeliefUpdater()
+        # Belief layer (Phase 1: Composition Belief, Phase 2: Strategy Belief)
+        enable_strategy = self.config.get("Belief", {}).get("enable_strategy", False)
+        self._belief_updater: BeliefUpdater = BeliefUpdater(enable_strategy=enable_strategy)
         self.belief_state: BeliefState = create_empty_belief_state()
 
 

@@ -205,9 +205,6 @@ def render_combat_state_overlay(bot, main_army: Units, enemy_threat_level: int, 
     # Visual markers for targeting
     render_target_markers(bot, main_army)
 
-    # Composition belief overlay (shows when Belief.enable_composition is True)
-    render_belief_debug(bot)
-
 
 # Short labels for unit types in production overlay
 _UNIT_SHORT_NAMES: dict[UnitTypeId, str] = {
@@ -293,17 +290,36 @@ def _render_combat_sim_overlay(bot, main_army: Units) -> None:
         )
     _y += _step
 
-    # Intel quality display
-    intel = get_enemy_intel_quality(bot)
-    freshness_bar = "\u2588" * int(intel["freshness"] * 10) + "\u2591" * (10 - int(intel["freshness"] * 10))
-    intel_status = "FRESH" if intel["freshness"] >= FRESH_INTEL_THRESHOLD else ("STALE" if intel["freshness"] >= STALE_INTEL_THRESHOLD else "BLIND")
-    
-    expired = intel.get('expired_count', 0)
-    exp_str = f" +{expired}exp" if expired else ""
-    bot.client.debug_text_2d(
-        f"Intel: [{freshness_bar}] {intel_status} ({intel['visible_count']}vis/{intel['memory_count']}mem{exp_str})", 
-        Point2((0.1, _y)), None, 12
-    )
+    # Intel quality display — uses composition belief freshness when enabled
+    use_belief = bot.config.get("Belief", {}).get("enable_composition", False)
+    if use_belief:
+        comp = bot.belief_state.composition
+        freshness = comp.freshness
+        weighted = comp.get_weighted_army(
+            exclude_workers=True, exclude_structures=True, exclude_ignored=True,
+            min_confidence=0.01,
+        )
+        visible_count = sum(1 for wu in weighted if wu.confidence >= 0.9)
+        memory_count = len(weighted) - visible_count
+        total_weighted = comp.total_weighted_count
+        expected_types = list(comp.get_expected_unit_types().keys())
+        exp_str = f" Exp:[{','.join(t.name[:4] for t in expected_types[:4])}]" if expected_types else ""
+        freshness_bar = "\u2588" * int(freshness * 10) + "\u2591" * (10 - int(freshness * 10))
+        intel_status = "FRESH" if freshness >= FRESH_INTEL_THRESHOLD else ("STALE" if freshness >= STALE_INTEL_THRESHOLD else "BLIND")
+        bot.client.debug_text_2d(
+            f"Intel: [{freshness_bar}] {intel_status} ({visible_count}vis/{memory_count}mem W:{total_weighted:.1f}{exp_str})",
+            Point2((0.1, _y)), None, 12
+        )
+    else:
+        intel = get_enemy_intel_quality(bot)
+        freshness_bar = "\u2588" * int(intel["freshness"] * 10) + "\u2591" * (10 - int(intel["freshness"] * 10))
+        intel_status = "FRESH" if intel["freshness"] >= FRESH_INTEL_THRESHOLD else ("STALE" if intel["freshness"] >= STALE_INTEL_THRESHOLD else "BLIND")
+        expired = intel.get('expired_count', 0)
+        exp_str = f" +{expired}exp" if expired else ""
+        bot.client.debug_text_2d(
+            f"Intel: [{freshness_bar}] {intel_status} ({intel['visible_count']}vis/{intel['memory_count']}mem{exp_str})",
+            Point2((0.1, _y)), None, 12
+        )
     _y += _step
 
     # Intel urgency indicator (shows response thresholds)
@@ -321,6 +337,19 @@ def _render_combat_sim_overlay(bot, main_army: Units) -> None:
         Point2((0.1, _y)), None, 12
     )
     _y += _step
+
+    # Strategy belief display (when enabled)
+    if (bot.config.get("Belief", {}).get("enable_strategy", False)
+            and bot.belief_state.strategy is not None):
+        pred = bot.belief_state.strategy.last_prediction
+        if pred is not None:
+            strat_bar = f"{pred.label.value}({pred.source})"
+            strat_probs = f"C:{pred.p_cheese:.0%} A:{pred.p_all_in:.0%} T:{pred.p_timing:.0%} M:{pred.p_macro:.0%}"
+            bot.client.debug_text_2d(
+                f"Strat: {strat_bar} {strat_probs}",
+                Point2((0.1, _y)), None, 12
+            )
+            _y += _step
 
     # Global fight result
     try:
@@ -1251,53 +1280,6 @@ def render_choke_decision_debug(
         Point3((enemy_center.x, enemy_center.y, ez + 0.3)),
         color=line_color,
     )
-
-
-def render_belief_debug(bot) -> None:
-    """Render Composition Belief debug overlay: freshness bar, unit counts, expected units.
-
-    Shows the belief-layer view alongside the existing intel quality display.
-    Only renders when bot.debug is True AND Belief.enable_composition is True.
-    Placed right after the intel urgency line in the combat sim overlay.
-    """
-    if not bot.debug:
-        return
-    if not bot.config.get("Belief", {}).get("enable_composition", False):
-        return
-
-    comp = bot.belief_state.composition
-
-    _y = min(getattr(bot, '_debug_y', 0.46), 0.95)
-    _step = 0.018
-
-    # Belief freshness bar (same visual style as intel freshness)
-    freshness = comp.freshness
-    freshness_bar = "\u2588" * int(freshness * 10) + "\u2591" * (10 - int(freshness * 10))
-    weighted = comp.get_weighted_army(
-        exclude_workers=True, exclude_structures=True, exclude_ignored=True,
-        min_confidence=0.01,
-    )
-    visible_units = sum(1 for wu in weighted if wu.confidence >= 0.9)
-    memory_units = len(weighted) - visible_units
-    total_weighted = comp.total_weighted_count
-    expected_types = list(comp.get_expected_unit_types().keys())
-    expected_str = "/".join(t.name[:4] for t in expected_types[:4]) if expected_types else "none"
-
-    # Status label matching intel style
-    if freshness >= 0.7:
-        belief_status = "FRESH"
-    elif freshness >= 0.05:
-        belief_status = "STALE"
-    else:
-        belief_status = "BLIND"
-
-    bot.client.debug_text_2d(
-        f"Belief: [{freshness_bar}] {belief_status} ({visible_units}vis/{memory_units}mem W:{total_weighted:.1f}) Exp:[{expected_str}]",
-        Point2((0.1, _y)), None, 12
-    )
-    _y += _step
-
-    bot._debug_y = _y
 
 
 def render_narrow_choke_points(bot) -> None:

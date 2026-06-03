@@ -4,7 +4,7 @@
 
 # Custom values not used by ares
 MyBotName: PiG_Bot
-BotDebug: False  # Enable debug output for bot-specific systems (targeting, nova, etc.)
+BotDebug: True  # Enable debug output for bot-specific systems (targeting, nova, etc.)
 MyBotRace: Protoss
 # setting ture allows auto upload to aiareana (https://aiarena.net/) on push to `main` branch
 # see tutorial on readme before setting to True
@@ -23,6 +23,7 @@ Debug: False #Enable debug output for ares
 # Belief layer feature flags for Phase 1
 Belief:
     enable_composition: True  # Phase 1: Probability-weighted enemy army tracking
+    enable_strategy: True     # Phase 2: Probabilistic strategy classification
 
 Distances:
     GroundEnemyNearBases: 25.

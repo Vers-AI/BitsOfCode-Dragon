@@ -246,6 +246,45 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 
 **LOC estimate**: ~180 in `bot/belief/strategy_belief.py`, ~50 in training script, ~30 in integration points
 
+#### Implementation Status (In Progress)
+
+**Architecture**: Three-layer evaluation — auto-TRUE guards → BN model → rule-based scoring + flat prior. Guards are deterministic (P=1.0) and override everything. BN model slot accepts a trained pgmpy DiscreteBayesianNetwork. Rule-based scoring produces soft probabilities from accumulated evidence. Falls back to flat prior when no evidence exists.
+
+**Files created**:
+- `bot/belief/strategy_belief.py` — Core module: StrategyCategory enum (4 categories), StrategyPrediction dataclass, StrategyBelief class with 3-layer evaluation. ~290 LOC.
+- `scripts/train_strategy_belief.py` — BN training script: fetches from telemetry API, discretizes timing features, trains pgmpy DiscreteBayesianNetwork, saves to `bot/models/strategy_belief_model.pkl`. ~240 LOC.
+
+**Files modified**:
+- `bot/constants.py` — Added StrategyCategory enum, STRATEGY_CATEGORY_PRIOR (4 category priors biased toward macro), STRATEGY_LABELS (per-race Level-2 taxonomy), STRATEGY_TIMING_GUARDS (per-race timing thresholds)
+- `bot/belief/belief_state.py` — Added `strategy: StrategyBelief | None = None` field to BeliefState dataclass
+- `bot/belief/belief_updater.py` — Added `enable_strategy` constructor param; creates StrategyBelief when enabled; includes strategy snapshot in BeliefState
+- `bot/belief/__init__.py` — Added StrategyBelief, StrategyPrediction to exports
+- `bot/bot.py` — Passes `enable_strategy` config flag to BeliefUpdater constructor
+- `bot/managers/reactions.py` — `early_threat_sensor()` now checks strategy belief when `enable_strategy` is on; uses `P(cheese) >= 0.6` threshold to trigger cheese response; falls back to existing boolean system when disabled
+- `bot/utilities/game_report.py` — Added strategy belief telemetry event (periodic `strategy` subsystem) and strategy fields to match record
+- `bot/utilities/debug.py` — Added strategy belief line to in-game debug overlay (label, source, probability bars)
+- `bot/utilities/game_report.py` — Added console print of strategy prediction every 30s for live validation
+- `config.yml` — Added `Belief.enable_strategy: True` feature flag (enabled for testing)
+
+**Design decisions**:
+- `StrategyCategory` enum lives in `bot/constants.py` (not `strategy_belief.py`) to avoid circular imports with the constants dict
+- Auto-TRUE guards preserve existing deterministic logic (ling timing, ARES mediator booleans, cannon rush) as P=1.0 overrides
+- ARES mediator booleans mapped to Level-1 categories with calibrated probabilities (e.g., `four_gate → all_in 0.8`, `marine_rush → cheese 0.7`) since ARES flags can lag behind ground truth
+- BN model slot loaded from `bot/models/strategy_belief_model.pkl`; falls back gracefully when missing
+- Rule-based scoring accumulates soft evidence (pool timing, nat expansion, baneling nest) into probability adjustments, normalized to sum to 1.0
+- `Level-2` label inference (`_infer_level2()`) maps observations to specific build labels within the predicted category
+- Training script uses `/api/features/match-level-full` endpoint (45 columns including new engagement/economy metrics)
+- Training script has 3-tier label derivation: API `strategy_category` column → `cheese_type` mapping → game-heuristic fallback
+- Debug overlay format: `Strat: macro(rules) C:15% A:10% T:25% M:50%`, console adds `[level2_build_label]`
+
+**Not yet done**:
+- BN model training (run `scripts/train_strategy_belief.py` against telemetry API; currently falls back to rules)
+- Macro.py integration: counter-table nudging based on `P(timing_attack)` vs `P(macro)`
+- Combat.py integration: `_under_attack` flag informed by StrategyBelief (is near-base threat committed cheese/all_in or just a probe?)
+- Scouting.py integration: hunt mode clearing based on strategy confidence
+- Populate `strategy_category`/`build_label` in telemetry API (currently empty — will fill once games run with enable_strategy=True)
+- Integration testing with games (`enable_strategy: True` is on; needs live validation)
+
 ---
 
 ### Phase 3: Scout VOI — Destination Selection by Information Gain

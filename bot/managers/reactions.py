@@ -29,6 +29,7 @@ from bot.constants import (
     COMMON_UNIT_IGNORE_TYPES,
     MEMORY_EXPIRY_TIME,
 )
+from bot.constants import StrategyCategory
 
 
 
@@ -281,7 +282,26 @@ def early_threat_sensor(bot):
     """
     Detects early threats like zergling rush, proxy zealots, etc.
     Sets flags so the bot can respond (e.g., cheese_reaction).
+
+    When Strategy Belief is enabled, uses P(strategy=cheese) ≥ 0.6
+    to trigger cheese response instead of per-race booleans.
     """
+    # Strategy Belief path: use probabilistic classification
+    if (bot.config.get("Belief", {}).get("enable_strategy", False)
+            and bot.belief_state.strategy is not None):
+        prediction = bot.belief_state.strategy.last_prediction
+        if prediction is not None and prediction.p_cheese >= 0.6:
+            bot._used_cheese_response = True
+            # Map specific Level-2 cheese labels to their handlers
+            if prediction.level2 == "worker_rush":
+                if bot._worker_rush_detected_time < 0:
+                    bot._worker_rush_detected_time = bot.time
+                bot._not_worker_rush = False
+            elif prediction.level2 == "cannon_rush":
+                bot._cannon_rush_response = True
+            return
+
+    # Fallback: original per-race boolean detection
     if bot.mediator.get_enemy_worker_rushed and bot.game_state == 0:
         if bot._worker_rush_detected_time < 0:
             bot._worker_rush_detected_time = bot.time
