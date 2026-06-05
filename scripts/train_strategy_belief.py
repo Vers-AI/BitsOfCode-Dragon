@@ -63,19 +63,40 @@ MODEL_FILE = Path("bot/models/strategy_belief_model.pkl")
 
 
 def fetch_matches(limit: int = 500, api_url: str = API_BASE) -> pd.DataFrame:
-    """Fetch match-level features from the telemetry API (full endpoint)."""
-    url = f"{api_url}/features/match-level-full?limit={limit}"
+    """Fetch match records from the telemetry API.
+
+    Tries /api/features/match-level-full first (enriched endpoint).
+    Falls back to /api/matches (basic endpoint) if the full one fails.
+    """
+    # Try enriched endpoint first
+    url_full = f"{api_url}/features/match-level-full?limit={limit}"
+    try:
+        resp = requests.get(url_full, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        df = pd.DataFrame(data)
+        print(f"Fetched {len(df)} matches from /api/features/match-level-full")
+        return df
+    except requests.HTTPError:
+        print(f"/api/features/match-level-full unavailable, falling back to /api/matches")
+
+    # Fallback: basic matches endpoint
+    url = f"{api_url}/matches?limit={limit}"
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     data = resp.json()
     df = pd.DataFrame(data)
-    print(f"Fetched {len(df)} matches from /api/features/match-level-full")
+    print(f"Fetched {len(df)} matches from /api/matches")
     return df
 
 
-def fetch_rush_events(match_id: int, api_url: str = API_BASE) -> list[dict]:
-    """Fetch rush_detect events for a specific match."""
-    url = f"{api_url}/matches/{match_id}/events?subsystem=rush_detect"
+def fetch_match_events(match_id: int, api_url: str = API_BASE) -> list[dict]:
+    """Fetch all events for a specific match.
+
+    The first event in the response typically contains rush_detect timing
+    features (pool_start, gas_time, ling_seen, etc.) even for non-Zerg games.
+    """
+    url = f"{api_url}/matches/{match_id}/events"
     try:
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
@@ -105,6 +126,20 @@ def derive_strategy_label(row: dict) -> str:
 
     # Priority 3: Heuristic from game-level metrics
     enemy_race = row.get("enemy_race", "Unknown")
+    game_time = row.get("game_time", 0)  # seconds
+
+    # used_cheese_response = bot detected cheese → strong signal
+    if row.get("used_cheese_response"):
+        # Distinguish cheese from all_in by game length
+        if game_time < 360:  # < 6 min
+            return "cheese"
+        elif game_time < 600:  # < 10 min
+            return "all_in"
+
+    # rush_time_seconds present → cheese detected by rush detector
+    rush_time = row.get("rush_time_seconds", -1)
+    if rush_time is not None and rush_time > 0:
+        return "cheese"
 
     # Zerg with rush_detected = early cheese
     if row.get("rush_detected") == 1.0:
@@ -117,66 +152,88 @@ def derive_strategy_label(row: dict) -> str:
 
     # Under attack early with no expansion → all_in
     under_attack = row.get("under_attack_count", 0)
-    attack_count = row.get("attack_count", 0)
-    avg_can_win_early = row.get("avg_can_win_early", 1.0)
 
-    # Games where bot was under attack early and couldn't win → likely cheese/all_in
-    if under_attack > 0 and avg_can_win_early is not None and avg_can_win_early < 0.4:
-        if row.get("duration_min", 999) < 6.0:
+    # Games where bot was under attack early → likely cheese/all_in
+    if under_attack > 0:
+        if game_time < 360:  # < 6 min
             return "cheese"
-        elif row.get("duration_min", 999) < 10.0:
+        elif game_time < 600:  # < 10 min
             return "all_in"
 
-    # Games with many attacks and won engagements → timing_attack
-    if attack_count and attack_count >= 2 and avg_can_win_early is not None and avg_can_win_early > 0.5:
-        return "timing_attack"
+    # Short game losses (opponent won fast) → likely cheese or all_in
+    result = row.get("result", "")
+    if result == "loss" and game_time < 360:
+        return "cheese"
+    if result == "loss" and game_time < 600:
+        return "all_in"
 
     # Default: macro
     return "macro"
 
 
-def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.DataFrame:
-    """Build training data from match-level-full features + rush_detect events."""
-    rows = []
-    # Only query per-match rush_detect for Zerg/Random games (others lack timings)
-    zerg_match_ids = set()
+def _extract_timing_from_events(events: list[dict]) -> dict:
+    """Extract timing features from per-match events.
 
-    for _, match in matches.iterrows():
+    The first event in the response often contains rush_detect timing fields
+    (pool_start, gas_time, ling_seen, etc.) even for non-Zerg games.
+    Later events may have updated values — take the latest non-null value.
+    """
+    timing = {}
+    timing_fields = [
+        "pool_start", "speed_start", "queen_time", "gas_time",
+        "ling_seen", "ling_contact", "gas_workers", "ling_has_speed",
+        "last_nat_scout_time", "nat_present_on_last_scout",
+    ]
+    # Also extract rush detection fields
+    rush_fields = ["score_12p", "score_speed", "auto_true_fired", "cheese_label"]
+
+    for event in events:
+        for field in timing_fields + rush_fields:
+            val = event.get(field)
+            if val is not None and val != "" and val != -1.0:
+                timing[field] = val
+
+    # Derive nat_start from events that have it
+    for event in events:
+        nat = event.get("nat_start")
+        if nat is not None and nat != "" and nat > 0:
+            timing["nat_start"] = nat
+
+    return timing
+
+
+def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.DataFrame:
+    """Build training data from match records + per-match events.
+
+    Uses /api/matches for basic match info, then enriches each match with
+    timing features from /api/matches/{id}/events.
+    """
+    rows = []
+    fetched_events = 0
+    max_event_fetches = min(len(matches), 200)  # Rate limit
+
+    for idx, (_, match) in enumerate(matches.iterrows()):
+        match_id = match.get("arena_match_id", 0)
+        # game_steps → seconds: SC2 runs at 16 steps/sec on fast speed
+        game_steps = match.get("game_steps", 0)
+        game_time = game_steps / 16.0 if game_steps else 0.0
+
         row = {
-            "match_id": match.get("arena_match_id", 0),
+            "match_id": match_id,
             "enemy_race": match.get("enemy_race", "Unknown"),
             "enemy_race_int": RACE_MAP.get(match.get("enemy_race", "Unknown"), 3),
-            "game_time": match.get("duration_min", 0) * 60.0,
+            "game_time": game_time,
             "cheese_type": match.get("cheese_type", "none") or "none",
             "strategy_category_api": match.get("strategy_category", ""),
             "build_label_api": match.get("build_label", ""),
+            # Match-level fields available from /api/matches
+            "used_cheese_response": match.get("used_cheese_response", False),
+            "rush_time_seconds": match.get("rush_time_seconds", -1),
+            "sq": match.get("sq", -1),
         }
 
         # Derive ground truth label
         row["strategy_label"] = derive_strategy_label(row)
-
-        # Game-level aggregation features (new in match-level-full)
-        row["avg_army_value"] = match.get("avg_army_value", -1)
-        row["avg_workers"] = match.get("avg_workers", -1)
-        row["engagement_count"] = match.get("engagement_count", 0)
-        row["engagements_won"] = match.get("engagements_won", 0)
-        row["engagements_lost"] = match.get("engagements_lost", 0)
-        row["avg_can_win"] = match.get("avg_can_win", -1)
-        row["avg_can_win_early"] = match.get("avg_can_win_early", -1)
-        row["under_attack_count"] = match.get("under_attack_count", 0)
-        row["attack_count"] = match.get("attack_count", 0)
-
-        # Match-level rush features
-        row["rush_detected"] = 1.0 if match.get("rush_detected") else (
-            0.0 if match.get("rush_detected") is False else -1
-        )
-        row["max_rush_confidence"] = match.get("max_rush_confidence", -1)
-        row["avg_12pool_prob"] = match.get("avg_12pool_prob", -1)
-        row["avg_speedling_prob"] = match.get("avg_speedling_prob", -1)
-
-        # Collect Zerg match IDs for per-match timing queries
-        if match.get("enemy_race") in ("Zerg", "Random") and match.get("rush_detected") is not None:
-            zerg_match_ids.add(match.get("arena_match_id", 0))
 
         # Default missing timing features
         _fill_missing_timing(row)
@@ -184,30 +241,53 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
         row["last_nat_scout_time"] = -1
         row["nat_present_on_last_scout"] = -1
 
+        # Default engagement/rush features (not available from /api/matches)
+        row["engagement_count"] = 0
+        row["engagements_won"] = 0
+        row["engagements_lost"] = 0
+        row["avg_can_win"] = -1
+        row["avg_can_win_early"] = -1
+        row["under_attack_count"] = 0
+        row["attack_count"] = 0
+        row["rush_detected"] = 1.0 if match.get("rush_detected") else (
+            0.0 if match.get("rush_detected") is False else -1
+        )
+        row["max_rush_confidence"] = -1
+        row["avg_12pool_prob"] = -1
+        row["avg_speedling_prob"] = -1
+
+        # Enrich with per-match events (timing features)
+        if fetched_events < max_event_fetches:
+            events = fetch_match_events(match_id, api_url)
+            fetched_events += 1
+            if events:
+                timing = _extract_timing_from_events(events)
+                # Merge timing into row (only overwrite defaults)
+                for field in ["pool_start", "speed_start", "queen_time", "gas_time",
+                              "ling_seen", "ling_contact", "gas_workers",
+                              "ling_has_speed", "nat_start", "last_nat_scout_time",
+                              "nat_present_on_last_scout"]:
+                    if field in timing:
+                        row[field] = timing[field]
+                # Rush detection scores
+                if "score_12p" in timing:
+                    row["max_rush_confidence"] = max(
+                        float(timing.get("score_12p", -1)),
+                        float(timing.get("score_speed", -1)),
+                    )
+                # Count under_attack transitions from events
+                under_count = sum(
+                    1 for e in events
+                    if e.get("under_attack") is True
+                )
+                row["under_attack_count"] = under_count
+
+            if fetched_events % 50 == 0:
+                print(f"  Fetched events for {fetched_events}/{max_event_fetches} matches...")
+
         rows.append(row)
 
-    # Batch-fetch rush_detect events for Zerg/Random games (enriches timing features)
-    fetched = 0
-    for match_id in zerg_match_ids:
-        if fetched >= 60:  # Rate limit: ~60 API calls
-            break
-        events = fetch_rush_events(match_id, api_url)
-        if events:
-            latest = events[-1]
-            # Find the matching row
-            for row in rows:
-                if row["match_id"] == match_id:
-                    row["pool_start"] = latest.get("pool_start", -1)
-                    row["speed_start"] = latest.get("speed_start", -1)
-                    row["queen_time"] = latest.get("queen_time", -1)
-                    row["gas_time"] = latest.get("gas_time", -1)
-                    row["ling_seen"] = latest.get("ling_seen", -1)
-                    row["ling_contact"] = latest.get("ling_contact", -1)
-                    row["gas_workers"] = latest.get("gas_workers", 0)
-                    row["ling_has_speed"] = 1 if latest.get("ling_has_speed") else 0
-                    break
-        fetched += 1
-
+    print(f"Enriched {fetched_events} matches with per-match event data")
     return pd.DataFrame(rows)
 
 
@@ -235,35 +315,35 @@ def discretize_features(df: pd.DataFrame) -> pd.DataFrame:
         df["pool_start"].replace(-1, np.nan),
         bins=[0, 42, 52, 80, float("inf")],
         labels=["very_early", "early", "mid", "late"],
-    ).fillna("unknown").astype(str)
+    ).astype(str).replace("NaN", "unknown")
 
     # Natural expansion bins
     df["nat_bin"] = pd.cut(
         df["nat_start"].replace(-1, np.nan),
         bins=[0, 80, 120, 200, float("inf")],
         labels=["very_early", "on_time", "late", "very_late"],
-    ).fillna("unknown").astype(str)
+    ).astype(str).replace("NaN", "unknown")
 
     # Ling seen timing bins
     df["ling_seen_bin"] = pd.cut(
         df["ling_seen"].replace(-1, np.nan),
         bins=[0, 105, 150, 240, float("inf")],
         labels=["very_early", "early", "mid", "late"],
-    ).fillna("unknown").astype(str)
+    ).astype(str).replace("NaN", "unknown")
 
     # Rush confidence bins
     df["rush_conf_bin"] = pd.cut(
         df["max_rush_confidence"].replace(-1, np.nan),
         bins=[0, 0.3, 0.7, 1.0],
         labels=["low", "medium", "high"],
-    ).fillna("unknown").astype(str)
+    ).astype(str).replace("NaN", "unknown")
 
     # Game duration bins (helps distinguish cheese/all_in from macro)
     df["duration_bin"] = pd.cut(
         df["game_time"].replace(-1, np.nan),
         bins=[0, 360, 720, 1200, float("inf")],
         labels=["short", "medium", "long", "very_long"],
-    ).fillna("unknown").astype(str)
+    ).astype(str).replace("NaN", "unknown")
 
     # Engagement ratio bin (won / total, helps distinguish timing_attack from macro)
     total_engagements = df["engagement_count"].replace(0, 1)
@@ -271,7 +351,7 @@ def discretize_features(df: pd.DataFrame) -> pd.DataFrame:
         (df["engagements_won"].fillna(0) / total_engagements).replace(-1, np.nan),
         bins=[0, 0.3, 0.6, 1.0],
         labels=["losing", "even", "winning"],
-    ).fillna("unknown").astype(str)
+    ).astype(str).replace("NaN", "unknown")
 
     return df
 
@@ -284,7 +364,7 @@ def train_bn(df: pd.DataFrame) -> dict:
     """
     try:
         from pgmpy.models import DiscreteBayesianNetwork
-        from pgmpy.estimators import BayesianEstimator
+        from pgmpy.parameter_estimator import DiscreteMLE
     except ImportError:
         print("pgmpy not installed. Run: poetry add pgmpy")
         return {}
@@ -292,8 +372,11 @@ def train_bn(df: pd.DataFrame) -> dict:
     # Prepare discretized data
     df_disc = discretize_features(df)
 
+    # Rename strategy_label → strategy for BN node naming
+    df_disc = df_disc.rename(columns={"strategy_label": "strategy"})
+
     # Filter to rows with strategy labels
-    df_disc = df_disc[df_disc["strategy_label"].notna()]
+    df_disc = df_disc[df_disc["strategy"].notna()]
 
     if len(df_disc) < 20:
         print(f"WARNING: Only {len(df_disc)} labeled samples. BN will be unreliable.")
@@ -303,25 +386,27 @@ def train_bn(df: pd.DataFrame) -> dict:
             return {}
 
     print(f"\nTraining data: {len(df_disc)} rows")
-    print(f"Label distribution:\n{df_disc['strategy_label'].value_counts()}")
+    print(f"Label distribution:\n{df_disc['strategy'].value_counts()}")
     print(f"Race distribution:\n{df_disc['enemy_race'].value_counts()}")
 
     # Define network structure (domain knowledge)
+    # Only use features with reasonable data coverage:
+    #   enemy_race: 100% coverage
+    #   duration_bin: 100% coverage (derived from game_steps)
+    #   pool_bin: ~15% coverage (Zerg games only, but strong signal)
+    # rush_conf_bin and win_rate_bin have too many "unknown" values
+    # from /api/matches, causing CPD issues. Drop them for now.
     model = DiscreteBayesianNetwork([
         ("enemy_race", "strategy"),
         ("duration_bin", "strategy"),
         ("pool_bin", "strategy"),
-        ("rush_conf_bin", "strategy"),
-        ("strategy", "win_rate_bin"),
     ])
 
-    # Fit parameters with Bayesian estimator (pseudo-counts for sparse data)
-    train_cols = ["enemy_race", "duration_bin", "pool_bin", "rush_conf_bin",
-                  "strategy", "win_rate_bin"]
+    # Fit parameters with MLE estimator
+    train_cols = ["enemy_race", "duration_bin", "pool_bin", "strategy"]
     try:
-        model.fit(df_disc[train_cols],
-                  estimator=BayesianEstimator, prior_type="BDeu",
-                  equivalent_sample_size=5)
+        estimator = DiscreteMLE()
+        model.fit(df_disc[train_cols], estimator=estimator)
     except Exception as e:
         print(f"BN fitting error: {e}")
         print("Falling back: model file will NOT be saved.")
@@ -373,6 +458,11 @@ def main():
     cheese_labeled = sum(1 for _, r in df.iterrows() if r.get("cheese_type", "none") != "none")
     heuristic_labeled = len(df) - api_labeled - cheese_labeled
     print(f"\nLabel sources: API={api_labeled}, cheese_type={cheese_labeled}, heuristic={heuristic_labeled}")
+
+    # Show timing feature coverage
+    for field in ["pool_start", "gas_time", "ling_seen", "nat_start"]:
+        known = sum(1 for _, r in df.iterrows() if r.get(field, -1) != -1)
+        print(f"  {field}: {known}/{len(df)} rows have data")
 
     # Train BN
     print("\nTraining Bayesian Network...")

@@ -25,8 +25,9 @@ These work, but they create brittleness: stale intel is a cliff (all-or-nothing)
 OBSERVATION ──→ BELIEF UPDATE ──→ BELIEF STATE ──→ DECISION CONSUMERS
   (existing)      (new layer)      (new layer)       (existing, modified)
 
-TELEMETRY ──→ DuckDB ──→ Streamlit (monitoring)
-                          └──→ Training scripts (model fitting)
+TELEMETRY ──→ Cloud API ──→ Training scripts (model fitting)
+                   │
+                   └──→ DuckDB (local JSONL) ──→ Streamlit (monitoring/analysis)
 
 REPLAY DATA ──→ DuckDB ──→ Ground truth for calibration
 ```
@@ -215,7 +216,7 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 
 **Library**: `pgmpy` (new dependency — pure Python, ~2.4MB wheel, sklearn-compatible)
 
-**Data source**: Match record `cheese_type` (ground truth label), `rush_detect` events (features), `reactions` events (timing features for Terran/Protoss). All accessed via DuckDB.
+**Data source**: Match record `cheese_type` (ground truth label), `rush_detect` events (features), `reactions` events (timing features for Terran/Protoss). Training via cloud telemetry API (`/api/features/match-level-full`). Local DuckDB+JSONL for Streamlit analysis.
 
 **Decisions affected**:
 - `early_threat_sensor()` → consumes `P(strategy = cheese_class)` instead of per-race booleans
@@ -234,13 +235,12 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 
 **New dependency**: `poetry add pgmpy` (~2.4MB pure Python wheel)
 
-**Data prerequisite**: Need 50+ games vs each race. Must:
-1. Create `data/games/` directory (handled by telemetry on first write)
-2. Run 50+ games vs Zerg, 50+ vs Terran, 50+ vs Protoss
-3. Ingest telemetry JSONL into DuckDB (existing pipeline)
-4. Verify data quality via Streamlit dashboard (class balance, feature distributions)
-5. Run `train_strategy_belief.py` (queries DuckDB directly) to fit BN parameters
-6. Save model to `bot/models/strategy_belief_model.pkl`
+**Data prerequisite**: Need 50+ games vs each race. The cloud API (`/api/features/match-level-full`) already has 143+ games. Must:
+1. Run `scripts/train_strategy_belief.py` (fetches from telemetry API, not local JSONL)
+2. Verify data quality via API responses (class balance, feature distributions, NULL rates)
+3. Train pgmpy DiscreteBayesianNetwork (discretize timing features → fit BN)
+4. Save model to `bot/models/strategy_belief_model.pkl`
+5. For local monitoring/analysis: ensure `data/games/` JSONL files exist, query via DuckDB+Streamlit
 
 **Backward compatibility**: Existing `rush_detector_model.pkl` is kept. Strategy belief model falls back to rule-based guards (auto-TRUE) if the BN model file is missing. No regression if the model isn't ready.
 
@@ -533,7 +533,7 @@ target = bot.belief_state.scout_voi.rank_targets()[0]  # Highest VOI destination
 | Belief Model | Telemetry Source | Fields Used |
 |-------------|-----------------|-------------|
 | Composition | `intel` periodic events + `on_unit_destroyed` callback | `scouted_enemy_units`, `scouted_enemy_structures`, `visible_enemy_count` |
-| Strategy | `rush_detect` events + match record (via DuckDB) | All timing features, `ml_probs`, `ml_confidence`, `cheese_type` |
+| Strategy | `rush_detect` events + match record (cloud API) | All timing features, `ml_probs`, `ml_confidence`, `cheese_type` |
 | Scout VOI | Runs from other beliefs at runtime | No separate telemetry needed |
 | Opponent | Match record | `opponent_id`, `result`, `cheese_type`, `length`, `enemy_race`, `map` |
 
@@ -574,12 +574,12 @@ Everything else is bonus.
 | Model | Minimum Training Games | Source |
 |-------|----------------------|--------|
 | Composition | 0 (online-only, conjugate priors) | N/A |
-| Strategy (Zerg) | 50+ vs Zerg (already have some) | Existing + new telemetry via DuckDB |
-| Strategy (Terran/Protoss) | 50+ vs each race | New games needed |
+| Strategy (Zerg) | 50+ vs Zerg (API has ~143 games total) | Cloud telemetry API |
+| Strategy (Terran/Protoss) | 50+ vs each race | Cloud telemetry API (needs more games) |
 | Scout VOI | 0 (derived from other beliefs) | N/A |
 | Opponent profiles | Accumulates over time (0 min, improves with games) | Match records |
 
-**Critical**: `data/` directory is currently empty. The `data/games/` directory doesn't exist yet. No games have been run locally with telemetry enabled. Phase 2 requires collecting 50+ games per race before the BN can be trained.
+**Critical**: Local `data/` directory is empty — no local JSONL telemetry files yet. However, the **cloud telemetry API** already has 143+ games and is the primary training data source. `data/games/` JSONL files are needed for local Streamlit analysis but not for training (scripts fetch from API). Phase 2 can proceed with training against the API; local DuckDB pipeline is for monitoring, not model training.
 
 ---
 
@@ -631,10 +631,10 @@ bot/
     rush_detector_model.pkl        ← Existing: Zerg rush LogisticRegression (kept as fallback during transition)
     strategy_belief_model.pkl      ← New: pgmpy BN structure + fitted parameters (Phase 2)
 queries/
-  views.py                         ← Shared DuckDB view definitions + connection helper
+  views.py                         ← Shared DuckDB view definitions + connection helper (local Streamlit/analysis only)
 scripts/
-  train_strategy_belief.py         ← Train pgmpy BN using queries/views.py
-  train_rush_model.py              ← Existing: update to use queries/views.py instead of deleted JSONL file
+  train_strategy_belief.py         ← Train pgmpy BN (fetches from cloud telemetry API)
+  train_rush_model.py              ← Existing: broken (reads deleted JSONL); needs API rewrite
 data/
   games/                           ← Per-game JSONL telemetry (created on first write)
   opponent_profiles.json           ← Cross-game opponent profiles (Phase 4 persistence)
@@ -670,32 +670,34 @@ Each flag defaults to `false`. Beliefs are disabled in competition until validat
 
 ## Data Pipeline
 
-### Existing Infrastructure: DuckDB + Streamlit
+### Dual Data Sources: Cloud API + Local JSONL
 
-Telemetry data flows through an established pipeline:
+Telemetry data flows through two complementary paths:
 
 ```
 Game Telemetry (JSONL / stdout TELEM)
-         │
-         ▼
-    DuckDB database          ← central data store, accumulates across all games
-         │
-         ├──→ Streamlit dashboard   ← live monitoring, ad-hoc queries
-         │
-         └──→ Training scripts        ← query DuckDB directly for model training
+          │
+          ├──────────────────────────────┐
+          ▼                              ▼
+   Cloud Telemetry API            Local JSONL files
+   (telemetry.pownz.com)         (data/games/*.jsonl)
+          │                              │
+          ▼                              ▼
+   Training scripts              DuckDB (in-memory)
+   (fetch via HTTP)              │
+                                  ├──→ Streamlit dashboard (monitoring/analysis)
+                                  └──→ Local ad-hoc queries
 ```
 
-DuckDB queries JSONL files directly via `read_json_auto('data/games/*.jsonl')` — no persisted database file, no import step, no server. Training scripts share view definitions via `queries/views.py`. This is a significant advantage:
+**Training path** — `train_strategy_belief.py` fetches from the cloud API (`/api/features/match-level-full`). This endpoint returns 45+ pre-aggregated columns per match (engagement metrics, economy stats, rush detection, strategy labels). The API already has 143+ games. Training scripts do NOT read local JSONL files.
 
-- **No ETL lag** — training scripts always read the latest data from the JSONL files
-- **No stale CSVs** — DuckDB queries are live; no "forget to regenerate the training set" bugs
-- **No database file to maintain** — the JSONL files ARE the database; DuckDB just reads them in-place
-- **SQL joins are trivial** — match records + events joined by `match_id` in a single query
-- **Streamlit provides visibility** — monitor data quality, class balance, and distribution drift before training
+**Local analysis path** — DuckDB reads local `data/games/*.jsonl` files via `read_json_auto()` for Streamlit dashboards, ad-hoc queries, and monitoring. No persisted database file, no import step. This path requires running games locally with telemetry enabled to populate the JSONL files.
 
-### Shared View Definitions: `queries/views.py`
+**Why two paths?** The cloud API has accumulated games from competition runs; local JSONL captures dev sessions. The API provides pre-aggregated match-level features ideal for training; local JSONL provides raw events ideal for debugging and monitoring.
 
-All training scripts share common DuckDB view definitions. This avoids duplicating the SQL in each script:
+### Shared View Definitions: `queries/views.py` (Local Analysis Only)
+
+All local analysis (Streamlit dashboards, ad-hoc queries) share common DuckDB view definitions. Training scripts do **NOT** use this — they fetch from the cloud API via `requests`.
 
 ```python
 # queries/views.py
@@ -741,7 +743,7 @@ The JSONL files in `data/games/` are queried directly. The relevant views for be
 | `reactions_events` | Threat transitions (under_attack, game_phase, cheese detections) | `match_id` |
 | `engagement_events` | Engagement outcomes for calibration analysis | `match_id` |
 
-Training scripts create these views via DuckDB SQL. Example for strategy belief:
+Local analysis scripts create these views via DuckDB SQL (training scripts use the cloud API instead). Example for local strategy analysis:
 
 ```sql
 CREATE OR REPLACE VIEW strategy_training AS
@@ -810,23 +812,32 @@ No `.duckdb` file is stored on disk — the JSONL files are the database, DuckDB
 
 ### Broken: `scripts/train_rush_model.py`
 
-The existing training script reads from `data/rush_detection_log.jsonl` which no longer exists. It must be rewritten to use `queries/views.py` instead. This is the **smallest change to unblock model retraining** — the DuckDB view already produces the same feature columns the old format provided.
+The existing training script reads from local `data/rush_detection_log.jsonl` which no longer exists and never had competition-quality data. It needs rewriting to either:
+- (a) Use the cloud API (like `train_strategy_belief.py` does) for rush_detect event data
+- (b) Use local `queries/views.py` + DuckDB if local JSONL files exist
 
-### Updated: `scripts/train_strategy_belief.py`
+Option (a) is preferred — the API has accumulated game data already. The rush_detect per-match events endpoint currently returns empty for tested matches (see Data Pipeline Readiness), so option (a) also depends on fixing that endpoint.
 
-1. Import `get_connection` from `queries.views`
-2. Query `strategy_training` view (pre-created by `get_connection`)
-3. Define BN structure (arcs from SC2 domain knowledge)
-4. Fit parameters with `MaximumLikelihoodEstimator`
-5. Validate accuracy against held-out test set
-6. Save model to `bot/models/strategy_belief_model.pkl`
+### Current: `scripts/train_strategy_belief.py`
 
-### Updated: `scripts/train_rush_model.py`
+1. Fetch match data from cloud API (`/api/features/match-level-full`) via `requests`
+2. Batch-fetch rush_detect events for Zerg/Random games (`/api/matches/{id}/events?subsystem=rush_detect`)
+3. Derive strategy labels (3-tier: API `strategy_category` → `cheese_type` mapping → game heuristic)
+4. Discretize timing features into categorical bins for pgmpy
+5. Define BN structure (arcs from SC2 domain knowledge)
+6. Fit parameters with `BayesianEstimator` (BDeu prior for sparse data)
+7. Validate via `VariableElimination` test query
+8. Save model to `bot/models/strategy_belief_model.pkl`
 
-1. Import `get_connection` from `queries.views`
-2. Query the same `strategy_training` view (backward-compat feature columns)
+Does NOT use `queries/views.py` or local DuckDB — all data comes from the cloud API.
+
+### To Fix: `scripts/train_rush_model.py`
+
+1. Replace `data/rush_detection_log.jsonl` read with API fetch (or DuckDB if local data exists)
+2. Filter to Zerg games (existing approach)
 3. Train LogisticRegression (existing approach)
 4. Save model to `bot/models/rush_detector_model.pkl`
+5. Blocked by: rush_detect per-match events endpoint returning empty (see Data Pipeline Readiness)
 
 ### Removed: Intermediate CSV Files and Persistent DuckDB File
 
@@ -865,7 +876,7 @@ Each phase is a separate task. Budget resets per phase.
 
 1. **Biggest assumption**: That pgmpy's `VariableElimination` runs fast enough for per-frame inference on our networks (7-10 nodes). It should be — small networks, sparse connectivity, 3-4 states per node. But it must be profiled on the first implementation. Plan: if >0.5ms, cache inference results and only re-query when evidence changes (the evidence only changes when a scout report comes in, which is at most once per second).
 
-2. **Most likely failure/edge**: `data/` is empty — no games have been run locally with telemetry enabled. The training pipeline for Phase 2 (Strategy Belief) cannot ship without collecting 50+ games per race. The first thing to do is run games, confirm telemetry JSONL files are being written to `data/games/`, verify the views in `queries/views.py` return data by querying DuckDB directly, and then train models.
+2. **Most likely failure/edge**: `data/` is empty locally — no JSONL telemetry files from dev sessions. But the cloud API has 143+ games. The training pipeline (`train_strategy_belief.py`) already fetches from the API, so Phase 2 training can proceed now. The gap is: (a) the rush_detect per-match events API endpoint returns empty, so Zerg timing features default to -1; (b) only 2 games labeled `all_in` — the BN can't learn that class reliably. Fix the endpoint, collect more diverse games, then retrain.
 
 3. **Smallest change to improve robustness**: Populate `_enemy_unit_last_seen` (10 LOC in `update_enemy_intel_tracking()`). This is the foundation for composition belief decay and is currently a ghost — declared but never written to. It costs nothing, breaks nothing, and unblocks Phase 1.
 ---
