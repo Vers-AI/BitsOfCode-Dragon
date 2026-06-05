@@ -375,10 +375,11 @@ class StrategyBelief:
     def _build_bn_evidence(self, bot: "PiG_Bot", game_time: float):
         """Build discretized evidence DataFrame for the BN model.
 
-        The BN has nodes: enemy_race, duration_bin, pool_bin → strategy.
-        Discretization bins must match train_strategy_belief.py, but we also
-        need to map to the model's actual trained states (which may be a subset
-        of the full bin taxonomy if training data was sparse).
+        The BN has nodes: enemy_race, duration_bin, pool_bin, rax_bin,
+        gateway_bin, bases_bin, factory_bin → strategy.
+        Discretization bins must match train_strategy_belief.py.
+        Out-of-domain values (e.g., "unknown", "short") are mapped to
+        the closest valid model state.
         """
         import pandas as pd
 
@@ -391,7 +392,7 @@ class StrategyBelief:
         # Model states: long, medium, very_long (no "short" in training data)
         # Map "short" → "medium" (closest available, conservative)
         if game_time < 360:
-            duration_bin = "medium"  # was "short", not in model
+            duration_bin = "medium"  # "short" not in model
         elif game_time < 720:
             duration_bin = "medium"
         elif game_time < 1200:
@@ -405,7 +406,7 @@ class StrategyBelief:
         # Map "unknown" → "late" (conservative: assume macro if no pool seen)
         pool_time = getattr(bot, "_pool_seen_time", None)
         if pool_time is None:
-            pool_bin = "late"  # was "unknown", not in model
+            pool_bin = "late"  # "unknown" not in model
         elif pool_time < 42:
             pool_bin = "very_early"
         elif pool_time < 52:
@@ -415,10 +416,56 @@ class StrategyBelief:
         else:
             pool_bin = "late"
 
+        # rax_bin: barracks count
+        # Training bins: 0=none, 1-2=few, 3+=many
+        rax_count = getattr(bot, "_barracks_count", 0)
+        if rax_count <= 0:
+            rax_bin = "none"
+        elif rax_count <= 2:
+            rax_bin = "few"
+        else:
+            rax_bin = "many"
+
+        # gateway_bin: gateway + warpgate count
+        # Training bins: 0=none, 1-3=few, 4+=many
+        gw_count = getattr(bot, "_gateway_count", 0) + getattr(bot, "_warpgate_count", 0)
+        if gw_count <= 0:
+            gateway_bin = "none"
+        elif gw_count <= 3:
+            gateway_bin = "few"
+        else:
+            gateway_bin = "many"
+
+        # bases_bin: enemy base count
+        # Training bins: 1=one, 2=two, 3+=three_plus
+        # Count enemy townhalls from scouted structures
+        from sc2.ids.unit_typeid import UnitTypeId
+        townhall_types = {
+            UnitTypeId.HATCHERY, UnitTypeId.LAIR, UnitTypeId.HIVE,
+            UnitTypeId.COMMANDCENTER, UnitTypeId.ORBITALCOMMAND, UnitTypeId.PLANETARYFORTRESS,
+            UnitTypeId.NEXUS,
+        }
+        bases = sum(1 for s in bot.enemy_structures if s.type_id in townhall_types)
+        if bases <= 1:
+            bases_bin = "one"
+        elif bases == 2:
+            bases_bin = "two"
+        else:
+            bases_bin = "three_plus"
+
+        # factory_bin: factory seen?
+        # Training bins: yes/no
+        factory_count = getattr(bot, "_factory_count", 0)
+        factory_bin = "yes" if factory_count > 0 else "no"
+
         return pd.DataFrame([{
             "enemy_race": enemy_race,
             "duration_bin": duration_bin,
             "pool_bin": pool_bin,
+            "rax_bin": rax_bin,
+            "gateway_bin": gateway_bin,
+            "bases_bin": bases_bin,
+            "factory_bin": factory_bin,
         }])
 
     def _evaluate_rules(
