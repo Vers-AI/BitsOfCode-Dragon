@@ -40,7 +40,8 @@ from bot.combat import (
     gatekeeper_control,
     manage_defensive_unit_roles
 )
-from bot.utilities.intel import update_enemy_intel_tracking, create_choke_grid, create_narrow_choke_points
+from bot.intel import update_enemy_intel_tracking
+from bot.utilities.choke_grid import create_choke_grid, create_narrow_choke_points
 from cython_extensions import cy_distance_to
 from bot.utilities.debug import render_narrow_choke_points
 from ares.behaviors.macro import Mining
@@ -248,7 +249,7 @@ class PiG_Bot(AresBot):
             self.rally_point = self.natural_expansion.towards(self.game_info.map_center, 5)
         
         # Compute rush distance tier for ling rush detection (used in reactions.py)
-        from bot.utilities.cheese_detection import compute_rush_distance_tier
+        from bot.intel import compute_rush_distance_tier
         self.rush_distance_tier = compute_rush_distance_tier(self)
         
         # Load ML cheese detection model (if available)
@@ -337,8 +338,8 @@ class PiG_Bot(AresBot):
 
         # Early game logic
         if not self.build_order_runner.build_completed:
-            from bot.utilities.cheese_detection import _track_enemy_timings
-            _track_enemy_timings(self)  # Always track timings/speed during build order phase
+            from bot.intel import track_enemy_timings
+            track_enemy_timings(self)  # Always track timings/speed during build order phase
             self.register_behavior(RestorePower()) # Restore power to depowered buildings
             if not self._under_attack:  # Still use early_threat_sensor for cheese detection
                 early_threat_sensor(self)    

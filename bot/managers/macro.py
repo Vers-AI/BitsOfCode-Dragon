@@ -25,7 +25,7 @@ from ares.consts import UnitRole, WORKER_TYPES
 from ares.consts import LOSS_MARGINAL_OR_BETTER, ID, TARGET
 
 from bot.utilities.performance_monitor import get_economy_state
-from bot.utilities.intel import get_enemy_intel_quality
+from bot.intel import get_enemy_intel_quality
 from bot.utilities.debug import render_detection_cannon_debug
 from bot.combat.target_scoring import COUNTER_TABLE
 from bot.constants import (

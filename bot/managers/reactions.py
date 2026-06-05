@@ -20,8 +20,7 @@ from cython_extensions import (
     cy_structure_pending_ares
 )
 
-from bot.utilities.intel import get_enemy_cannon_rushed
-from bot.utilities.cheese_detection import detect_cheese
+from bot.intel import detect_cheese
 from bot.constants import (
     UNDER_ATTACK_VALUE_THRESHOLD,
     UNDER_ATTACK_RATIO_THRESHOLD,
@@ -301,29 +300,18 @@ def early_threat_sensor(bot):
                 bot._cannon_rush_response = True
             return
 
-    # Fallback: original per-race boolean detection
-    if bot.mediator.get_enemy_worker_rushed and bot.game_state == 0:
-        if bot._worker_rush_detected_time < 0:
-            bot._worker_rush_detected_time = bot.time
-        bot._not_worker_rush = False
+    # Fallback: detect_cheese() covers all race-specific detectors
+    # (proxy rax, bunker rush, cannon rush, proxy gates, four gate,
+    #  ling rush, roach/ravager rush, worker rush)
+    elif detect_cheese(bot):
         bot._used_cheese_response = True
-    
-    # Check for cannon rush
-    elif get_enemy_cannon_rushed(bot):
-        bot._used_cheese_response = True
-        bot._cannon_rush_response = True
-    
-    elif (
-        (detect_cheese(bot))
-        or (bot.mediator.get_enemy_marauder_rush and bot.time < 150.0)
-        or bot.mediator.get_enemy_marine_rush
-        or bot.mediator.get_is_proxy_zealot
-        or bot.mediator.get_enemy_ravager_rush
-        or bot.mediator.get_enemy_went_marine_rush
-        or bot.mediator.get_enemy_four_gate
-        or bot.mediator.get_enemy_roach_rushed
-    ):
-        bot._used_cheese_response = True
+        # Set race-specific response flags from detected labels
+        if getattr(bot, '_protoss_strategy_label', 'none') == 'cannon_rush':
+            bot._cannon_rush_response = True
+        if getattr(bot, '_worker_rush_detected', False):
+            if bot._worker_rush_detected_time < 0:
+                bot._worker_rush_detected_time = bot.time
+            bot._not_worker_rush = False
     
 
 

@@ -106,7 +106,7 @@ from bot.utilities.debug import (
     render_focus_debug,
     render_micro_state_debug,
 )
-from bot.utilities.intel import get_enemy_intel_quality
+from bot.intel import get_enemy_intel_quality
 from bot.managers.structure_manager import use_mass_recall
 
 from cython_extensions import (

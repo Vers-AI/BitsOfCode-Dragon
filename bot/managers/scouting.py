@@ -22,7 +22,7 @@ from bot.constants import (
     UNIT_ENEMY_DETECTION_RANGE,
     VISIBLE_AGE_THRESHOLD,
 )
-from bot.utilities.intel import get_enemy_intel_quality
+from bot.intel import get_enemy_intel_quality
 from cython_extensions import cy_distance_to
 
 # Staleness thresholds for hunt mode

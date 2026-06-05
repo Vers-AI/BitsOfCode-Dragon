@@ -12,7 +12,7 @@ from sc2.units import Units
 from sc2.ids.unit_typeid import UnitTypeId
 from ares.consts import UnitRole
 
-from bot.utilities.intel import get_enemy_intel_quality
+from bot.intel import get_enemy_intel_quality
 from bot.constants import FRESH_INTEL_THRESHOLD, STALE_INTEL_THRESHOLD, MEMORY_EXPIRY_TIME
 from cython_extensions import cy_find_units_center_mass, cy_distance_to
 
