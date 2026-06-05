@@ -330,6 +330,23 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
     if bot.enemy_race in {Race.Zerg, Race.Random}:
         _print_cheese_detection_status(bot)
 
+    # Strategy belief in console report
+    if (bot.config.get("Belief", {}).get("enable_strategy", True)
+            and bot.belief_state.strategy is not None):
+        pred = bot.belief_state.strategy.last_prediction
+        if pred is not None:
+            print("\n  STRATEGY BELIEF:")
+            print(f"    {pred.label.value}({pred.source}) "
+                  f"C:{pred.p_cheese:.0%} A:{pred.p_all_in:.0%} "
+                  f"T:{pred.p_timing:.0%} M:{pred.p_macro:.0%} "
+                  f"[{pred.level2}]")
+            if pred.evidence:
+                ev = pred.evidence
+                print(f"    Evidence: race={ev.get('enemy_race','?')} "
+                      f"pool={ev.get('pool_bin','?')} bases={ev.get('bases_bin','?')} "
+                      f"rax={ev.get('rax_bin','?')} gw={ev.get('gateway_bin','?')} "
+                      f"factory={ev.get('factory_bin','?')} duration={ev.get('duration_bin','?')}")
+
     print("="*60 + "\n")
 
 

@@ -350,6 +350,14 @@ def _render_combat_sim_overlay(bot, main_army: Units) -> None:
                 Point2((0.1, _y)), None, 12
             )
             _y += _step
+            if pred.evidence:
+                ev = pred.evidence
+                ev_str = f"pool={ev.get('pool_bin','?')} bases={ev.get('bases_bin','?')} rax={ev.get('rax_bin','?')}"
+                bot.client.debug_text_2d(
+                    f"  {ev_str}",
+                    Point2((0.1, _y)), None, 10
+                )
+                _y += _step
 
     # Global fight result
     try:

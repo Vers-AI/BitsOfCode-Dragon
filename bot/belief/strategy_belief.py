@@ -48,6 +48,7 @@ class StrategyPrediction:
     level2: str
     source: str
     game_time: float
+    evidence: Optional[dict] = None  # BN evidence dict for telemetry
 
     @property
     def p_cheese(self) -> float:
@@ -76,10 +77,10 @@ class StrategyBelief:
     Updated once per frame. Produces a StrategyPrediction snapshot for
     BeliefState consumption.
 
-    Three-layer evaluation:
-      1. Auto-TRUE guards: deterministic, override everything (P→1.0)
-      2. BN model: trained network, produces posterior probabilities
-      3. Rule-based scoring: fallback when model unavailable
+    Evaluation order:
+      1. BN model: trained network, produces posterior probabilities (primary)
+      2. Auto-TRUE guards: deterministic, only when model is missing (fallback)
+      3. Rule-based scoring: soft probabilities from accumulated evidence (last resort)
     """
 
     def __init__(self):
@@ -110,6 +111,11 @@ class StrategyBelief:
     def update(self, bot: "PiG_Bot", game_time: float) -> StrategyPrediction:
         """Produce a StrategyPrediction from current game observations.
 
+        Evaluation order: BN model → guards (fallback) → rules (last resort).
+        The BN model is the primary classifier. Guards only fire when the model
+        is unavailable, providing deterministic coverage for known patterns.
+        Rules are the final fallback when neither model nor guards activate.
+
         Args:
             bot: The bot instance for accessing enemy info and mediator.
             game_time: Current game time in seconds.
@@ -117,13 +123,7 @@ class StrategyBelief:
         Returns:
             StrategyPrediction with probs, label, level2, source, game_time.
         """
-        # Layer 1: Auto-TRUE guards (deterministic overrides)
-        guard_result = self._evaluate_guards(bot, game_time)
-        if guard_result is not None:
-            self._last_prediction = guard_result
-            return guard_result
-
-        # Layer 2: BN model (if available)
+        # Primary: BN model (always runs when available)
         if self._model_loaded and self._model is not None:
             model_result = self._evaluate_model(bot, game_time)
             if model_result is not None:
@@ -131,7 +131,14 @@ class StrategyBelief:
                 self._send_strategy_chat(bot, model_result, "BN")
                 return model_result
 
-        # Layer 3: Rule-based scoring
+        # Fallback: Auto-TRUE guards (only when model is missing)
+        guard_result = self._evaluate_guards(bot, game_time)
+        if guard_result is not None:
+            self._last_prediction = guard_result
+            self._send_strategy_chat(bot, guard_result, "auto-TRUE")
+            return guard_result
+
+        # Last resort: Rule-based scoring
         rule_result = self._evaluate_rules(bot, game_time)
         self._last_prediction = rule_result
         self._send_strategy_chat(bot, rule_result, "rules")
@@ -463,6 +470,7 @@ class StrategyBelief:
                 level2=best_l2,
                 source="BN",
                 game_time=game_time,
+                evidence=evidence.iloc[0].to_dict() if hasattr(evidence, 'iloc') else None,
             )
         except Exception as e:
             print(f"[StrategyBelief] BN prediction error: {e}")
