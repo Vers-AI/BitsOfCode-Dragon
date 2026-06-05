@@ -57,6 +57,55 @@ CHEESE_TYPE_TO_CATEGORY = {
     "none": "macro",
 }
 
+# Structure type name → normalized name mapping (from API scouted_enemy_structures)
+STRUCT_ALIASES = {
+    "BARRACKS": "barracks", "BARRACKSREACTOR": "barracks", "BARRACKSTECHLAB": "barracks",
+    "FACTORY": "factory", "FACTORYREACTOR": "factory", "FACTORYTECHLAB": "factory",
+    "STARPORT": "starport", "STARPORTREACTOR": "starport", "STARPORTTECHLAB": "starport",
+    "GATEWAY": "gateway", "WARPGATE": "gateway",
+    "FORGE": "forge", "CYBERNETICSCORE": "cyber_core",
+    "PHOTONCANNON": "cannon", "SHIELDBATTERY": "shield_battery",
+    "STARGATE": "stargate", "FLEETBEACON": "fleet_beacon",
+    "ROBOTICSFACILITY": "robotics_facility", "ROBOTICSBAY": "robotics_bay",
+    "TWILIGHTCOUNCIL": "twilight_council", "TEMPLARARCHIVE": "templar_archive",
+    "DARKSHRINE": "dark_shrine",
+    "SPAWNINGPOOL": "spawning_pool", "EXTRACTOR": "extractor",
+    "BANELINGNEST": "baneling_nest", "ROACHWARREN": "roach_warren",
+    "HYDRALISKDEN": "hydralisk_den", "SPIRE": "spire",
+    "INFESTATIONPIT": "infestation_pit", "ULTRALISKCAVERN": "ultralisk_cavern",
+    "HATCHERY": "hatchery", "LAIR": "lair", "HIVE": "hive",
+    "NEXUS": "nexus", "PYLON": "pylon",
+    "COMMANDCENTER": "command_center", "ORBITALCOMMAND": "orbital_command",
+    "PLANETARYFORTRESS": "planetary_fortress",
+    "SUPPLYDEPOT": "supply_depot", "SUPPLYDEPOTLOWERED": "supply_depot",
+    "REFINERY": "refinery", "ASSIMILATOR": "assimilator",
+    "BUNKER": "bunker", "ENGINEERINGBAY": "engineering_bay",
+    "MISSILETURRET": "missile_turret", "SENSORTOWER": "sensor_tower",
+    "GHOSTACADEMY": "ghost_academy", "FUSIONCORE": "fusion_core",
+    "CREEPTUMORBURROWED": "creep_tumor",
+}
+
+# Unit type name → normalized name mapping (from API scouted_enemy_units)
+UNIT_ALIASES = {
+    "MARINE": "marine", "MARAUDER": "marauder", "REAPER": "reaper",
+    "GHOST": "ghost", "HELLION": "hellion", "SIEGETANK": "siege_tank",
+    "CYCLONE": "cyclone", "THOR": "thor", "BATTLECRUISER": "battlecruiser",
+    "MEDIVAC": "medivac", "RAVEN": "raven", "BANSHEE": "banshee",
+    "VIKING": "viking", "WIDOWMINE": "widow_mine",
+    "ZEALOT": "zealot", "STALKER": "stalker", "SENTRY": "sentry",
+    "ADEPT": "adept", "HIGHTEMPLAR": "high_templar", "DARKTEMPLAR": "dark_templar",
+    "IMMORTAL": "immortal", "COLOSSUS": "colossus", "DISRUPTOR": "disruptor",
+    "OBSERVER": "observer", "WARPPRISM": "warp_prism",
+    "PHOENIX": "phoenix", "VOIDRAY": "void_ray", "CARRIER": "carrier",
+    "ORACLE": "oracle", "TEMPEST": "tempest", "MOTHERSHIP": "mothership",
+    "ZERGLING": "zergling", "DRONE": "drone", "QUEEN": "queen",
+    "HYDRALISK": "hydralisk", "MUTALISK": "mutalisk", "CORRUPTOR": "corruptor",
+    "BROODLORD": "broodlord", "INFESTOR": "infestor", "SWARMHOST": "swarm_host",
+    "ULTRALISK": "ultralisk", "ROACH": "roach", "RAVAGER": "ravager",
+    "BANELING": "baneling", "OVERLORD": "overlord", "OVERSEER": "overseer",
+    "SCV": "scv", "PROBE": "probe", "MULE": "mule",
+}
+
 RACE_MAP = {"Terran": 0, "Zerg": 1, "Protoss": 2, "Random": 3}
 
 MODEL_FILE = Path("bot/models/strategy_belief_model.pkl")
@@ -106,98 +155,302 @@ def fetch_match_events(match_id: int, api_url: str = API_BASE) -> list[dict]:
 
 
 def derive_strategy_label(row: dict) -> str:
-    """Derive strategy_category from available labels.
+    """Derive strategy_category from available labels + structure/unit heuristics.
 
     Priority:
-      1. API strategy_category column (when populated by Strategy Belief)
-      2. cheese_type → Level-1 mapping (Zerg ground truth)
-      3. Heuristic from ARES booleans + economy metrics
+      1. cheese_type → Level-1 mapping (Zerg ground truth, cannon_rush)
+      2. Structure/unit count heuristics (all races)
+      3. Game-level metrics (used_cheese_response, under_attack, game length)
       4. Default: macro
-    """
-    # Priority 1: API-provided strategy_category
-    cat = row.get("strategy_category", "")
-    if cat and cat.strip():
-        return cat
 
-    # Priority 2: cheese_type → Level-1 (Zerg games with ground truth)
+    Key rule: always check _last_scout_time. If the bot hasn't scouted since
+    before the threshold, "haven't seen it" doesn't mean "it's not there."
+    For training data we use struct_counts as a proxy for scout coverage.
+
+    IMPORTANT: game_time is the TOTAL game duration (always > 360s in our data).
+    Time-based heuristics use struct_first_seen (when structures were first
+    observed) and first_under_attack_time instead.
+    """
+    # Priority 1: cheese_type → Level-1 (Zerg games with ground truth)
+    # Only use cheese_type mapping for known cheese types (not "none")
     cheese_type = row.get("cheese_type", "none") or "none"
-    if cheese_type in CHEESE_TYPE_TO_CATEGORY:
+    if cheese_type != "none" and cheese_type in CHEESE_TYPE_TO_CATEGORY:
         return CHEESE_TYPE_TO_CATEGORY[cheese_type]
 
-    # Priority 3: Heuristic from game-level metrics
+    # Extract structure/unit counts (from events)
+    structs = row.get("struct_counts", {}) or {}
+    units = row.get("unit_counts", {}) or {}
+    struct_first_seen = row.get("struct_first_seen", {}) or {}
+    unit_first_seen = row.get("unit_first_seen", {}) or {}
+    game_time = row.get("game_time", 0)
     enemy_race = row.get("enemy_race", "Unknown")
-    game_time = row.get("game_time", 0)  # seconds
+    first_under_attack = row.get("first_under_attack_time")
+
+    # Helper: get structure count
+    def sc(name: str) -> int:
+        return structs.get(name, 0)
+
+    # Helper: get unit count
+    def uc(name: str) -> int:
+        return units.get(name, 0)
+
+    # Helper: when was a structure first seen (seconds)?
+    def sf(name: str) -> float | None:
+        return struct_first_seen.get(name)
+
+    # Helper: when was a unit first seen (seconds)?
+    def uf(name: str) -> float | None:
+        return unit_first_seen.get(name)
+
+    # Helper: count bases (townhalls)
+    def base_count() -> int:
+        return max(
+            sc("hatchery") + sc("lair") + sc("hive"),
+            sc("nexus"),
+            sc("command_center") + sc("orbital_command") + sc("planetary_fortress"),
+        )
+
+    # Helper: count gateways + warpgates
+    def gateway_total() -> int:
+        return sc("gateway") + sc("warpgate")
+
+    # ── CHEESE ──────────────────────────────────────────────────────
+
+    # worker_rush: workers approaching + no production structures
+    if row.get("worker_rush_active"):
+        return "cheese"
+
+    # 12_pool: pool_seen_time < 35s
+    pool_start = row.get("pool_start", -1)
+    if pool_start is not None and pool_start > 0 and pool_start < 35:
+        return "cheese"
+
+    # cannon_rush: forge seen + cannon present + no gateway/cyber_core
+    # (Training data: forge present + cannon present + no gateway/cyber_core)
+    if sc("forge") > 0 and sc("cannon") > 0 and sc("cyber_core") == 0:
+        return "cheese"
+
+    # proxy_rax: barracks seen early + near our base
+    # (Training data: barracks present + 1 base + early observation)
+    rax_time = sf("barracks")
+    if enemy_race == "Terran" and sc("barracks") >= 1 and base_count() == 1 and rax_time is not None and rax_time < 180:
+        return "cheese"
+
+    # proxy_gateway: gateway seen early + near our base
+    gw_time = sf("gateway")
+    if enemy_race == "Protoss" and sc("gateway") >= 1 and sc("nexus") <= 1 and gw_time is not None and gw_time < 180:
+        return "cheese"
+
+    # ── ALL-IN ──────────────────────────────────────────────────────
+
+    # marine_rush: ≥2 barracks + 1 base + early
+    if sc("barracks") >= 2 and base_count() == 1 and rax_time is not None and rax_time < 300:
+        return "all_in"
+
+    # four_gate: ≥4 gateways + 1 base
+    if gateway_total() >= 4 and base_count() == 1:
+        return "all_in"
+
+    # roach_rush: roach warren early + 1 base
+    rw_time = sf("roach_warren")
+    if sc("roach_warren") > 0 and base_count() == 1 and rw_time is not None and rw_time < 300:
+        return "all_in"
+
+    # ravager_rush: ravagers seen + 1 base
+    rav_time = uf("ravager")
+    if uc("ravager") > 0 and base_count() == 1 and rav_time is not None and rav_time < 420:
+        return "all_in"
+
+    # six_gate: ≥6 gateways + 2 bases
+    if gateway_total() >= 6 and base_count() == 2:
+        return "all_in"
+
+    # two_base_colossus: robotics bay + 2 bases + early
+    rb_time = sf("robotics_bay")
+    if sc("robotics_bay") > 0 and base_count() == 2 and rb_time is not None and rb_time < 480:
+        return "all_in"
+
+    # one_base_all_in: 1 base + game > 4min + no natural
+    if base_count() == 1 and game_time > 240 and sc("nexus") <= 1 and sc("hatchery") <= 1 and sc("orbital_command") <= 1:
+        return "all_in"
+
+    # two_base_all_in: 2 bases + lots of production + short game
+    if base_count() == 2 and game_time < 600 and (
+        sc("barracks") >= 4 or gateway_total() >= 4
+    ):
+        return "all_in"
+
+    # ── TIMING ATTACK ────────────────────────────────────────────────
+
+    # stargate_timing: stargate early
+    sg_time = sf("stargate")
+    if sc("stargate") > 0 and sg_time is not None and sg_time < 270:
+        return "timing_attack"
+
+    # bio_timing: ≥3 barracks + medivacs
+    if sc("barracks") >= 3 and uc("medivac") > 0:
+        return "timing_attack"
+
+    # roach_timing: roach warren 150-270s + ≥2 bases
+    if sc("roach_warren") > 0 and base_count() >= 2 and rw_time is not None and 150 <= rw_time <= 270:
+        return "timing_attack"
+
+    # tank_timing: factory + siege tanks
+    if sc("factory") > 0 and uc("siege_tank") > 0:
+        return "timing_attack"
+
+    # widow_mine_drop: starport + widow mines
+    if sc("starport") > 0 and uc("widow_mine") > 0:
+        return "timing_attack"
+
+    # ── GAME-LEVEL HEURISTICS ────────────────────────────────────────
 
     # used_cheese_response = bot detected cheese → strong signal
     if row.get("used_cheese_response"):
-        # Distinguish cheese from all_in by game length
-        if game_time < 360:  # < 6 min
+        if first_under_attack is not None and first_under_attack < 360:
             return "cheese"
-        elif game_time < 600:  # < 10 min
+        elif first_under_attack is not None and first_under_attack < 600:
+            return "all_in"
+        elif game_time < 600:
+            return "cheese"
+
+    # Under attack early → likely cheese/all_in
+    if first_under_attack is not None:
+        if first_under_attack < 360:
+            return "cheese"
+        elif first_under_attack < 600:
             return "all_in"
 
-    # rush_time_seconds present → cheese detected by rush detector
-    rush_time = row.get("rush_time_seconds", -1)
-    if rush_time is not None and rush_time > 0:
-        return "cheese"
-
-    # Zerg with rush_detected = early cheese
-    if row.get("rush_detected") == 1.0:
-        return "cheese"
-
-    # Short games with high rush confidence → cheese
-    avg_rush_conf = row.get("max_rush_confidence")
-    if avg_rush_conf is not None and avg_rush_conf > 0.7:
-        return "cheese"
-
-    # Under attack early with no expansion → all_in
-    under_attack = row.get("under_attack_count", 0)
-
-    # Games where bot was under attack early → likely cheese/all_in
-    if under_attack > 0:
-        if game_time < 360:  # < 6 min
-            return "cheese"
-        elif game_time < 600:  # < 10 min
-            return "all_in"
-
-    # Short game losses (opponent won fast) → likely cheese or all_in
+    # Short game losses → likely cheese or all_in
     result = row.get("result", "")
-    if result == "loss" and game_time < 360:
+    if result == "loss" and game_time < 480:
         return "cheese"
-    if result == "loss" and game_time < 600:
+    if result == "loss" and game_time < 720:
         return "all_in"
+
+    # ── MACRO ────────────────────────────────────────────────────────
+
+    # mech: factory ≥ barracks
+    if sc("factory") >= sc("barracks") and sc("factory") > 0 and sc("barracks") > 0:
+        return "macro"
+
+    # three_base_macro: ≥3 bases
+    if base_count() >= 3:
+        return "macro"
+
+    # bio_macro: ≥3 barracks + medivacs + ≥3 bases
+    if sc("barracks") >= 3 and uc("medivac") > 0 and base_count() >= 3:
+        return "macro"
+
+    # standard: pool > 60s + natural exists
+    if pool_start > 60 and row.get("nat_start", -1) > 0:
+        return "macro"
 
     # Default: macro
     return "macro"
 
 
 def _extract_timing_from_events(events: list[dict]) -> dict:
-    """Extract timing features from per-match events.
+    """Extract timing features and structure/unit counts from per-match events.
 
-    The first event in the response often contains rush_detect timing fields
-    (pool_start, gas_time, ling_seen, etc.) even for non-Zerg games.
-    Later events may have updated values — take the latest non-null value.
+    Takes the latest non-null value for timing fields.
+    Aggregates structure/unit counts across all events (max seen).
     """
+    import ast
+    import json
+
     timing = {}
     timing_fields = [
         "pool_start", "speed_start", "queen_time", "gas_time",
         "ling_seen", "ling_contact", "gas_workers", "ling_has_speed",
         "last_nat_scout_time", "nat_present_on_last_scout",
     ]
-    # Also extract rush detection fields
     rush_fields = ["score_12p", "score_speed", "auto_true_fired", "cheese_label"]
 
+    # Track max structure/unit counts across all events
+    struct_counts: dict[str, int] = {}
+    unit_counts: dict[str, int] = {}
+    # Track when each structure was FIRST seen (game_steps from event)
+    struct_first_seen: dict[str, float] = {}
+    unit_first_seen: dict[str, float] = {}
+    under_attack_count = 0
+    used_cheese_response = False
+    worker_rush_active = False
+    # Track earliest under_attack time
+    first_under_attack_time: float | None = None
+
+    def _parse_dict_field(val) -> dict | None:
+        """Parse a dict field that may be a dict, JSON string, or Python repr string."""
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str) and val.strip():
+            try:
+                parsed = json.loads(val)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (json.JSONDecodeError, ValueError):
+                pass
+            try:
+                parsed = ast.literal_eval(val)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (ValueError, SyntaxError):
+                pass
+        return None
+
     for event in events:
+        # Timing fields: take latest non-null
         for field in timing_fields + rush_fields:
             val = event.get(field)
             if val is not None and val != "" and val != -1.0:
                 timing[field] = val
 
-    # Derive nat_start from events that have it
-    for event in events:
+        # nat_start
         nat = event.get("nat_start")
         if nat is not None and nat != "" and nat > 0:
             timing["nat_start"] = nat
+
+        # Structure counts: merge (take max across events)
+        raw_structs = _parse_dict_field(event.get("scouted_enemy_structures"))
+        if raw_structs:
+            event_time = (event.get("game_steps") or 0) / 16.0
+            for raw_name, count in raw_structs.items():
+                norm = STRUCT_ALIASES.get(raw_name, raw_name.lower())
+                struct_counts[norm] = max(struct_counts.get(norm, 0), count)
+                # Track first seen time
+                if norm not in struct_first_seen and event_time > 0:
+                    struct_first_seen[norm] = event_time
+
+        # Unit counts: merge (take max across events)
+        raw_units = _parse_dict_field(event.get("scouted_enemy_units"))
+        if raw_units:
+            event_time = (event.get("game_steps") or 0) / 16.0
+            for raw_name, count in raw_units.items():
+                norm = UNIT_ALIASES.get(raw_name, raw_name.lower())
+                unit_counts[norm] = max(unit_counts.get(norm, 0), count)
+                if norm not in unit_first_seen and event_time > 0:
+                    unit_first_seen[norm] = event_time
+
+        # Boolean flags
+        if event.get("under_attack"):
+            under_attack_count += 1
+            event_time = (event.get("game_steps") or 0) / 16.0
+            if first_under_attack_time is None and event_time > 0:
+                first_under_attack_time = event_time
+        if event.get("used_cheese_response"):
+            used_cheese_response = True
+        if event.get("worker_rush_active"):
+            worker_rush_active = True
+
+    # Store aggregated data
+    timing["struct_counts"] = struct_counts
+    timing["unit_counts"] = unit_counts
+    timing["struct_first_seen"] = struct_first_seen
+    timing["unit_first_seen"] = unit_first_seen
+    timing["under_attack_count"] = under_attack_count
+    timing["used_cheese_response"] = used_cheese_response
+    timing["worker_rush_active"] = worker_rush_active
+    timing["first_under_attack_time"] = first_under_attack_time
 
     return timing
 
@@ -226,14 +479,19 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
             "cheese_type": match.get("cheese_type", "none") or "none",
             "strategy_category_api": match.get("strategy_category", ""),
             "build_label_api": match.get("build_label", ""),
+            "result": match.get("result", ""),
             # Match-level fields available from /api/matches
             "used_cheese_response": match.get("used_cheese_response", False),
             "rush_time_seconds": match.get("rush_time_seconds", -1),
             "sq": match.get("sq", -1),
+            # Defaults — overwritten by events if available
+            "struct_counts": {},
+            "unit_counts": {},
+            "struct_first_seen": {},
+            "unit_first_seen": {},
+            "worker_rush_active": False,
+            "first_under_attack_time": None,
         }
-
-        # Derive ground truth label
-        row["strategy_label"] = derive_strategy_label(row)
 
         # Default missing timing features
         _fill_missing_timing(row)
@@ -275,6 +533,14 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
                         float(timing.get("score_12p", -1)),
                         float(timing.get("score_speed", -1)),
                     )
+                # Structure/unit counts from events
+                row["struct_counts"] = timing.get("struct_counts", {})
+                row["unit_counts"] = timing.get("unit_counts", {})
+                row["struct_first_seen"] = timing.get("struct_first_seen", {})
+                row["unit_first_seen"] = timing.get("unit_first_seen", {})
+                row["used_cheese_response"] = timing.get("used_cheese_response", row.get("used_cheese_response", False))
+                row["worker_rush_active"] = timing.get("worker_rush_active", False)
+                row["first_under_attack_time"] = timing.get("first_under_attack_time")
                 # Count under_attack transitions from events
                 under_count = sum(
                     1 for e in events
@@ -284,6 +550,31 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
 
             if fetched_events % 50 == 0:
                 print(f"  Fetched events for {fetched_events}/{max_event_fetches} matches...")
+
+        # Derive ground truth label (needs struct_counts from events)
+        row["strategy_label"] = derive_strategy_label(row)
+
+        # Extract scalar structure counts for BN features
+        structs = row.get("struct_counts", {}) or {}
+        units = row.get("unit_counts", {}) or {}
+        row["barracks_count"] = structs.get("barracks", 0)
+        row["gateway_count"] = structs.get("gateway", 0) + structs.get("warpgate", 0)
+        row["factory_count"] = structs.get("factory", 0)
+        row["starport_count"] = structs.get("starport", 0)
+        row["forge_seen"] = 1 if structs.get("forge", 0) > 0 else 0
+        row["cannon_seen"] = 1 if structs.get("cannon", 0) > 0 else 0
+        row["roach_warren_seen"] = 1 if structs.get("roach_warren", 0) > 0 else 0
+        row["robotics_bay_seen"] = 1 if structs.get("robotics_bay", 0) > 0 else 0
+        row["stargate_seen"] = 1 if structs.get("stargate", 0) > 0 else 0
+        row["base_count"] = max(
+            structs.get("hatchery", 0) + structs.get("lair", 0) + structs.get("hive", 0),
+            structs.get("nexus", 0),
+            structs.get("command_center", 0) + structs.get("orbital_command", 0) + structs.get("planetary_fortress", 0),
+        )
+        row["medivac_seen"] = 1 if units.get("medivac", 0) > 0 else 0
+        row["siege_tank_seen"] = 1 if units.get("siege_tank", 0) > 0 else 0
+        row["widow_mine_seen"] = 1 if units.get("widow_mine", 0) > 0 else 0
+        row["ravager_seen"] = 1 if units.get("ravager", 0) > 0 else 0
 
         rows.append(row)
 
@@ -353,6 +644,50 @@ def discretize_features(df: pd.DataFrame) -> pd.DataFrame:
         labels=["losing", "even", "winning"],
     ).astype(str).replace("NaN", "unknown")
 
+    # ── New bins for expanded BN ──────────────────────────────────────
+
+    # Barracks count bins: none, few, many
+    df["rax_bin"] = pd.cut(
+        df["barracks_count"].fillna(0),
+        bins=[-1, 0, 2, float("inf")],
+        labels=["none", "few", "many"],
+    ).astype(str)
+
+    # Gateway count bins: none, few, many
+    df["gateway_bin"] = pd.cut(
+        df["gateway_count"].fillna(0),
+        bins=[-1, 0, 3, float("inf")],
+        labels=["none", "few", "many"],
+    ).astype(str)
+
+    # Base count bins: one, two, three_plus
+    df["bases_bin"] = pd.cut(
+        df["base_count"].fillna(0),
+        bins=[-1, 1, 2, float("inf")],
+        labels=["one", "two", "three_plus"],
+    ).astype(str)
+
+    # Factory seen: yes/no
+    df["factory_bin"] = df["factory_count"].fillna(0).apply(
+        lambda x: "yes" if x > 0 else "no"
+    )
+
+    # Starport seen: yes/no
+    df["starport_bin"] = df["starport_count"].fillna(0).apply(
+        lambda x: "yes" if x > 0 else "no"
+    )
+
+    # Tech structures: forge, roach_warren, robotics_bay → yes/no each
+    df["forge_bin"] = df["forge_seen"].fillna(0).apply(
+        lambda x: "yes" if x > 0 else "no"
+    )
+    df["roach_warren_bin"] = df["roach_warren_seen"].fillna(0).apply(
+        lambda x: "yes" if x > 0 else "no"
+    )
+    df["robo_bay_bin"] = df["robotics_bay_seen"].fillna(0).apply(
+        lambda x: "yes" if x > 0 else "no"
+    )
+
     return df
 
 
@@ -390,20 +725,27 @@ def train_bn(df: pd.DataFrame) -> dict:
     print(f"Race distribution:\n{df_disc['enemy_race'].value_counts()}")
 
     # Define network structure (domain knowledge)
-    # Only use features with reasonable data coverage:
-    #   enemy_race: 100% coverage
-    #   duration_bin: 100% coverage (derived from game_steps)
-    #   pool_bin: ~15% coverage (Zerg games only, but strong signal)
-    # rush_conf_bin and win_rate_bin have too many "unknown" values
-    # from /api/matches, causing CPD issues. Drop them for now.
+    # Expanded from 3→7 parent nodes for better discrimination:
+    #   enemy_race: 100% coverage — race determines available strategies
+    #   duration_bin: 100% coverage — cheese/all_in end early
+    #   pool_bin: Zerg signal — very_early = cheese, early = all_in
+    #   rax_bin: Terran signal — few+one_base = cheese/all_in
+    #   gateway_bin: Protoss signal — many+one_base = four_gate
+    #   bases_bin: economy signal — one = cheese/all_in, three_plus = macro
+    #   factory_bin: Terran tech signal — yes = timing or mech
     model = DiscreteBayesianNetwork([
         ("enemy_race", "strategy"),
         ("duration_bin", "strategy"),
         ("pool_bin", "strategy"),
+        ("rax_bin", "strategy"),
+        ("gateway_bin", "strategy"),
+        ("bases_bin", "strategy"),
+        ("factory_bin", "strategy"),
     ])
 
     # Fit parameters with MLE estimator
-    train_cols = ["enemy_race", "duration_bin", "pool_bin", "strategy"]
+    train_cols = ["enemy_race", "duration_bin", "pool_bin",
+                  "rax_bin", "gateway_bin", "bases_bin", "factory_bin", "strategy"]
     try:
         estimator = DiscreteMLE()
         model.fit(df_disc[train_cols], estimator=estimator)
