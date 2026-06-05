@@ -4,8 +4,9 @@ Purpose: Single update() call ingests all current observations (cached army,
           visible structures, destroyed units) and produces a new BeliefState.
 
 Key Decisions: Composition Belief always updates when enabled. Strategy Belief
-               is optional (feature-gated). Each update() returns a snapshot
-               so BeliefState consumers never see mid-frame mutation.
+               is optional (feature-gated). Opponent Belief loads cross-game
+               priors at game start and saves at game end. Each update() returns
+               a snapshot so BeliefState consumers never see mid-frame mutation.
 
 Limitations: Update must complete within the frame budget (~0.5ms for all beliefs).
 """
@@ -15,6 +16,7 @@ from typing import TYPE_CHECKING
 from bot.belief.composition_belief import CompositionBelief
 from bot.belief.belief_state import BeliefState
 from bot.belief.strategy_belief import StrategyBelief
+from bot.belief.opponent_belief import OpponentBelief
 
 if TYPE_CHECKING:
     from bot.bot import PiG_Bot
@@ -34,12 +36,15 @@ class BeliefUpdater:
         )
     """
 
-    def __init__(self, enable_strategy: bool = True):
+    def __init__(self, enable_strategy: bool = True, enable_opponent: bool = True):
         self._composition = CompositionBelief()
         self._destroyed_tags: set[int] = set()
         self._strategy: StrategyBelief | None = None
+        self._opponent: OpponentBelief | None = None
         if enable_strategy:
             self._strategy = StrategyBelief()
+        if enable_opponent:
+            self._opponent = OpponentBelief()
 
     def is_known_enemy_tag(self, tag: int) -> bool:
         """Check if a tag belongs to a known enemy unit (tracked or already destroyed).
@@ -87,7 +92,14 @@ class BeliefUpdater:
         # Strategy belief update (if enabled)
         strategy_snapshot = None
         if self._strategy is not None:
-            prediction = self._strategy.update(bot, game_time)
+            # Get opponent prior for this game (None if opponent belief disabled)
+            opponent_prior = None
+            if self._opponent is not None:
+                opponent_id = getattr(bot, 'opponent_id', None)
+                enemy_race = bot.enemy_race.name if hasattr(bot, 'enemy_race') else "Unknown"
+                opponent_prior = self._opponent.get_prior(opponent_id, enemy_race)
+
+            prediction = self._strategy.update(bot, game_time, opponent_prior=opponent_prior)
             strategy_snapshot = self._strategy.snapshot()
 
         # Snapshot so each BeliefState is an independent copy.
@@ -98,3 +110,23 @@ class BeliefUpdater:
             composition=self._composition.snapshot(),
             strategy=strategy_snapshot,
         )
+
+    def load_opponent(self) -> None:
+        """Load opponent profiles from disk. Call once at game start."""
+        if self._opponent is not None:
+            self._opponent.load()
+
+    def save_opponent(self, opponent_id: str | None, enemy_race: str,
+                      predicted_category) -> None:
+        """Update and save opponent profiles. Call once at game end.
+
+        Args:
+            opponent_id: Opponent identifier from ladder (None for local games).
+            enemy_race: Enemy race name.
+            predicted_category: The StrategyCategory the bot concluded.
+        """
+        if self._opponent is not None and opponent_id is not None:
+            from bot.constants import StrategyCategory
+            if isinstance(predicted_category, StrategyCategory):
+                self._opponent.update(opponent_id, enemy_race, predicted_category)
+                self._opponent.save()

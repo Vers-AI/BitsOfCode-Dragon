@@ -24,6 +24,7 @@ Debug: False #Enable debug output for ares
 Belief:
     enable_composition: True  # Phase 1: Probability-weighted enemy army tracking
     enable_strategy: True     # Phase 2: Probabilistic strategy classification
+    enable_opponent: True     # Phase 4: Cross-game opponent priors (Dirichlet)
 
 Distances:
     GroundEnemyNearBases: 25.

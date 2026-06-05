@@ -108,7 +108,12 @@ class StrategyBelief:
                 print(f"[StrategyBelief] Failed to load model: {e}")
                 self._model_loaded = False
 
-    def update(self, bot: "PiG_Bot", game_time: float) -> StrategyPrediction:
+    def update(
+        self,
+        bot: "PiG_Bot",
+        game_time: float,
+        opponent_prior: Optional[dict[StrategyCategory, float]] = None,
+    ) -> StrategyPrediction:
         """Produce a StrategyPrediction from current game observations.
 
         Evaluation order: BN model → guards (fallback) → rules (last resort).
@@ -119,13 +124,15 @@ class StrategyBelief:
         Args:
             bot: The bot instance for accessing enemy info and mediator.
             game_time: Current game time in seconds.
+            opponent_prior: Optional Dirichlet alpha params from OpponentBelief.
+                If provided, BN output is multiplied by this prior then normalized.
 
         Returns:
             StrategyPrediction with probs, label, level2, source, game_time.
         """
         # Primary: BN model (always runs when available)
         if self._model_loaded and self._model is not None:
-            model_result = self._evaluate_model(bot, game_time)
+            model_result = self._evaluate_model(bot, game_time, opponent_prior)
             if model_result is not None:
                 self._last_prediction = model_result
                 self._send_strategy_chat(bot, model_result, "BN")
@@ -429,13 +436,22 @@ class StrategyBelief:
               f"{label.value} {pct}% ({level2})")
 
     def _evaluate_model(
-        self, bot: "PiG_Bot", game_time: float
+        self, bot: "PiG_Bot", game_time: float,
+        opponent_prior: Optional[dict[StrategyCategory, float]] = None,
     ) -> Optional[StrategyPrediction]:
         """Layer 2: BN model prediction.
 
         Discretizes current observations into the same bins used during
         training, then queries the pgmpy DiscreteBayesianNetwork via
-        predict_probability().
+        predict_probability(). If an opponent prior is provided, the BN
+        output is multiplied by the prior then renormalized.
+
+        Args:
+            bot: The bot instance for accessing enemy info and mediator.
+            game_time: Current game time in seconds.
+            opponent_prior: Optional Dirichlet alpha params from OpponentBelief.
+                Multiplied with BN output, then renormalized.
+
         Returns None if model is unavailable or produces invalid output.
         """
         if self._model is None:
@@ -461,14 +477,28 @@ class StrategyBelief:
             if total > 0:
                 category_probs = {k: v / total for k, v in category_probs.items()}
 
+            # Apply opponent prior if available: P(adjusted) = P(BN) * alpha, then normalize
+            # This is a Dirichlet-multinomial posterior where BN provides the likelihood
+            # and opponent history provides the prior.
+            if opponent_prior is not None:
+                adjusted = {}
+                for cat in StrategyCategory:
+                    adjusted[cat] = category_probs.get(cat, 0.0) * opponent_prior.get(cat, 1.0)
+                adj_total = sum(adjusted.values())
+                if adj_total > 0:
+                    category_probs = {k: v / adj_total for k, v in adjusted.items()}
+
             best_cat = max(category_probs, key=category_probs.get)
             best_l2 = self._infer_level2(bot, best_cat, game_time)
+
+            # Mark source as BN+OPP if opponent prior was applied
+            source = "BN+OPP" if opponent_prior is not None else "BN"
 
             return StrategyPrediction(
                 probs=category_probs,
                 label=best_cat,
                 level2=best_l2,
-                source="BN",
+                source=source,
                 game_time=game_time,
                 evidence=evidence.iloc[0].to_dict() if hasattr(evidence, 'iloc') else None,
             )

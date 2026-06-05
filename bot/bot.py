@@ -175,9 +175,12 @@ class PiG_Bot(AresBot):
         self._detection_cannon_state: dict[int, str] = {}  # nexus tag → state
         self._detection_cannon_triggered: bool = False  # Sticky: True once a cloaked threat is ever seen
 
-        # Belief layer (Phase 1: Composition Belief, Phase 2: Strategy Belief)
+        # Belief layer (Phase 1: Composition Belief, Phase 2: Strategy Belief, Phase 4: Opponent Belief)
         enable_strategy = self.config.get("Belief", {}).get("enable_strategy", True)
-        self._belief_updater: BeliefUpdater = BeliefUpdater(enable_strategy=enable_strategy)
+        enable_opponent = self.config.get("Belief", {}).get("enable_opponent", True)
+        self._belief_updater: BeliefUpdater = BeliefUpdater(
+            enable_strategy=enable_strategy, enable_opponent=enable_opponent
+        )
         self.belief_state: BeliefState = create_empty_belief_state()
 
 
@@ -256,6 +259,53 @@ class PiG_Bot(AresBot):
 
         # Initialize telemetry context (binds match_id, env, game info)
         init_context(self)
+
+        # Load opponent profiles for cross-game priors (Phase 4)
+        self._belief_updater.load_opponent()
+
+        # Greet opponent with prior info (or just GLHF if unknown)
+        await self._send_opponent_greeting()
+
+    async def _send_opponent_greeting(self) -> None:
+        """Send a greeting at game start with opponent prior info if available."""
+        opponent_id = getattr(self, 'opponent_id', None)
+        enemy_race = self.enemy_race.name if hasattr(self, 'enemy_race') else "Unknown"
+
+        if not opponent_id:
+            # Local game — no opponent ID
+            return
+
+        # Check if we have a prior for this opponent
+        if self._belief_updater._opponent is None:
+            await self.chat_send(f"Hey {opponent_id[:8]}, GLHF!")
+            return
+
+        prior = self._belief_updater._opponent.get_prior(opponent_id, enemy_race)
+        from bot.constants import StrategyCategory
+        total_games = sum(prior.values()) - 4.0  # Subtract baseline [1,1,1,1]
+
+        if total_games < 1:
+            # First time meeting — just say GLHF
+            await self.chat_send(f"Hey {opponent_id[:8]}, first time! GLHF!")
+        else:
+            # Known opponent — show tendency in natural language
+            cat_names = {
+                StrategyCategory.CHEESE: "cheese",
+                StrategyCategory.ALL_IN: "all-in",
+                StrategyCategory.TIMING_ATTACK: "timing attack",
+                StrategyCategory.MACRO: "macro",
+            }
+            best_cat = max(prior.keys(), key=lambda k: prior[k])
+            top_pct = int(prior[best_cat] / sum(prior.values()) * 100)
+            games = int(total_games)
+            if games >= 3:
+                msg = (f"We've played {games} games, so I think you're "
+                       f"{top_pct}% likely to go {cat_names[best_cat]}. GLHF!")
+            else:
+                msg = (f"We've only played {games} game{'s' if games > 1 else ''}, "
+                       f"but I think you're {top_pct}% likely to go "
+                       f"{cat_names[best_cat]}. GLHF!")
+            await self.chat_send(msg)
 
     async def on_step(self, iteration: int) -> None:
         """
@@ -636,6 +686,16 @@ class PiG_Bot(AresBot):
             idle_worker_time=self.state.score.idle_worker_time,
             idle_production_time=self.state.score.idle_production_time
         )
+        
+        # Save opponent profiles for cross-game priors (Phase 4)
+        if self.belief_state.strategy is not None:
+            pred = self.belief_state.strategy.last_prediction
+            if pred is not None:
+                self._belief_updater.save_opponent(
+                    opponent_id=getattr(self, 'opponent_id', None),
+                    enemy_race=self.enemy_race.name,
+                    predicted_category=pred.label,
+                )
         
         # Reset telemetry state between games
         telemetry_reset()

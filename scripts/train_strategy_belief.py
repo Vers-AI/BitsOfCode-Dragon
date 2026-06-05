@@ -109,6 +109,10 @@ UNIT_ALIASES = {
 RACE_MAP = {"Terran": 0, "Zerg": 1, "Protoss": 2, "Random": 3}
 
 MODEL_FILE = Path("bot/models/strategy_belief_model.pkl")
+OPPONENT_PRIORS_FILE = Path("bot/models/opponent_priors.json")
+
+# Minimum games per opponent to include in priors (avoids overfitting to 1-game samples)
+MIN_GAMES_PER_OPPONENT = 3
 
 
 def fetch_matches(limit: int = 500, api_url: str = API_BASE) -> pd.DataFrame:
@@ -774,11 +778,100 @@ def train_bn(df: pd.DataFrame) -> dict:
     }
 
 
+def build_opponent_priors(df: pd.DataFrame, output_path: str = str(OPPONENT_PRIORS_FILE)) -> dict:
+    """Build per-opponent Dirichlet alpha parameters from match data.
+
+    Groups matches by (opponent_id, enemy_race), counts strategy_label outcomes,
+    and computes alpha parameters (baseline [1,1,1,1] + observed counts).
+
+    Only includes opponents with >= MIN_GAMES_PER_OPPONENT games to avoid
+    overfitting to small samples.
+
+    Args:
+        df: Training data DataFrame with columns: opponent_id, enemy_race, strategy_label
+        output_path: Path to write the JSON priors file.
+
+    Returns:
+        Dict with schema_version, categories, and per-opponent alpha params.
+    """
+    import json
+
+    categories = STRATEGY_CATEGORY_VALUES  # ["cheese", "all_in", "timing_attack", "macro"]
+
+    # Check required columns
+    if "opponent_id" not in df.columns or "strategy_label" not in df.columns:
+        print("[OpponentPriors] Missing required columns (opponent_id, strategy_label). Skipping.")
+        return {}
+
+    # Filter out rows without opponent_id or strategy_label
+    valid = df.dropna(subset=["opponent_id", "strategy_label"])
+    valid = valid[valid["opponent_id"].astype(str) != "None"]
+    valid = valid[valid["opponent_id"].astype(str) != ""]
+
+    if len(valid) == 0:
+        print("[OpponentPriors] No valid opponent data. Skipping.")
+        return {}
+
+    # Group by (opponent_id, enemy_race) and count strategy outcomes
+    priors = {}
+    opponent_counts = {}
+
+    for (opp_id, race), group in valid.groupby(["opponent_id", "enemy_race"]):
+        if len(group) < MIN_GAMES_PER_OPPONENT:
+            continue
+
+        # Count strategy outcomes
+        counts = {cat: 0 for cat in categories}
+        for label in group["strategy_label"]:
+            if label in counts:
+                counts[label] += 1
+
+        # Alpha = baseline (1) + observed counts
+        alphas = [1.0 + counts[cat] for cat in categories]
+        key = f"{opp_id}:{race}"
+        priors[key] = alphas
+        opponent_counts[key] = len(group)
+
+    if not priors:
+        print(f"[OpponentPriors] No opponents with >= {MIN_GAMES_PER_OPPONENT} games. Skipping.")
+        return {}
+
+    # Build output structure
+    data = {
+        "schema_version": 1,
+        "categories": categories,
+        "priors": priors,
+    }
+
+    # Write to file
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+    print(f"\n=== Opponent priors saved to {output_path} ===")
+    print(f"Opponents with >= {MIN_GAMES_PER_OPPONENT} games: {len(priors)}")
+    print(f"Total games used: {sum(opponent_counts.values())}")
+
+    # Show top opponents by game count
+    top = sorted(opponent_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    print("Top opponents by game count:")
+    for key, count in top:
+        alphas = priors[key]
+        alpha_str = ", ".join(f"{cat}={a:.0f}" for cat, a in zip(categories, alphas))
+        print(f"  {key}: {count} games → {alpha_str}")
+
+    return data
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train Strategy Belief BN model")
     parser.add_argument("--api-url", default=API_BASE, help="Telemetry API base URL")
     parser.add_argument("--output", default=str(MODEL_FILE), help="Output model path")
     parser.add_argument("--limit", type=int, default=500, help="Max matches to fetch")
+    parser.add_argument("--priors-output", default=str(OPPONENT_PRIORS_FILE),
+                        help="Output path for opponent priors JSON")
+    parser.add_argument("--skip-priors", action="store_true",
+                        help="Skip building opponent priors")
     args = parser.parse_args()
 
     print("=== Strategy Belief Model Training ===\n")
@@ -819,6 +912,13 @@ def main():
     else:
         print("\n=== BN model NOT saved — rule-based guards will be used ===")
         print("Collect more data (50+ games per race) and re-run this script.")
+
+    # Build opponent priors from match data
+    if not args.skip_priors:
+        print("\n=== Building Opponent Priors ===")
+        build_opponent_priors(df, output_path=args.priors_output)
+    else:
+        print("\n=== Skipping opponent priors (--skip-priors) ===")
 
 
 if __name__ == "__main__":

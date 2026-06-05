@@ -331,16 +331,17 @@ Uses `scipy.stats.entropy()` on current composition belief distribution to compu
 
 **Current gap**: No cross-game memory. Every game starts from zero.
 
-**Model**: Simple Dirichlet concentration parameters per opponent. The categories match Strategy Belief's parent categories (not a separate taxonomy):
+**Model**: Simple Dirichlet concentration parameters per opponent. The categories match Strategy Belief's parent categories (cheese, all_in, timing_attack, macro):
 
 ```
-Opponent Belief categories → Strategy Belief priors:
-├── P(cheesy)     → inflates P(cheese) in Strategy Belief
-├── P(aggressive) → inflates P(timing_attack) and P(all_in)
-└── P(macro)      → inflates P(macro)
+Opponent Belief alpha params → Strategy Belief priors:
+├── alpha[cheese]      → inflates P(cheese) in Strategy Belief
+├── alpha[all_in]      → inflates P(all_in) in Strategy Belief
+├── alpha[timing]      → inflates P(timing_attack) in Strategy Belief
+└── alpha[macro]       → inflates P(macro) in Strategy Belief
 ```
 
-Updated after each game from match record (result, cheese_type, game length, economy metrics). Prior for unknown opponent: uninformative `[1, 1, 1]`. Persists to `data/opponent_profiles.json`.
+Updated after each game from match record (predicted strategy category). Prior for unknown opponent: uninformative `[1, 1, 1, 1]`. Persists to `data/opponent_profiles.json`.
 
 **Connection to Strategy Belief**: Opponent Belief is the **prior** for Strategy Belief. It's not a separate classification of the opponent's playstyle — it's the cross-game memory that informs what Strategy Belief should start believing before seeing any in-game evidence:
 
@@ -356,30 +357,71 @@ Game start against unknown opponent:
   Strategy Belief posterior: P(12_pool) = 0.78 (only in-game evidence)
 ```
 
-**Library**: `scipy.stats.dirichlet` (already installed)
+**Integration formula**: `P(adjusted) = P(BN) * alpha / sum(alpha)`, then normalize. This is equivalent to a Dirichlet-multinomial posterior where BN provides the likelihood and opponent history provides the prior. When no opponent prior is available, BN output passes through unchanged.
 
-**Data source**: Match records (`result`, `cheese_type`, `length`, `opponent_id`, `enemy_race`). ARES DataManager already writes per-opponent JSON to `data/<opponent_id>-<race>.json`.
+**Two data loops keep priors fresh**:
+
+1. **Ladder Learning** (real-time): Bot updates alpha params after each game and saves to `data/opponent_profiles.json`. AI Arena preserves the `data/` folder across games, so priors accumulate over a ladder session.
+2. **Offline Rebuild** (when re-uploading zip): `scripts/train_strategy_belief.py` queries the API, aggregates matches by `(opponent_id, enemy_race)`, and saves `bot/models/opponent_priors.json`. This is baked into the next ladder zip upload and becomes the new baseline.
+
+**Load order** (first found wins):
+1. `data/opponent_profiles.json` — runtime, ladder-accumulated (most recent)
+2. `bot/models/opponent_priors.json` — baseline from training script (baked into zip)
+3. Flat `[1,1,1,1]` — no data at all (first game ever)
+
+**Library**: No new dependencies. Uses plain dict math for Dirichlet alpha params.
+
+**Data source**: Match records (`opponent_id`, `enemy_race`, `strategy_label` from telemetry). Training script aggregates from cloud API. Runtime updates from bot's own predictions.
 
 **Decisions affected**:
 - Strategy Belief prior → known cheesy opponent inflates `P(cheese)`
-- Composition Belief prior → known aggressive opponent inflates `P(combat_units over workers)`
-- Scouting priority → unknown opponent gets more early scouts (higher VOI for information)
+- Composition Belief prior → known aggressive opponent inflates `P(combat_units over workers)` (future)
+- Scouting priority → unknown opponent gets more early scouts (higher VOI for information) (future)
 
 **Files to create**:
 - `bot/belief/opponent_belief.py`
-- `data/opponent_profiles.json` (created on first write, schema-versioned)
 
 **Files to modify**:
 - `bot/bot.py` — load opponent profile at game start, save at game end
-- `bot/belief/strategy_belief.py` — adjust prior based on opponent profile
+- `bot/belief/strategy_belief.py` — accept and apply opponent prior in `_evaluate_model()`
+- `bot/belief/belief_updater.py` — create OpponentBelief, pass prior to strategy, load/save methods
+- `bot/belief/__init__.py` — export OpponentBelief
+- `bot/utilities/game_report.py` — add `opponent_prior_applied` to match-end telemetry
+- `config.yml` — add `enable_opponent` feature flag
+- `scripts/train_strategy_belief.py` — add `build_opponent_priors()` function + CLI flags
 
-**No new dependencies.** Uses `scipy.stats.dirichlet`.
+**No new dependencies.** Pure dict math for Dirichlet alpha params.
 
-**Persistence**: `data/opponent_profiles.json` with schema versioning, rolling cap (max 200 opponents), safe fallback on corruption.
+**Persistence**: `data/opponent_profiles.json` with schema versioning, rolling cap (max 200 opponents), safe fallback on corruption. Atomic write via temp file + rename.
 
-**Competition safety**: Opponent belief defaults to uninformative prior `[1, 1, 1]` if no data or opponent is unknown. No per-frame I/O. Profile is loaded once at game start and written once at game end.
+**Competition safety**: Opponent belief defaults to uninformative prior `[1, 1, 1, 1]` if no data or opponent is unknown. No per-frame I/O. Profile is loaded once at game start and written once at game end. `data/` folder persists on AI Arena across games.
 
-**LOC estimate**: ~80 in `bot/belief/opponent_belief.py`, ~40 for persistence + validation
+**LOC estimate**: ~170 in `bot/belief/opponent_belief.py`, ~80 in training script, ~40 in integration points
+
+#### Implementation Status (Complete ✅)
+
+**Files created**:
+- `bot/belief/opponent_belief.py` — OpponentBelief class with load(), get_prior(), update(), save(). Dirichlet alpha params per (opponent_id, enemy_race). Schema-versioned JSON persistence. Rolling cap 200 opponents. Atomic write. Debug logging for known opponents. Flat prior fallback for unknown opponents.
+
+**Files modified**:
+- `bot/belief/strategy_belief.py` — `update()` now accepts `opponent_prior` param; `_evaluate_model()` multiplies BN output by prior then normalizes; source label changes to `"BN+OPP"` when prior is applied
+- `bot/belief/belief_updater.py` — Added `OpponentBelief` instance; `load_opponent()` and `save_opponent()` methods; passes opponent prior to strategy update each frame
+- `bot/belief/__init__.py` — Added `OpponentBelief` to exports
+- `bot/bot.py` — Loads opponent profiles in `on_start()`, saves in `on_end()` with final strategy prediction; `enable_opponent` config flag
+- `bot/utilities/game_report.py` — Added `opponent_prior_applied: True` to match-end telemetry when BN+OPP source is used
+- `config.yml` — Added `enable_opponent: True` under `Belief:`
+- `scripts/train_strategy_belief.py` — Added `build_opponent_priors()` function that aggregates matches by `(opponent_id, enemy_race)`, computes Dirichlet alpha params, and saves to `bot/models/opponent_priors.json`; added `--priors-output` and `--skip-priors` CLI flags; `MIN_GAMES_PER_OPPONENT = 3` threshold
+- `bot/__init__.py` — Version bumped to 0.9.3
+
+**Design decisions**:
+- Two-file architecture: `data/opponent_profiles.json` (runtime, ladder-accumulated) and `bot/models/opponent_priors.json` (training, API-derived). Runtime file takes precedence.
+- `data/` folder persists on AI Arena across games — bot can learn on the ladder
+- `bot/models/` is inside the zip (zipped by `create_ladder_zip.py` which zips entire `bot/` dir) — baseline priors are baked into uploads
+- Flat prior `[1,1,1,1]` for unknown opponents — no adjustment, same as today
+- Race-specific priors keyed by `(opponent_id, enemy_race)` — same opponent can play differently vs P/T/Z
+- Minimum games threshold of ≥3 in training script (avoids overfitting to 1-game samples); no threshold at runtime (even 1 game is better than flat)
+- `opponent_id` already flows through telemetry (in match context) — no new telemetry fields needed for the data loop
+- `opponent_prior_applied: True` added to match-end telemetry for debugging/verification
 
 ---
 
@@ -434,9 +476,10 @@ Steps 1-4 are telemetry + analysis, not a belief model. Step 5 may never be need
 @dataclass(frozen=True)
 class BeliefState:
     composition: CompositionBelief   # Phase 1
-    strategy: StrategyBelief         # Phase 2
-    scout_voi: ScoutVOI              # Phase 3
-    opponent: OpponentBelief         # Phase 4
+    strategy: StrategyBelief | None = None  # Phase 2 (optional, feature-gated)
+    # Phase 3: ScoutVOI — not yet implemented
+    # Phase 4: OpponentBelief lives in BeliefUpdater, not BeliefState
+    #          (it's a cross-game prior, not a per-frame belief)
 ```
 
 Each sub-belief exposes probability properties:
@@ -460,12 +503,12 @@ strategy.label -> str                                   # MAP estimate (backward
 scout_voi.rank_targets() -> list[tuple[Point2, float]]  # Destination → expected info gain
 # Scout TYPE selection (observer/phoenix/worker) stays in existing scouting.py logic
 
-# Phase 4: Opponent Belief
-opponent.P_cheesy -> float                              # P(opponent tends to cheese)
-opponent.P_aggressive -> float                           # P(opponent tends to be aggressive)
-opponent.P_macro -> float                                # P(opponent tends to play macro)
-opponent.games_played -> int                             # How many games we have vs this opponent
-opponent.adjusted_prior() -> dict                        # Strategy Belief prior dict
+# Phase 4: Opponent Belief (lives in BeliefUpdater, not BeliefState)
+# Cross-game prior applied to Strategy Belief at game start
+opponent_belief.get_prior(opponent_id, enemy_race) -> dict[StrategyCategory, float]  # Dirichlet alpha params
+opponent_belief.update(opponent_id, enemy_race, predicted_category)  # After each game
+opponent_belief.load()  # At game start
+opponent_belief.save()  # At game end
 ```
 
 ### Integration Into bot.py
@@ -619,25 +662,21 @@ This tells you: "when the sim says VICTORY_MARGINAL with +5 supply and 0.8 fresh
 
 ```
 bot/
-  belief/                          ← new package
-    __init__.py                    ← Re-exports: create_belief_state, BeliefState
+  belief/                          ← belief package
+    __init__.py                    ← Re-exports: BeliefState, BeliefUpdater, CompositionBelief, StrategyBelief, OpponentBelief
     belief_state.py                ← BeliefState dataclass (read-only snapshot consumed by decisions)
-    belief_updater.py              ← Ingests observations, produces new BeliefState each frame
+    belief_updater.py              ← Ingests observations, produces new BeliefState each frame; owns OpponentBelief
     composition_belief.py          ← Phase 1: enemy composition with soft decay + structure priors
     strategy_belief.py             ← Phase 2: multi-race strategy classifier (pgmpy BN + rule guards)
-    scout_voi.py                   ← Phase 3: value-of-information for scout destination ranking
-    opponent_belief.py             ← Phase 4: cross-game opponent style priors
+    opponent_belief.py             ← Phase 4: cross-game opponent style priors (Dirichlet alpha params)
   models/
-    rush_detector_model.pkl        ← Existing: Zerg rush LogisticRegression (kept as fallback during transition)
-    strategy_belief_model.pkl      ← New: pgmpy BN structure + fitted parameters (Phase 2)
-queries/
-  views.py                         ← Shared DuckDB view definitions + connection helper (local Streamlit/analysis only)
+    strategy_belief_model.pkl      ← pgmpy BN structure + fitted parameters (Phase 2)
+    opponent_priors.json           ← Baseline opponent priors from training script (Phase 4)
 scripts/
-  train_strategy_belief.py         ← Train pgmpy BN (fetches from cloud telemetry API)
-  train_rush_model.py              ← Existing: broken (reads deleted JSONL); needs API rewrite
+  train_strategy_belief.py         ← Train pgmpy BN + build opponent priors (fetches from cloud telemetry API)
 data/
   games/                           ← Per-game JSONL telemetry (created on first write)
-  opponent_profiles.json           ← Cross-game opponent profiles (Phase 4 persistence)
+  opponent_profiles.json           ← Cross-game opponent profiles (Phase 4, runtime, ladder-accumulated)
 ```
 
 ---
@@ -661,10 +700,10 @@ belief:
   enable_composition: false    # Phase 1
   enable_strategy: false       # Phase 2
   enable_scout_voi: false      # Phase 3
-  enable_opponent: false       # Phase 4
+  enable_opponent: true        # Phase 4
 ```
 
-Each flag defaults to `false`. Beliefs are disabled in competition until validated. When disabled, existing heuristics run unchanged. Flags are documented in config and in the telemetry plan.
+Each flag defaults to `false` except `enable_opponent` which defaults to `true` (safe: flat priors for unknown opponents). Beliefs are disabled in competition until validated. When disabled, existing heuristics run unchanged. Flags are documented in config and in the telemetry plan.
 
 ---
 
@@ -854,7 +893,7 @@ Per AGENTS.md rules: +5 points max per task, refactor exemption for splits >500 
 | 1 | +3 | +3 (CompositionBelief, BeliefState, BeliefUpdater) | 0 | +1 (belief_state on bot, on_unit_destroyed) | +2 (combat, reactions, intel) | 5 | Within budget |
 | 2 | +3 | +1 (StrategyBelief) | +1 (pgmpy) | 0 | +1 (reactions) | 4 | Within budget (+queries/views.py shared infra) |
 | 3 | +1 | +1 (ScoutVOI) | 0 | 0 | +1 (scouting) | 2 | Within budget |
-| 4 | +2 | +1 (OpponentBelief) | 0 | 0 | +1 (bot, strategy) | 2 | Within budget |
+| 4 | +1 | +1 (OpponentBelief) | 0 | 0 | +4 (bot, strategy_belief, belief_updater, game_report, config, train script) | 5 | ✅ Complete |
 
 Each phase is a separate task. Budget resets per phase.
 

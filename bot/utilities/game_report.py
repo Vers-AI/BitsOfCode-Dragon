@@ -669,6 +669,9 @@ def emit_match_record(bot, game_result, game_time: float,
                 "strategy_p_timing": round(pred.p_timing, 3),
                 "strategy_p_macro": round(pred.p_macro, 3),
             })
+            # Opponent prior applied (Phase 4): record which prior shifted the prediction
+            if pred.source == "BN+OPP":
+                match_fields["opponent_prior_applied"] = True
 
     log_match(**match_fields)
 
