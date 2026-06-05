@@ -128,11 +128,13 @@ class StrategyBelief:
             model_result = self._evaluate_model(bot, game_time)
             if model_result is not None:
                 self._last_prediction = model_result
+                self._send_strategy_chat(bot, model_result, "BN")
                 return model_result
 
         # Layer 3: Rule-based scoring
         rule_result = self._evaluate_rules(bot, game_time)
         self._last_prediction = rule_result
+        self._send_strategy_chat(bot, rule_result, "rules")
         return rule_result
 
     def _evaluate_guards(
@@ -149,6 +151,9 @@ class StrategyBelief:
 
         if not detect_cheese(bot):
             return None
+
+        # Auto-TRUE guards already set _cheese_chat_pending via detect_cheese()
+        # No additional chat needed here
 
         # Map the detected strategy label to a StrategyPrediction
         # detect_cheese() sets various bot._*_label attributes
@@ -378,6 +383,43 @@ class StrategyBelief:
             source="auto-TRUE:unknown",
             game_time=game_time,
         )
+
+    def _send_strategy_chat(
+        self, bot: "PiG_Bot", prediction: StrategyPrediction, source: str
+    ) -> None:
+        """Send in-game chat for non-macro strategy predictions.
+
+        Only sends once per category change to avoid spamming every frame.
+        Uses bot._cheese_chat_pending so it integrates with the existing
+        chat-send logic in bot.py on_step().
+        """
+        from bot.constants import StrategyCategory
+
+        # Track last announced category to avoid repeat messages
+        if not hasattr(bot, '_strategy_chat_last_category'):
+            bot._strategy_chat_last_category = None
+
+        label = prediction.label
+        if label == StrategyCategory.MACRO:
+            return  # No chat for standard macro games
+
+        # Only send if category changed since last announcement
+        if bot._strategy_chat_last_category == label:
+            return
+        bot._strategy_chat_last_category = label
+
+        # Format: [BN] cheese 70% or [rules] all_in
+        top_prob = max(prediction.probs.values())
+        pct = int(top_prob * 100)
+        level2 = prediction.level2 or ""
+        if level2 and level2 != "unknown":
+            msg = f"[{source}] {label.value} {pct}% ({level2})"
+        else:
+            msg = f"[{source}] {label.value} {pct}%"
+
+        bot._cheese_chat_pending = msg
+        print(f"{bot.time_formatted}: Strategy classified ({source}): "
+              f"{label.value} {pct}% ({level2})")
 
     def _evaluate_model(
         self, bot: "PiG_Bot", game_time: float

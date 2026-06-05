@@ -34,7 +34,7 @@ class BeliefUpdater:
         )
     """
 
-    def __init__(self, enable_strategy: bool = False):
+    def __init__(self, enable_strategy: bool = True):
         self._composition = CompositionBelief()
         self._destroyed_tags: set[int] = set()
         self._strategy: StrategyBelief | None = None

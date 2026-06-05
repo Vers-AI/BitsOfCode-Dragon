@@ -262,7 +262,7 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
         log_event(subsystem="belief", action="periodic", reason="composition", **belief_fields)
 
     # === Telemetry: Strategy belief snapshot (when enabled) ===
-    if (bot.config.get("Belief", {}).get("enable_strategy", False)
+    if (bot.config.get("Belief", {}).get("enable_strategy", True)
             and bot.belief_state.strategy is not None):
         pred = bot.belief_state.strategy.last_prediction
         if pred is not None:
@@ -639,7 +639,7 @@ def emit_match_record(bot, game_result, game_time: float,
         })
 
     # Strategy belief fields (when enabled)
-    if (bot.config.get("Belief", {}).get("enable_strategy", False)
+    if (bot.config.get("Belief", {}).get("enable_strategy", True)
             and bot.belief_state.strategy is not None):
         pred = bot.belief_state.strategy.last_prediction
         if pred is not None:

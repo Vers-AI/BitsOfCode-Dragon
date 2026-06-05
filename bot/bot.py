@@ -4,7 +4,6 @@ from typing import Optional
 from itertools import cycle, chain
 from pathlib import Path
 import numpy as np
-import joblib
 
 # Ares imports (framework-specific)
 from ares import AresBot
@@ -177,7 +176,7 @@ class PiG_Bot(AresBot):
         self._detection_cannon_triggered: bool = False  # Sticky: True once a cloaked threat is ever seen
 
         # Belief layer (Phase 1: Composition Belief, Phase 2: Strategy Belief)
-        enable_strategy = self.config.get("Belief", {}).get("enable_strategy", False)
+        enable_strategy = self.config.get("Belief", {}).get("enable_strategy", True)
         self._belief_updater: BeliefUpdater = BeliefUpdater(enable_strategy=enable_strategy)
         self.belief_state: BeliefState = create_empty_belief_state()
 
@@ -251,17 +250,6 @@ class PiG_Bot(AresBot):
         # Compute rush distance tier for ling rush detection (used in reactions.py)
         from bot.intel import compute_rush_distance_tier
         self.rush_distance_tier = compute_rush_distance_tier(self)
-        
-        # Load ML cheese detection model (if available)
-        self.rush_model = None
-        model_path = Path("bot/models/rush_detector_model.pkl")
-        if model_path.exists():
-            try:
-                self.rush_model = joblib.load(model_path)
-            except Exception as e:
-                print(f"✗ Failed to load cheese detection model: {e}")
-        else:
-            print(f"⚠ No cheese detection model found at {model_path} - using rules only")
         
         # Print startup report with all initial game info
         print_startup_report(self)

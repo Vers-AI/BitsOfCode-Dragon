@@ -2,20 +2,21 @@
 
 Purpose: Multi-detector system for classifying opponent strategies across all
          races. Consumes timing signals from enemy_timings.py and produces
-         boolean + label outputs.
+         boolean + label outputs. Used as Layer 1 (auto-TRUE guards) by
+         StrategyBelief, and as fallback when strategy belief is disabled.
 
 Key Decisions: Observation ≠ interpretation — this module reads bot._* attributes
                set by enemy_timings.py and classifies them. Auto-TRUE guards
-               fire first, then scoring, then ML fallback.
+               fire first, then rule-based scoring.
 
-Limitations: Terran/Protoss classifiers are rule-based only (no ML models yet).
-             Cannon rush is detected here, not in a separate module.
+Limitations: All classifiers are rule-based (no ML models). The BN model in
+             StrategyBelief provides probabilistic coverage for cases the
+             rules miss. Cannon rush is detected here, not in a separate module.
 """
 
 from typing import TYPE_CHECKING
 
 import numpy as np
-import warnings
 from sc2.data import Race
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
@@ -24,19 +25,8 @@ from ares.consts import UnitRole
 from cython_extensions import cy_dijkstra, cy_distance_to
 from bot.constants import RUSH_SPEED, RUSH_DISTANCE_CALIBRATION
 
-# Suppress sklearn feature name warnings
-warnings.filterwarnings('ignore', message='.*does not have valid feature names.*')
-warnings.filterwarnings('ignore', category=FutureWarning, module='sklearn')
-
 if TYPE_CHECKING:
     from bot.bot import PiG_Bot
-
-# Feature columns for ML model (must match training script)
-ML_FEATURE_COLS = [
-    "pool_start", "nat_start", "last_nat_scout_time", "nat_present_on_last_scout",
-    "gas_time", "queen_time", "ling_seen", "ling_contact", "speed_start",
-    "ling_has_speed", "gas_workers", "score_12p", "score_speed",
-]
 
 
 # ── RUSH DISTANCE ──────────────────────────────────────────────────────────
@@ -294,13 +284,13 @@ def _detect_zerg_ling_rush(bot: "PiG_Bot") -> bool:
         score_12p += 3
 
     scouted_nat_late = (
-        bot._last_nat_scout_time is not None
-        and bot._last_nat_scout_time >= T_NAT_CONFIRM_MISSING
+        getattr(bot, '_last_nat_scout_time', None) is not None
+        and getattr(bot, '_last_nat_scout_time', None) >= T_NAT_CONFIRM_MISSING
     )
     confirmed_no_nat = (
-        bot._nat_present_on_last_scout is False and scouted_nat_late
+        getattr(bot, '_nat_present_on_last_scout', None) is False and scouted_nat_late
     )
-    if confirmed_no_nat and bot._enemy_nat_started_at is None:
+    if confirmed_no_nat and getattr(bot, '_enemy_nat_started_at', None) is None:
         score_12p += 3
 
     if first_ling is not None and first_ling <= T_LING_12P_SEEN:
@@ -347,47 +337,7 @@ def _detect_zerg_ling_rush(bot: "PiG_Bot") -> bool:
     bot._score_12p = score_12p
     bot._score_speed = score_speed
 
-    # === ML CLASSIFICATION ===
-    if hasattr(bot, 'rush_model') and bot.rush_model is not None:
-        features = np.array([[
-            pool_start if pool_start is not None else -1,
-            nat_started if nat_started is not None else -1,
-            bot._last_nat_scout_time if bot._last_nat_scout_time is not None else -1,
-            1 if bot._nat_present_on_last_scout else (0 if bot._nat_present_on_last_scout is False else -1),
-            extractor_time if extractor_time is not None else -1,
-            queen_time if queen_time is not None else -1,
-            first_ling if first_ling is not None else -1,
-            first_contact if first_contact is not None else -1,
-            speed_time if speed_time is not None else -1,
-            1 if has_speed else 0,
-            gas_workers,
-            score_12p,
-            score_speed,
-        ]])
-
-        probs = bot.rush_model.predict_proba(features)[0]
-        classes = list(bot.rush_model.classes_)
-        max_prob = probs.max()
-        ml_label = classes[probs.argmax()]
-
-        bot._ml_probs = {cls: float(probs[i]) for i, cls in enumerate(classes)}
-        bot._ml_confidence = float(max_prob)
-
-        if max_prob > 0.55:
-            if ml_label in ("12_pool", "speedling"):
-                bot._cheese_detected = True
-                bot._cheese_label = ml_label
-                bot._cheese_source = "ML"
-                bot._cheese_chat_pending = f"({max_prob*100:.0f}% ML confidence)"
-                print(f"{bot.time_formatted}: Rush detected (ML)! "
-                      f"{ml_label} (p={max_prob:.2f})")
-                return True
-            else:
-                bot._cheese_label = "none"
-                bot._cheese_source = "ML"
-                return False
-
-    # === RULE-BASED FALLBACK ===
+    # === RULE-BASED CLASSIFICATION ===
     if score_12p >= 5:
         bot._cheese_detected = True
         bot._cheese_label = "12_pool"

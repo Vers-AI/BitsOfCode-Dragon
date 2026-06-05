@@ -339,7 +339,7 @@ def _render_combat_sim_overlay(bot, main_army: Units) -> None:
     _y += _step
 
     # Strategy belief display (when enabled)
-    if (bot.config.get("Belief", {}).get("enable_strategy", False)
+    if (bot.config.get("Belief", {}).get("enable_strategy", True)
             and bot.belief_state.strategy is not None):
         pred = bot.belief_state.strategy.last_prediction
         if pred is not None:

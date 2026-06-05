@@ -286,7 +286,7 @@ def early_threat_sensor(bot):
     to trigger cheese response instead of per-race booleans.
     """
     # Strategy Belief path: use probabilistic classification
-    if (bot.config.get("Belief", {}).get("enable_strategy", False)
+    if (bot.config.get("Belief", {}).get("enable_strategy", True)
             and bot.belief_state.strategy is not None):
         prediction = bot.belief_state.strategy.last_prediction
         if prediction is not None and prediction.p_cheese >= 0.6:

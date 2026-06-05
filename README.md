@@ -110,14 +110,13 @@ bot/
     scouting.py             # Scout management and intel gathering
     structure_manager.py    # Chrono, recharge, mass recall, building management
   models/
-    rush_detector_model.pkl # Trained rush detection model
+    strategy_belief_model.pkl # BN strategy classification model (4 categories)
   utilities/
     intel.py                # Enemy intel tracking, choke grid creation
     debug.py                # Visual debug overlays
     nova_manager.py         # Disruptor nova tracking
     use_disruptor_nova.py   # Disruptor nova behavior
     natural_wall_manager.py # Natural wall placement logic
-    rush_detection.py          # ML-based rush detector
     performance_monitor.py  # Frame-time profiling
     game_report.py          # End-of-game reporting
 ares-sc2/                   # Git submodule — do NOT modify src/
