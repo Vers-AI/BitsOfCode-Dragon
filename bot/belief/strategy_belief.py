@@ -185,7 +185,7 @@ class StrategyBelief:
                 game_time=game_time,
             )
 
-        # Zerg: all-in labels (roach, ravager)
+        # Zerg: all-in labels (roach, ravager, roach_ravager_push, etc.)
         zerg_allin_label = getattr(bot, '_zerg_allin_label', 'none')
         if zerg_allin_label in ("roach_rush", "ravager_push"):
             return StrategyPrediction(
@@ -198,6 +198,34 @@ class StrategyBelief:
                 label=StrategyCategory.ALL_IN,
                 level2=zerg_allin_label,
                 source="auto-TRUE:zerg_allin",
+                game_time=game_time,
+            )
+        if zerg_allin_label in ("roach_ravager_push", "one_base_all_in", "two_base_all_in"):
+            return StrategyPrediction(
+                probs={
+                    StrategyCategory.CHEESE: 0.1,
+                    StrategyCategory.ALL_IN: 0.7,
+                    StrategyCategory.TIMING_ATTACK: 0.2,
+                    StrategyCategory.MACRO: 0.0,
+                },
+                label=StrategyCategory.ALL_IN,
+                level2=zerg_allin_label,
+                source="auto-TRUE:zerg_allin",
+                game_time=game_time,
+            )
+        # Zerg timing labels
+        zerg_timing_label = getattr(bot, '_zerg_timing_label', 'none')
+        if zerg_timing_label == 'roach_timing':
+            return StrategyPrediction(
+                probs={
+                    StrategyCategory.CHEESE: 0.0,
+                    StrategyCategory.ALL_IN: 0.2,
+                    StrategyCategory.TIMING_ATTACK: 0.7,
+                    StrategyCategory.MACRO: 0.1,
+                },
+                label=StrategyCategory.TIMING_ATTACK,
+                level2="roach_timing",
+                source="auto-TRUE:zerg_timing",
                 game_time=game_time,
             )
 
@@ -242,7 +270,7 @@ class StrategyBelief:
                 source="auto-TRUE:marauder_push",
                 game_time=game_time,
             )
-        if terran_label == 'all_in':
+        if terran_label in ('all_in', 'marine_rush', 'one_base_all_in', 'two_base_all_in'):
             return StrategyPrediction(
                 probs={
                     StrategyCategory.CHEESE: 0.2,
@@ -251,8 +279,21 @@ class StrategyBelief:
                     StrategyCategory.MACRO: 0.0,
                 },
                 label=StrategyCategory.ALL_IN,
-                level2="marine_all_in",
+                level2=terran_label,
                 source="auto-TRUE:terran_allin",
+                game_time=game_time,
+            )
+        if terran_label in ('bio_timing', 'tank_timing', 'widow_mine_drop'):
+            return StrategyPrediction(
+                probs={
+                    StrategyCategory.CHEESE: 0.0,
+                    StrategyCategory.ALL_IN: 0.15,
+                    StrategyCategory.TIMING_ATTACK: 0.75,
+                    StrategyCategory.MACRO: 0.1,
+                },
+                label=StrategyCategory.TIMING_ATTACK,
+                level2=terran_label,
+                source="auto-TRUE:terran_timing",
                 game_time=game_time,
             )
 
@@ -284,7 +325,7 @@ class StrategyBelief:
                 source="auto-TRUE:proxy_gate",
                 game_time=game_time,
             )
-        if protoss_label == 'four_gate':
+        if protoss_label in ('four_gate', 'six_gate'):
             return StrategyPrediction(
                 probs={
                     StrategyCategory.CHEESE: 0.1,
@@ -293,11 +334,11 @@ class StrategyBelief:
                     StrategyCategory.MACRO: 0.0,
                 },
                 label=StrategyCategory.ALL_IN,
-                level2="four_gate",
-                source="auto-TRUE:four_gate",
+                level2=protoss_label,
+                source="auto-TRUE:protoss_allin",
                 game_time=game_time,
             )
-        if protoss_label == 'all_in':
+        if protoss_label in ('all_in', 'two_base_colossus', 'two_base_all_in', 'one_base_all_in'):
             return StrategyPrediction(
                 probs={
                     StrategyCategory.CHEESE: 0.2,
@@ -306,8 +347,21 @@ class StrategyBelief:
                     StrategyCategory.MACRO: 0.0,
                 },
                 label=StrategyCategory.ALL_IN,
-                level2="all_in",
+                level2=protoss_label,
                 source="auto-TRUE:protoss_allin",
+                game_time=game_time,
+            )
+        if protoss_label == 'stargate_timing':
+            return StrategyPrediction(
+                probs={
+                    StrategyCategory.CHEESE: 0.0,
+                    StrategyCategory.ALL_IN: 0.15,
+                    StrategyCategory.TIMING_ATTACK: 0.75,
+                    StrategyCategory.MACRO: 0.1,
+                },
+                label=StrategyCategory.TIMING_ATTACK,
+                level2="stargate_timing",
+                source="auto-TRUE:protoss_timing",
                 game_time=game_time,
             )
 

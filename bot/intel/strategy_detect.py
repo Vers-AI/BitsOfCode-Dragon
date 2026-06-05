@@ -412,10 +412,11 @@ def _detect_zerg_ling_rush(bot: "PiG_Bot") -> bool:
 
 
 def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
-    """Zerg all-in detection beyond ling rush (roach, ravager).
+    """Zerg all-in and timing detection beyond ling rush.
 
-    Uses ARES mediator booleans for patterns we don't track with timing signals.
-    Labels: roach_rush, ravager_push.
+    Uses ARES mediator booleans + timing signals for patterns we track.
+    Labels: roach_rush, ravager_push, roach_timing, roach_ravager_push,
+            one_base_all_in, two_base_all_in.
     """
     if bot.enemy_race.name not in ("Zerg", "Random"):
         return False
@@ -426,6 +427,14 @@ def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
 
     if bot._zerg_allin_detected:
         return True
+
+    bases = getattr(bot, '_enemy_bases_count', 0)
+    rw_time = getattr(bot, '_roach_warren_seen_time', None)
+    spire_time = getattr(bot, '_spire_seen_time', None)
+    nat_started = getattr(bot, '_enemy_nat_started_at', None)
+    time_now = bot.time
+
+    # === ARES AUTO-TRUE GUARDS ===
 
     # ARES roach rush
     if bot.mediator.get_enemy_roach_rushed:
@@ -445,15 +454,91 @@ def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
         print(f"{bot.time_formatted}: Zerg all-in detected (ARES): ravager_push")
         return True
 
+    # === RULE-BASED DETECTION ===
+
+    # roach_rush: roach warren early + 1 base
+    if rw_time is not None and rw_time < 180.0 and bases == 1:
+        bot._zerg_allin_detected = True
+        bot._zerg_allin_label = "roach_rush"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(roach warren early + 1 base)"
+        print(f"{bot.time_formatted}: Zerg all-in detected (rules): "
+              f"roach_rush (rw@{rw_time:.0f}s, bases={bases})")
+        return True
+
+    # ravager_rush: ravagers seen + 1 base
+    ravager_seen = any(
+        u.type_id == UnitTypeId.RAVAGER for u in bot.enemy_units
+    )
+    if ravager_seen and bases == 1 and time_now < 420.0:
+        bot._zerg_allin_detected = True
+        bot._zerg_allin_label = "ravager_push"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(ravager + 1 base)"
+        print(f"{bot.time_formatted}: Zerg all-in detected (rules): "
+              f"ravager_push (bases={bases})")
+        return True
+
+    # roach_ravager_push: roach warren < 270s + 2 bases + no Spire
+    if (rw_time is not None and rw_time < 270.0
+            and bases == 2 and spire_time is None and time_now > 180.0):
+        bot._zerg_allin_detected = True
+        bot._zerg_allin_label = "roach_ravager_push"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(2-base roach/ravager push)"
+        print(f"{bot.time_formatted}: Zerg all-in detected (rules): "
+              f"roach_ravager_push (rw@{rw_time:.0f}s, bases={bases})")
+        return True
+
+    # one_base_all_in: 1 base + game > 4min + no natural
+    if bases == 1 and time_now > 240.0 and nat_started is None:
+        scouted = getattr(bot, '_last_nat_scout_time', None)
+        if scouted is not None and scouted > 180.0:
+            bot._zerg_allin_detected = True
+            bot._zerg_allin_label = "one_base_all_in"
+            bot._cheese_source = "rules"
+            bot._cheese_chat_pending = "(1 base all-in)"
+            print(f"{bot.time_formatted}: Zerg all-in detected (rules): "
+              f"one_base_all_in (bases={bases}, t={time_now:.0f}s)")
+            return True
+
+    # two_base_all_in: 2 bases + roach warren + no Spire + early push
+    if (bases == 2 and rw_time is not None and spire_time is None
+            and time_now > 240.0 and time_now < 600.0
+            and nat_started is not None and nat_started < 120.0):
+        bot._zerg_allin_detected = True
+        bot._zerg_allin_label = "two_base_all_in"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(2 base all-in)"
+        print(f"{bot.time_formatted}: Zerg all-in detected (rules): "
+              f"two_base_all_in (bases={bases}, t={time_now:.0f}s)")
+        return True
+
+    # roach_timing: roach warren 150-270s + ≥2 bases (not all-in)
+    if (rw_time is not None and 150.0 <= rw_time <= 270.0
+            and bases >= 2 and spire_time is None
+            and not bot._zerg_allin_detected):
+        # This is a timing attack, not an all-in — set label but don't fire
+        # detect_cheese() returns True for non-macro strategies
+        if not hasattr(bot, '_zerg_timing_label'):
+            bot._zerg_timing_label = "roach_timing"
+            bot._cheese_chat_pending = "(roach timing)"
+            print(f"{bot.time_formatted}: Zerg timing detected (rules): "
+                  f"roach_timing (rw@{rw_time:.0f}s, bases={bases})")
+            return True
+
+    bot._zerg_allin_label = "none"
     return False
 
 
 # ── TERRAN DETECTOR ────────────────────────────────────────────────────────
 
 def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
-    """Terran strategy detection — proxy rax, bunker rush, all-in.
+    """Terran strategy detection — proxy rax, bunker rush, all-in, timing.
 
-    Labels: proxy_rax, bunker_rush, all_in, none.
+    Labels: proxy_rax, bunker_rush, marauder_push, marine_rush,
+            all_in, one_base_all_in, two_base_all_in,
+            bio_timing, tank_timing, widow_mine_drop.
     """
     if not hasattr(bot, '_terran_strategy_detected'):
         bot._terran_strategy_detected = False
@@ -470,6 +555,16 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
     nat_started = getattr(bot, '_enemy_nat_started_at', None)
     gas_time = getattr(bot, '_enemy_gas_seen_time', None)
     gas_workers = getattr(bot, '_enemy_gas_workers_count', 0)
+    factory_time = getattr(bot, '_factory_seen_time', None)
+    factory_count = getattr(bot, '_factory_count', 0)
+    starport_time = getattr(bot, '_starport_seen_time', None)
+    bases = getattr(bot, '_enemy_bases_count', 0)
+    marauder_time = getattr(bot, '_marauder_seen_time', None)
+    medivac_time = getattr(bot, '_medivac_seen_time', None)
+    tank_time = getattr(bot, '_siege_tank_seen_time', None)
+    mine_time = getattr(bot, '_widow_mine_seen_time', None)
+    stim_time = getattr(bot, '_stimpack_seen_time', None)
+    time_now = bot.time
 
     # === AUTO-TRUE GUARDS ===
 
@@ -494,7 +589,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         return True
 
     # Guard C: ARES marauder rush
-    if bot.mediator.get_enemy_marauder_rush and bot.time < 150.0:
+    if bot.mediator.get_enemy_marauder_rush and time_now < 150.0:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "marauder_push"
         bot._cheese_source = "auto-TRUE:ARES"
@@ -503,7 +598,41 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
               f"marauder_push (ARES)")
         return True
 
-    # === SCORING ===
+    # === RULE-BASED DETECTION ===
+
+    # marine_rush: ≥2 barracks + 1 base + early
+    if rax_count >= 2 and bases == 1 and time_now < 300.0:
+        bot._terran_strategy_detected = True
+        bot._terran_strategy_label = "marine_rush"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(marine rush: rax + 1 base)"
+        print(f"{bot.time_formatted}: Terran strategy detected (rules): "
+              f"marine_rush (rax={rax_count}, bases={bases})")
+        return True
+
+    # one_base_all_in: 1 base + game > 4min + no natural
+    if bases == 1 and time_now > 240.0 and nat_started is None:
+        scouted = getattr(bot, '_last_nat_scout_time', None)
+        if scouted is not None and scouted > 180.0:
+            bot._terran_strategy_detected = True
+            bot._terran_strategy_label = "one_base_all_in"
+            bot._cheese_source = "rules"
+            bot._cheese_chat_pending = "(1 base all-in)"
+            print(f"{bot.time_formatted}: Terran strategy detected (rules): "
+                  f"one_base_all_in (bases={bases}, t={time_now:.0f}s)")
+            return True
+
+    # two_base_all_in: 2 bases + lots of production + early
+    if bases == 2 and time_now < 600.0 and rax_count >= 4:
+        bot._terran_strategy_detected = True
+        bot._terran_strategy_label = "two_base_all_in"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(2 base all-in)"
+        print(f"{bot.time_formatted}: Terran strategy detected (rules): "
+              f"two_base_all_in (rax={rax_count}, bases={bases})")
+        return True
+
+    # === SCORING (cheese-level) ===
     score_proxy = 0
     score_bunker = 0
     score_allin = 0
@@ -523,16 +652,16 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         score_bunker += 2
 
     # All-in signals (no natural, early gas, many rax)
-    if nat_started is None and bot.time > 120.0:
+    if nat_started is None and time_now > 120.0:
         scouted = getattr(bot, '_last_nat_scout_time', None)
         if scouted is not None and scouted > 105.0:
             score_allin += 3
     if gas_time is not None and gas_time < 60.0 and gas_workers >= 2:
         score_allin += 2
-    if rax_count >= 3 and nat_started is None and bot.time < 180.0:
+    if rax_count >= 3 and nat_started is None and time_now < 180.0:
         score_allin += 3
 
-    # === CLASSIFICATION ===
+    # === CLASSIFICATION (cheese-level) ===
     if score_proxy >= 5:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "proxy_rax"
@@ -560,6 +689,39 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
               f"all_in (score={score_allin})")
         return True
 
+    # === TIMING ATTACK DETECTION ===
+    # These return True (non-macro) but set timing labels
+
+    # bio_timing: ≥3 barracks + medivacs
+    if rax_count >= 3 and medivac_time is not None:
+        bot._terran_strategy_detected = True
+        bot._terran_strategy_label = "bio_timing"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(bio timing: rax + medivac)"
+        print(f"{bot.time_formatted}: Terran timing detected (rules): "
+              f"bio_timing (rax={rax_count}, medivac@{medivac_time:.0f}s)")
+        return True
+
+    # tank_timing: factory + siege tanks
+    if factory_count > 0 and tank_time is not None:
+        bot._terran_strategy_detected = True
+        bot._terran_strategy_label = "tank_timing"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(tank timing)"
+        print(f"{bot.time_formatted}: Terran timing detected (rules): "
+              f"tank_timing (factory + tanks)")
+        return True
+
+    # widow_mine_drop: starport + widow mines
+    if starport_time is not None and mine_time is not None:
+        bot._terran_strategy_detected = True
+        bot._terran_strategy_label = "widow_mine_drop"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(widow mine drop)"
+        print(f"{bot.time_formatted}: Terran timing detected (rules): "
+              f"widow_mine_drop (starport + mines)")
+        return True
+
     bot._terran_strategy_label = "none"
     return False
 
@@ -567,9 +729,10 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
 # ── PROTOSS DETECTOR ───────────────────────────────────────────────────────
 
 def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
-    """Protoss strategy detection — cannon rush, proxy gates, four-gate, all-in.
+    """Protoss strategy detection — cannon rush, proxy gates, four-gate, all-in, timing.
 
-    Labels: cannon_rush, proxy_gate, four_gate, all_in, none.
+    Labels: cannon_rush, proxy_gate, four_gate, six_gate, all_in,
+            two_base_colossus, two_base_all_in, stargate_timing.
     """
     if not hasattr(bot, '_protoss_strategy_detected'):
         bot._protoss_strategy_detected = False
@@ -580,6 +743,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
 
     gw_time = getattr(bot, '_gateway_seen_time', None)
     gw_count = getattr(bot, '_gateway_count', 0)
+    wg_count = getattr(bot, '_warpgate_count', 0)
     gw_proxy = getattr(bot, '_gateway_near_our_base', False)
     forge_time = getattr(bot, '_forge_seen_time', None)
     cannon_time = getattr(bot, '_cannon_seen_time', None)
@@ -589,6 +753,10 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
     gas_workers = getattr(bot, '_enemy_gas_workers_count', 0)
     stargate_time = getattr(bot, '_stargate_seen_time', None)
     robo_time = getattr(bot, '_robotics_facility_seen_time', None)
+    robo_bay_time = getattr(bot, '_robotics_bay_seen_time', None)
+    bases = getattr(bot, '_enemy_bases_count', 0)
+    time_now = bot.time
+    total_gates = gw_count + wg_count
 
     # === AUTO-TRUE GUARDS ===
 
@@ -642,7 +810,61 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
               f"four_gate (ARES)")
         return True
 
-    # === SCORING ===
+    # === RULE-BASED DETECTION ===
+
+    # four_gate: ≥4 gates + 1 base
+    if total_gates >= 4 and bases == 1:
+        bot._protoss_strategy_detected = True
+        bot._protoss_strategy_label = "four_gate"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(4+ gates + 1 base)"
+        print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
+              f"four_gate (gates={total_gates}, bases={bases})")
+        return True
+
+    # six_gate: ≥6 gates + 2 bases
+    if total_gates >= 6 and bases == 2:
+        bot._protoss_strategy_detected = True
+        bot._protoss_strategy_label = "six_gate"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(6+ gates + 2 bases)"
+        print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
+              f"six_gate (gates={total_gates}, bases={bases})")
+        return True
+
+    # two_base_colossus: robotics bay + 2 bases + early
+    if robo_bay_time is not None and bases == 2 and time_now < 480.0:
+        bot._protoss_strategy_detected = True
+        bot._protoss_strategy_label = "two_base_colossus"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(2-base colossus)"
+        print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
+              f"two_base_colossus (robo_bay@{robo_bay_time:.0f}s)")
+        return True
+
+    # two_base_all_in: 2 bases + lots of gates + early
+    if bases == 2 and time_now < 600.0 and total_gates >= 4:
+        bot._protoss_strategy_detected = True
+        bot._protoss_strategy_label = "two_base_all_in"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(2 base all-in)"
+        print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
+              f"two_base_all_in (gates={total_gates}, bases={bases})")
+        return True
+
+    # one_base_all_in: 1 base + game > 4min + no natural
+    if bases == 1 and time_now > 240.0 and nat_started is None:
+        scouted = getattr(bot, '_last_nat_scout_time', None)
+        if scouted is not None and scouted > 180.0:
+            bot._protoss_strategy_detected = True
+            bot._protoss_strategy_label = "one_base_all_in"
+            bot._cheese_source = "rules"
+            bot._cheese_chat_pending = "(1 base all-in)"
+            print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
+                  f"one_base_all_in (bases={bases}, t={time_now:.0f}s)")
+            return True
+
+    # === SCORING (cheese-level) ===
     score_cannon = 0
     score_proxy = 0
     score_four_gate = 0
@@ -667,26 +889,26 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         score_proxy += 2
 
     # Four-gate signals (4+ gates, no natural, early gas)
-    if gw_count >= 4 and bot.time < 300.0:
+    if gw_count >= 4 and time_now < 300.0:
         score_four_gate += 3
-    if gw_count >= 4 and nat_started is None and bot.time > 180.0:
+    if gw_count >= 4 and nat_started is None and time_now > 180.0:
         score_four_gate += 3
     if gas_time is not None and gas_time < 80.0 and gas_workers >= 2:
         score_four_gate += 2
     # No stargate/robo by 4:00 with 4+ gates = four-gate commitment
-    if (gw_count >= 4 and bot.time > 240.0
+    if (gw_count >= 4 and time_now > 240.0
             and stargate_time is None and robo_time is None):
         score_four_gate += 2
 
     # All-in signals (no natural, early gas, many gates)
-    if nat_started is None and bot.time > 150.0:
+    if nat_started is None and time_now > 150.0:
         scouted = getattr(bot, '_last_nat_scout_time', None)
         if scouted is not None and scouted > 105.0:
             score_allin += 2
-    if gw_count >= 3 and nat_started is None and bot.time < 180.0:
+    if gw_count >= 3 and nat_started is None and time_now < 180.0:
         score_allin += 3
 
-    # === CLASSIFICATION ===
+    # === CLASSIFICATION (cheese-level) ===
     if score_cannon >= 5:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "cannon_rush"
@@ -721,6 +943,18 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._cheese_chat_pending = f"(all-in score={score_allin})"
         print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
               f"all_in (score={score_allin})")
+        return True
+
+    # === TIMING ATTACK DETECTION ===
+
+    # stargate_timing: stargate early
+    if stargate_time is not None and stargate_time < 270.0:
+        bot._protoss_strategy_detected = True
+        bot._protoss_strategy_label = "stargate_timing"
+        bot._cheese_source = "rules"
+        bot._cheese_chat_pending = "(stargate timing)"
+        print(f"{bot.time_formatted}: Protoss timing detected (rules): "
+              f"stargate_timing (stargate@{stargate_time:.0f}s)")
         return True
 
     bot._protoss_strategy_label = "none"

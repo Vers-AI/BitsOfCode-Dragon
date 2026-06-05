@@ -60,11 +60,14 @@ def track_enemy_timings(bot: "PiG_Bot") -> None:
         _first_ling_seen_time, _first_ling_contact_nat_time, _ling_has_speed
         _ling_pos_history, _baneling_nest_seen_time, _speed_research_started
         _speed_research_time, _gas_workers_count
+        _roach_warren_seen_time, _spire_seen_time
 
     Terran attributes:
         _barracks_seen_time, _barracks_count, _barracks_near_our_base
         _factory_seen_time, _factory_count, _starport_seen_time, _starport_count
         _bunker_near_base, _bunker_seen_time
+        _marauder_seen_time, _medivac_seen_time, _siege_tank_seen_time
+        _widow_mine_seen_time, _stimpack_seen_time
 
     Protoss attributes:
         _gateway_seen_time, _gateway_count, _gateway_near_our_base
@@ -271,6 +274,10 @@ def _init_zerg_attrs(bot: "PiG_Bot") -> None:
         bot._ling_has_speed = False
     if not hasattr(bot, '_ling_pos_history'):
         bot._ling_pos_history = {}
+    if not hasattr(bot, '_roach_warren_seen_time'):
+        bot._roach_warren_seen_time = None
+    if not hasattr(bot, '_spire_seen_time'):
+        bot._spire_seen_time = None
 
 
 def _track_zerg(bot: "PiG_Bot") -> None:
@@ -362,6 +369,18 @@ def _track_zerg(bot: "PiG_Bot") -> None:
         if nests:
             bot._baneling_nest_seen_time = bot.time
 
+    # ── Roach Warren ──
+    if bot._roach_warren_seen_time is None:
+        warrens = [s for s in bot.enemy_structures if s.type_id == UnitTypeId.ROACHWARREN]
+        if warrens:
+            bot._roach_warren_seen_time = _estimate_building_start_time(bot, warrens[0])
+
+    # ── Spire ──
+    if bot._spire_seen_time is None:
+        spires = [s for s in bot.enemy_structures if s.type_id == UnitTypeId.SPIRE]
+        if spires:
+            bot._spire_seen_time = _estimate_building_start_time(bot, spires[0])
+
 
 # ── TERRAN ──────────────────────────────────────────────────────────────────
 
@@ -385,6 +404,16 @@ def _init_terran_attrs(bot: "PiG_Bot") -> None:
         bot._bunker_near_base = False
     if not hasattr(bot, '_bunker_seen_time'):
         bot._bunker_seen_time = None
+    if not hasattr(bot, '_marauder_seen_time'):
+        bot._marauder_seen_time = None
+    if not hasattr(bot, '_medivac_seen_time'):
+        bot._medivac_seen_time = None
+    if not hasattr(bot, '_siege_tank_seen_time'):
+        bot._siege_tank_seen_time = None
+    if not hasattr(bot, '_widow_mine_seen_time'):
+        bot._widow_mine_seen_time = None
+    if not hasattr(bot, '_stimpack_seen_time'):
+        bot._stimpack_seen_time = None
 
 
 def _track_terran(bot: "PiG_Bot") -> None:
@@ -424,6 +453,40 @@ def _track_terran(bot: "PiG_Bot") -> None:
                 or cy_distance_to(b.position, bot.start_location) < 25
                 for b in bunkers
             )
+
+    # ── Terran unit first-seen times ──
+    if bot._marauder_seen_time is None:
+        marauders = [u for u in bot.enemy_units if u.type_id == UnitTypeId.MARAUDER]
+        if marauders:
+            bot._marauder_seen_time = bot.time
+
+    if bot._medivac_seen_time is None:
+        medivacs = [u for u in bot.enemy_units if u.type_id == UnitTypeId.MEDIVAC]
+        if medivacs:
+            bot._medivac_seen_time = bot.time
+
+    if bot._siege_tank_seen_time is None:
+        tanks = [u for u in bot.enemy_units
+                 if u.type_id in (UnitTypeId.SIEGETANK, UnitTypeId.SIEGETANKSIEGED)]
+        if tanks:
+            bot._siege_tank_seen_time = bot.time
+
+    if bot._widow_mine_seen_time is None:
+        mines = [u for u in bot.enemy_units
+                 if u.type_id in (UnitTypeId.WIDOWMINE, UnitTypeId.WIDOWMINEBURROWED)]
+        if mines:
+            bot._widow_mine_seen_time = bot.time
+
+    # ── Stimpack (upgrade on tech lab) ──
+    if bot._stimpack_seen_time is None:
+        # Detect stim by seeing marines with the stim buff
+        marines = [u for u in bot.enemy_units if u.type_id == UnitTypeId.MARINE]
+        if marines:
+            from sc2.ids.buff_id import BuffId
+            for m in marines:
+                if hasattr(BuffId, 'STIMPACK') and BuffId.STIMPACK in m.buffs:
+                    bot._stimpack_seen_time = bot.time
+                    break
 
 
 # ── PROTOSS ────────────────────────────────────────────────────────────────
