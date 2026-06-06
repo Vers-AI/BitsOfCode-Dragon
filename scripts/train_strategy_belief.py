@@ -175,6 +175,11 @@ def derive_strategy_label(row: dict) -> str:
     Time-based heuristics use struct_first_seen (when structures were first
     observed) and first_under_attack_time instead.
     """
+    # Priority 0: API strategy_category (ground truth from enriched endpoint)
+    api_category = (row.get("strategy_category_api") or "").strip().lower()
+    if api_category in ("cheese", "all_in", "timing_attack", "macro"):
+        return api_category
+
     # Priority 1: cheese_type → Level-1 (Zerg games with ground truth)
     # Only use cheese_type mapping for known cheese types (not "none")
     cheese_type = row.get("cheese_type", "none") or "none"
@@ -477,6 +482,7 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
 
         row = {
             "match_id": match_id,
+            "opponent_id": match.get("opponent_id", "") or "",
             "enemy_race": match.get("enemy_race", "Unknown"),
             "enemy_race_int": RACE_MAP.get(match.get("enemy_race", "Unknown"), 3),
             "game_time": game_time,
