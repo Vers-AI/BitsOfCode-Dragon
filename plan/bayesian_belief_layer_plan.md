@@ -278,12 +278,16 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 - Debug overlay format: `Strat: macro(rules) C:15% A:10% T:25% M:50%`, console adds `[level2_build_label]`
 
 **Not yet done**:
-- BN model training (run `scripts/train_strategy_belief.py` against telemetry API; currently falls back to rules)
-- Macro.py integration: counter-table nudging based on `P(timing_attack)` vs `P(macro)`
-- Combat.py integration: `_under_attack` flag informed by StrategyBelief (is near-base threat committed cheese/all_in or just a probe?)
-- Scouting.py integration: hunt mode clearing based on strategy confidence
 - Populate `strategy_category`/`build_label` in telemetry API (currently empty — will fill once games run with enable_strategy=True)
 - Integration testing with games (`enable_strategy: True` is on; needs live validation)
+
+**Done (this session — Phases A-E)**:
+- ✅ Phase A: Strategy-aware threat thresholds — `STRATEGY_THREAT_MULTIPLIER` and `STRATEGY_THREAT_CLEAR_MULTIPLIER` in `threat_detection()` (reactions.py)
+- ✅ Phase B: Strategy-aware composition nudging — `strategy_nudge_proportions()` using COUNTER_TABLE derivation with `STRATEGY_EXPECTED_UNITS` (macro.py)
+- ✅ Phase C: Strategy-aware hunt targets — `get_strategy_hunt_targets()` modifying `get_hunt_target()` fallback (scouting.py)
+- ✅ Phase D: Strategy-aware build runner scout routing — `get_strategy_scout_waypoints()` overriding YAML waypoints (scouting.py)
+- ✅ BN model training — trained and saved to `bot/models/strategy_belief_model.pkl` (previous session)
+- ✅ Opponent Belief — Dirichlet priors from API, saved to `bot/models/opponent_priors.json` (previous session)
 
 ---
 
