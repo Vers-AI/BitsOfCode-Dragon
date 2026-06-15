@@ -105,7 +105,7 @@ These are simple lookup tables derived from SC2 tech trees, not machine learning
 
 **Files to modify**:
 - `bot/bot.py` — instantiate `BeliefUpdater`, call `update()` in `on_step()`, replace binary filter, wire `on_unit_destroyed` callback
-- `bot/utilities/intel.py` — populate `_enemy_unit_last_seen` dict (ghost field, currently empty), wire composition belief into `get_enemy_intel_quality()`
+- `bot/intel/intel_quality.py` — populate `_enemy_unit_last_seen` dict (ghost field, currently empty), wire composition belief into `get_enemy_intel_quality()`
 - `bot/managers/reactions.py` — `assess_threat()` uses `composition.get_weighted_army()` for near-base threat calculation
 - `bot/combat/combat.py` — pass weighted army to `can_win_fight()` and `handle_attack_toggles()`
 - `bot/constants.py` — add `UNIT_HALF_LIFE` constant dict
@@ -123,18 +123,17 @@ These are simple lookup tables derived from SC2 tech trees, not machine learning
 - `bot/belief/belief_state.py` — Frozen dataclass holding BeliefState (composition only for Phase 1)
 - `bot/belief/composition_belief.py` — Core model: exponential decay, structure priors, weighted army, on_unit_destroyed
 - `bot/belief/belief_updater.py` — Produces new BeliefState each frame from observations
-- `tests/test_composition_belief.py` — 13 unit tests for decay formula, constants, structure priors
 
 **Files modified**:
 - `bot/constants.py` — Added UNIT_HALF_LIFE (65 unit types), DEFAULT_HALF_LIFE (20s), STRUCTURE_SEEN_UNIT_PRIOR (12 structures)
-- `bot/utilities/intel.py` — Populated `_enemy_unit_last_seen[tag] = bot.time` for visible units
+- `bot/intel/intel_quality.py` — Populated `_enemy_unit_last_seen[tag] = bot.time` for visible units
 - `bot/bot.py` — BeliefUpdater and BeliefState in __init__; belief update in on_step() (feature-gated); record_destruction in on_unit_destroyed()
 - `bot/combat/combat.py` — 3 integration points: weighted army for can_win_fight, belief freshness for intel gate
 - `bot/managers/reactions.py` — threat_detection(): confidence-weighted army value when belief enabled
 - `bot/utilities/game_report.py` — Added `belief` periodic telemetry event
-- `config.yml` — Added `Belief.enable_composition: False` feature flag
+- `config.yml` — Added `Belief.enable_composition: True` feature flag
 
-**Feature-gated**: All changes behind `config.yml: Belief.enable_composition: False`. When disabled, zero impact on existing behavior.
+**Feature-gated**: All changes behind `config.yml: Belief.enable_composition`. When disabled, zero impact on existing behavior.
 
 ---
 
@@ -221,8 +220,9 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 **Decisions affected**:
 - `early_threat_sensor()` → consumes `P(strategy = cheese_class)` instead of per-race booleans
 - `cheese_reaction()` → threshold on `P_cheese > 0.6` instead of `if cannon_rush`
-- `macro.py` → nudge composition based on `P(timing_attack)` vs `P(macro)`
-- `_under_attack` flag → Strategy Belief informs whether a near-base threat is likely a committed push or just a probe
+- `macro.py` → nudge composition based on `P(timing_attack)` vs `P(macro)` (Phase B: strategy_nudge_proportions)
+- `_under_attack` flag → Strategy Belief informs threat detection thresholds (Phase A: STRATEGY_THREAT_MULTIPLIER)
+- `scouting.py` → strategy-aware hunt targets (Phase C) and scout waypoints (Phase D)
 
 **Files to create**:
 - `bot/belief/strategy_belief.py`
@@ -230,10 +230,10 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 
 **Files to modify**:
 - `bot/managers/reactions.py` — `early_threat_sensor()` consumes `P_cheese` instead of per-race booleans
-- `bot/utilities/rush_detection.py` — kept as fallback, `get_enemy_ling_rushed_v2()` becomes optional path
-- `bot/utilities/intel.py` — `get_enemy_cannon_rushed()` becomes optional path
+- `bot/intel/strategy_detect.py` — `detect_cheese()` becomes optional path (called by strategy belief fallback)
+- `bot/intel/enemy_timings.py` — race-agnostic timing observations (replaces per-file tracking)
 
-**New dependency**: `poetry add pgmpy` (~2.4MB pure Python wheel)
+**New dependency**: `poetry add pgmpy` (~2.4MB pure Python wheel). **Note**: pgmpy is now a **dev-only dependency** — runtime loads the pickled model via `joblib`; only the training script requires pgmpy directly.
 
 **Data prerequisite**: Need 50+ games vs each race. The cloud API (`/api/features/match-level-full`) already has 143+ games. Must:
 1. Run `scripts/train_strategy_belief.py` (fetches from telemetry API, not local JSONL)
@@ -242,40 +242,48 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 4. Save model to `bot/models/strategy_belief_model.pkl`
 5. For local monitoring/analysis: ensure `data/games/` JSONL files exist, query via DuckDB+Streamlit
 
-**Backward compatibility**: Existing `rush_detector_model.pkl` is kept. Strategy belief model falls back to rule-based guards (auto-TRUE) if the BN model file is missing. No regression if the model isn't ready.
+**Backward compatibility**: Existing `rush_detector_model.pkl` is superseded by `strategy_belief_model.pkl`. Strategy belief model falls back to rule-based scoring if the BN model file is missing. No regression if the model isn't ready.
 
-**LOC estimate**: ~180 in `bot/belief/strategy_belief.py`, ~50 in training script, ~30 in integration points
+**LOC estimate**: ~950 in `bot/belief/strategy_belief.py`, ~300 in training script, ~50 in integration points
 
-#### Implementation Status (In Progress)
+#### Implementation Status (Complete ✅)
 
-**Architecture**: Three-layer evaluation — auto-TRUE guards → BN model → rule-based scoring + flat prior. Guards are deterministic (P=1.0) and override everything. BN model slot accepts a trained pgmpy DiscreteBayesianNetwork. Rule-based scoring produces soft probabilities from accumulated evidence. Falls back to flat prior when no evidence exists.
+**Architecture**: Three-layer evaluation — BN model → auto-TRUE guards (fallback) → rule-based scoring (last resort). BN model is the primary path when available. Guards are deterministic (P=1.0) and fire when the model is missing or produces no result. Rule-based scoring produces soft probabilities from accumulated evidence. Falls back to flat prior when no evidence exists.
 
 **Files created**:
-- `bot/belief/strategy_belief.py` — Core module: StrategyCategory enum (4 categories), StrategyPrediction dataclass, StrategyBelief class with 3-layer evaluation. ~290 LOC.
-- `scripts/train_strategy_belief.py` — BN training script: fetches from telemetry API, discretizes timing features, trains pgmpy DiscreteBayesianNetwork, saves to `bot/models/strategy_belief_model.pkl`. ~240 LOC.
+- `bot/belief/strategy_belief.py` — Core module: StrategyCategory enum (4 categories), StrategyPrediction dataclass, StrategyBelief class with 3-layer evaluation, per-race rule scoring, chat messages, Level-2 label inference. ~950 LOC.
+- `scripts/train_strategy_belief.py` — BN training script: fetches from telemetry API, discretizes timing features, trains pgmpy DiscreteBayesianNetwork, saves to `bot/models/strategy_belief_model.pkl`. Includes opponent priors builder with `--priors-output` and `--skip-priors` CLI flags. ~300 LOC.
 
 **Files modified**:
-- `bot/constants.py` — Added StrategyCategory enum, STRATEGY_CATEGORY_PRIOR (4 category priors biased toward macro), STRATEGY_LABELS (per-race Level-2 taxonomy), STRATEGY_TIMING_GUARDS (per-race timing thresholds)
+- `bot/constants.py` — Added StrategyCategory enum, STRATEGY_CATEGORY_PRIOR (4 category priors biased toward macro), STRATEGY_LABELS (per-race Level-2 taxonomy), STRATEGY_TIMING_GUARDS (per-race timing thresholds). Later: STRATEGY_THREAT_MULTIPLIER, STRATEGY_THREAT_CLEAR_MULTIPLIER, STRATEGY_EXPECTED_UNITS, STRATEGY_NUDGE_MAX, STRATEGY_NUDGE_THRESHOLD, STRATEGY_HUNT_TARGETS, STRATEGY_HUNT_THRESHOLD, STRATEGY_SCOUT_WAYPOINTS, STRATEGY_SCOUT_OVERRIDE_THRESHOLD.
 - `bot/belief/belief_state.py` — Added `strategy: StrategyBelief | None = None` field to BeliefState dataclass
-- `bot/belief/belief_updater.py` — Added `enable_strategy` constructor param; creates StrategyBelief when enabled; includes strategy snapshot in BeliefState
-- `bot/belief/__init__.py` — Added StrategyBelief, StrategyPrediction to exports
+- `bot/belief/belief_updater.py` — Added `enable_strategy` + `enable_opponent` constructor params; creates StrategyBelief when enabled; includes strategy snapshot in BeliefState
+- `bot/belief/__init__.py` — Added StrategyBelief, StrategyPrediction, OpponentBelief to exports
 - `bot/bot.py` — Passes `enable_strategy` config flag to BeliefUpdater constructor
-- `bot/managers/reactions.py` — `early_threat_sensor()` now checks strategy belief when `enable_strategy` is on; uses `P(cheese) >= 0.6` threshold to trigger cheese response; falls back to existing boolean system when disabled
+- `bot/managers/reactions.py` — `early_threat_sensor()` now checks strategy belief when `enable_strategy` is on; uses `P(cheese) >= 0.6` threshold to trigger cheese response; falls back to existing boolean system when disabled. `threat_detection()` uses strategy-aware thresholds (Phase A).
+- `bot/managers/macro.py` — `strategy_nudge_proportions()` (Layer 1.5) shifts composition toward units effective vs predicted enemies using COUNTER_TABLE + STRATEGY_EXPECTED_UNITS (Phase B). `_FakeEnemy` class for virtual enemy type representation.
+- `bot/managers/scouting.py` — `get_strategy_hunt_targets()` overrides hunt target order (Phase C). `get_strategy_scout_waypoints()` overrides build runner scout waypoints (Phase D).
+- `bot/intel/enemy_timings.py` — Race-agnostic timing observation layer (all races)
+- `bot/intel/strategy_detect.py` — Multi-race strategy classification (auto-TRUE guards + rule scoring)
+- `bot/intel/intel_quality.py` — Intel freshness/urgency tracking (replaces old `bot/utilities/intel.py`)
 - `bot/utilities/game_report.py` — Added strategy belief telemetry event (periodic `strategy` subsystem) and strategy fields to match record
 - `bot/utilities/debug.py` — Added strategy belief line to in-game debug overlay (label, source, probability bars)
 - `bot/utilities/game_report.py` — Added console print of strategy prediction every 30s for live validation
-- `config.yml` — Added `Belief.enable_strategy: True` feature flag (enabled for testing)
+- `config.yml` — Added `Belief.enable_strategy: True` feature flag
 
 **Design decisions**:
 - `StrategyCategory` enum lives in `bot/constants.py` (not `strategy_belief.py`) to avoid circular imports with the constants dict
-- Auto-TRUE guards preserve existing deterministic logic (ling timing, ARES mediator booleans, cannon rush) as P=1.0 overrides
+- Evaluation order: BN model (primary) → auto-TRUE guards (fallback when model missing) → rule-based scoring (last resort). Guards are deterministic (P=1.0) but only fire as fallback, not override.
 - ARES mediator booleans mapped to Level-1 categories with calibrated probabilities (e.g., `four_gate → all_in 0.8`, `marine_rush → cheese 0.7`) since ARES flags can lag behind ground truth
-- BN model slot loaded from `bot/models/strategy_belief_model.pkl`; falls back gracefully when missing
+- BN model slot loaded from `bot/models/strategy_belief_model.pkl` via `joblib`; falls back gracefully when missing
+- `pgmpy` is a **dev-only dependency** — runtime loads pickled model via `joblib`; training script requires `poetry install` with dev group
+- Auto-TRUE guards delegate to `bot.intel.detect_cheese()` which consolidates all race-specific detectors
 - Rule-based scoring accumulates soft evidence (pool timing, nat expansion, baneling nest) into probability adjustments, normalized to sum to 1.0
 - `Level-2` label inference (`_infer_level2()`) maps observations to specific build labels within the predicted category
 - Training script uses `/api/features/match-level-full` endpoint (45 columns including new engagement/economy metrics)
 - Training script has 3-tier label derivation: API `strategy_category` column → `cheese_type` mapping → game-heuristic fallback
 - Debug overlay format: `Strat: macro(rules) C:15% A:10% T:25% M:50%`, console adds `[level2_build_label]`
+- Nudge pipeline: counter-table (Step 1) → strategy nudge (Step 1.5, predictive forward model) → resource-pressure (Step 2) → priority reorder (Step 3)
 
 **Not yet done**:
 - Populate `strategy_category`/`build_label` in telemetry API (currently empty — will fill once games run with enable_strategy=True)
@@ -415,7 +423,7 @@ Game start against unknown opponent:
 - `bot/utilities/game_report.py` — Added `opponent_prior_applied: True` to match-end telemetry when BN+OPP source is used
 - `config.yml` — Added `enable_opponent: True` under `Belief:`
 - `scripts/train_strategy_belief.py` — Added `build_opponent_priors()` function that aggregates matches by `(opponent_id, enemy_race)`, computes Dirichlet alpha params, and saves to `bot/models/opponent_priors.json`; added `--priors-output` and `--skip-priors` CLI flags; `MIN_GAMES_PER_OPPONENT = 3` threshold
-- `bot/__init__.py` — Version bumped to 0.9.3
+- `bot/__init__.py` — Version bumped to 0.10.0
 
 **Design decisions**:
 - Two-file architecture: `data/opponent_profiles.json` (runtime, ladder-accumulated) and `bot/models/opponent_priors.json` (training, API-derived). Runtime file takes precedence.
@@ -463,9 +471,9 @@ Steps 1-4 are telemetry + analysis, not a belief model. Step 5 may never be need
 | `scipy.stats` | 1.17.1 | **Already installed** (transitive via sklearn) | Phases 1, 3, 4 | Exponential (composition decay), Entropy (VOI), Dirichlet (opponent) |
 | `scikit-learn` | 1.8.0 | **Already installed** (ares dep) | Potential future calibration | `CalibratedClassifierCV` if step 5 is needed |
 | `numpy` | 2.4.4 | **Already installed** | All phases | Array operations for belief state |
-| `pgmpy` | 1.1.2 | **New dependency** | Phase 2 | `DiscreteBayesianNetwork`, `VariableElimination`, `MaximumLikelihoodEstimator` |
+| `pgmpy` | 1.1.2 | **Dev-only dependency** (not runtime) | Phase 2 training | `DiscreteBayesianNetwork`, `VariableElimination`, `MaximumLikelihoodEstimator` — only needed by `scripts/train_strategy_belief.py`; runtime loads pickled model via `joblib` |
 
-**`pgmpy` is the only new runtime dependency.** It is pure Python (~2.4MB wheel), requires Python ≥3.10 (compatible with our ≥3.11 constraint), has no heavy transitive deps beyond numpy/scipy which we already have, and is sklearn-compatible. Variable elimination on our small networks (7-10 nodes) runs in <1ms.
+**`pgmpy` is no longer a runtime dependency.** It was moved to `[tool.poetry.group.dev.dependencies]` — the training script requires `poetry install` with the dev group, but the runtime bot only needs `joblib` (already installed via scikit-learn) to load the pickled model.
 
 **Libraries explicitly not used**:
 - **PyMC / Pyro**: MCMC is too slow for per-frame updates. Useful for offline model analysis only.
@@ -557,19 +565,21 @@ target = bot.belief_state.scout_voi.rank_targets()[0]  # Highest VOI destination
 ## Specific Integration Points
 
 | Existing Function | Belief Consumer | Change |
-|-------------------|-----------------|--------|
+|-------------------|-----------------|-------|
 | `bot.py:296-300` | Composition Belief | Replace binary `age < 30s` filter with weighted unit list |
 | `bot.py:on_unit_destroyed` | Composition Belief | Remove destroyed units with `P=0.0` immediately |
-| `intel.py:get_enemy_intel_quality()` | Composition Belief | Freshness score becomes one component of composition belief |
-| `intel.py:update_enemy_intel_tracking()` | Composition Belief | Populate `_enemy_unit_last_seen` dict (ghost field, currently empty) |
+| `intel/intel_quality.py:get_enemy_intel_quality()` | Composition Belief | Freshness score becomes one component of composition belief |
+| `intel/intel_quality.py:update_enemy_intel_tracking()` | Composition Belief | Populate `_enemy_unit_last_seen` dict (ghost field, currently empty) |
 | `reactions.py:assess_threat()` | Composition Belief | Use `composition.get_weighted_army()` for near-base threat calculation |
-| `reactions.py:threat_detection()` | Strategy Belief | `P(imminent_push)` informs `_under_attack` hysteresis |
+| `reactions.py:threat_detection()` | Strategy Belief | Strategy-aware thresholds via `STRATEGY_THREAT_MULTIPLIER` (Phase A) |
 | `combat.py:handle_attack_toggles()` | Composition + Strategy | Weighted army in combat sim; strategy-informed risk thresholds |
 | `combat.py:can_win_fight()` | Composition Belief | Receives weighted army instead of binary-filtered army |
-| `rush_detection.py:get_enemy_ling_rushed_v2()` | Strategy Belief | Superseded by `strategy_belief.py` (kept as fallback during transition) |
-| `intel.py:get_enemy_cannon_rushed()` | Strategy Belief | Superseded by `P(cannon_rush)` from BN |
-| `scouting.py:get_hunt_target()` | Scout VOI | Rank destinations by information gain |
-| `scouting.py:control_observers()` | Scout VOI | Prioritize highest-VOI destination (observer assignment logic unchanged) |
+| `intel/strategy_detect.py:detect_cheese()` | Strategy Belief | Superseded by `strategy_belief.py` as primary path; kept as fallback |
+| `macro.py:strategy_nudge_proportions()` | Strategy Belief | Predictive composition nudging using `STRATEGY_EXPECTED_UNITS` (Phase B) |
+| `scouting.py:get_hunt_target()` | Strategy Belief | Strategy-aware hunt target order via `STRATEGY_HUNT_TARGETS` (Phase C) |
+| `scouting.py:control_build_runner_scout()` | Strategy Belief | Strategy-aware scout waypoints via `STRATEGY_SCOUT_WAYPOINTS` (Phase D) |
+| `scouting.py:get_hunt_target()` | Scout VOI | Rank destinations by information gain (Phase 3, not yet implemented) |
+| `scouting.py:control_observers()` | Scout VOI | Prioritize highest-VOI destination (Phase 3, not yet implemented) |
 
 ---
 
@@ -667,17 +677,22 @@ This tells you: "when the sim says VICTORY_MARGINAL with +5 supply and 0.8 fresh
 ```
 bot/
   belief/                          ← belief package
-    __init__.py                    ← Re-exports: BeliefState, BeliefUpdater, CompositionBelief, StrategyBelief, OpponentBelief
+    __init__.py                    ← Re-exports: BeliefState, BeliefUpdater, CompositionBelief, StrategyBelief, StrategyPrediction, OpponentBelief
     belief_state.py                ← BeliefState dataclass (read-only snapshot consumed by decisions)
     belief_updater.py              ← Ingests observations, produces new BeliefState each frame; owns OpponentBelief
     composition_belief.py          ← Phase 1: enemy composition with soft decay + structure priors
-    strategy_belief.py             ← Phase 2: multi-race strategy classifier (pgmpy BN + rule guards)
+    strategy_belief.py             ← Phase 2: multi-race strategy classifier (BN + rule guards)
     opponent_belief.py             ← Phase 4: cross-game opponent style priors (Dirichlet alpha params)
+  intel/                           ← observation + classification package (replaces old utilities/intel.py + cheese_detection.py)
+    __init__.py                    ← Re-exports: track_enemy_timings, detect_cheese, get_enemy_intel_quality, etc.
+    enemy_timings.py               ← Race-agnostic timing observation layer (all races)
+    strategy_detect.py             ← Multi-race strategy classification (auto-TRUE guards + rule scoring)
+    intel_quality.py               ← Intel freshness/urgency tracking
   models/
-    strategy_belief_model.pkl      ← pgmpy BN structure + fitted parameters (Phase 2)
+    strategy_belief_model.pkl      ← pgmpy BN structure + fitted parameters (Phase 2, loaded via joblib)
     opponent_priors.json           ← Baseline opponent priors from training script (Phase 4)
 scripts/
-  train_strategy_belief.py         ← Train pgmpy BN + build opponent priors (fetches from cloud telemetry API)
+  train_strategy_belief.py         ← Train pgmpy BN + build opponent priors (fetches from cloud telemetry API; requires pgmpy dev dep)
 data/
   games/                           ← Per-game JSONL telemetry (created on first write)
   opponent_profiles.json           ← Cross-game opponent profiles (Phase 4, runtime, ladder-accumulated)
@@ -695,19 +710,19 @@ data/
 | Model loading: one-time at game start | `strategy_belief_model.pkl` loaded in `on_start()`. No per-frame I/O. |
 | Persistence: ≤1KB per write, ≥30s between writes | Opponent profile written once per game. Telemetry events are existing infrastructure. |
 | Unit destruction: O(1) removal | `on_unit_destroyed` callback immediately removes unit from belief state. No decay calculation needed. |
-| Competition-safe defaults | If belief models fail to load or produce NaN, fall back to existing heuristics. Feature-gated behind `config.yml` flags, all defaulting to **off** in competition builds. |
+| Competition-safe defaults | If belief models fail to load or produce NaN, fall back to existing heuristics. Feature-gated behind `config.yml` flags, all currently `true` for testing; set to `false` for competition if needed. |
 
 ### Feature Flags (config.yml)
 
 ```yaml
 belief:
-  enable_composition: false    # Phase 1
-  enable_strategy: false       # Phase 2
+  enable_composition: true     # Phase 1
+  enable_strategy: true        # Phase 2
   enable_scout_voi: false      # Phase 3
   enable_opponent: true        # Phase 4
 ```
 
-Each flag defaults to `false` except `enable_opponent` which defaults to `true` (safe: flat priors for unknown opponents). Beliefs are disabled in competition until validated. When disabled, existing heuristics run unchanged. Flags are documented in config and in the telemetry plan.
+Each flag currently defaults to `true` except `enable_scout_voi` (Phase 3 not yet implemented). Beliefs are feature-gated behind these flags; when disabled, existing heuristics run unchanged. Flags are documented in config and in the telemetry plan.
 
 ---
 

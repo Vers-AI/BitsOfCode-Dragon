@@ -996,7 +996,7 @@ def select_army_composition(bot, main_army: Units) -> dict:
         if archon_percentage >= threshold:
             selected_composition = army_2
     
-    # === Nudge pipeline: counter-table → resource-pressure → priority reorder ===
+    # === Nudge pipeline: counter-table → strategy → resource-pressure → priority reorder ===
     
     # Step 1: Counter-table nudge (only if intel is fresh enough)
     # When composition belief is enabled, use its probability-weighted freshness
