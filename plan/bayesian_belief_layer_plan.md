@@ -286,7 +286,6 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 - Nudge pipeline: counter-table (Step 1) → strategy nudge (Step 1.5, predictive forward model) → resource-pressure (Step 2) → priority reorder (Step 3)
 
 **Not yet done**:
-- Populate `strategy_category`/`build_label` in telemetry API (currently empty — will fill once games run with enable_strategy=True)
 - Integration testing with games (`enable_strategy: True` is on; needs live validation)
 
 **Done (this session — Phases A-E)**:
@@ -934,7 +933,7 @@ Each phase is a separate task. Budget resets per phase.
 
 1. **Biggest assumption**: That pgmpy's `VariableElimination` runs fast enough for per-frame inference on our networks (7-10 nodes). It should be — small networks, sparse connectivity, 3-4 states per node. But it must be profiled on the first implementation. Plan: if >0.5ms, cache inference results and only re-query when evidence changes (the evidence only changes when a scout report comes in, which is at most once per second).
 
-2. **Most likely failure/edge**: `data/` is empty locally — no JSONL telemetry files from dev sessions. But the cloud API has 143+ games. The training pipeline (`train_strategy_belief.py`) already fetches from the API, so Phase 2 training can proceed now. The gap is: (a) the rush_detect per-match events API endpoint returns empty, so Zerg timing features default to -1; (b) only 2 games labeled `all_in` — the BN can't learn that class reliably. Fix the endpoint, collect more diverse games, then retrain.
+2. **Most likely failure/edge**: `data/` is empty locally — no JSONL telemetry files from dev sessions. But the cloud API has 200+ games. The training pipeline (`train_strategy_belief.py`) already fetches from the API, so Phase 2 training can proceed now. The API now has `strategy_category` populated for all 200 matches (cheese:81, macro:62, all_in:31, timing:26). Remaining gaps: (a) the rush_detect per-match events API endpoint returns empty, so Zerg timing features default to -1; (b) API sends `timing` instead of `timing_attack` — training script normalizes this.
 
 3. **Smallest change to improve robustness**: Populate `_enemy_unit_last_seen` (10 LOC in `update_enemy_intel_tracking()`). This is the foundation for composition belief decay and is currently a ghost — declared but never written to. It costs nothing, breaks nothing, and unblocks Phase 1.
 ---
@@ -961,10 +960,10 @@ These fields are available in the API but not yet consumed by `train_strategy_be
 
 ### What Needs Fixing
 
-1. **rush_detect per-match events endpoint** — Returns empty for tested matches. This is the most critical gap. Without Zerg timing features, the BN can only use `duration_bin`, `rush_conf_bin`, and `enemy_race` to classify strategy. Fix: either (a) ensure the endpoint serves data for matches that have rush_detect events, or (b) add the timing fields to `match-level-full` as pre-aggregated columns (similar to how `avg_12pool_prob` is already included).
+1. **rush_detect per-match events endpoint** — Returns empty for tested matches. Without Zerg timing features, the BN can only use `duration_bin`, `rush_conf_bin`, and `enemy_race` to classify strategy. Fix: either (a) ensure the endpoint serves data for matches that have rush_detect events, or (b) add the timing fields to `match-level-full` as pre-aggregated columns (similar to how `avg_12pool_prob` is already included).
 
-2. **`avg_12pool_prob` and `avg_speedling_prob` are NULL for 60% of games** — The rush detection ML model isn't running for all game versions. The `rush_detected` boolean is also NULL for 86 of 143 games. This suggests the model wasn't deployed for earlier versions or isn't triggered for non-Zerg opponents. Fix: ensure rush detection runs for all games, or accept that these features are Zerg-only and handle NULLs in the BN.
+2. **`avg_12pool_prob` and `avg_speedling_prob` are NULL for 60% of games** — The rush detection ML model isn't running for all game versions. The `rush_detected` boolean is also NULL for many games. Fix: ensure rush detection runs for all games, or accept that these features are Zerg-only and handle NULLs in the BN.
 
-3. **Strategy label coverage** — Only 2 games are labeled `all_in`. The BN will struggle to learn this class. Consider: (a) merging `all_in` into `timing_attack` or `cheese` based on game characteristics, or (b) collecting more games with clear all_in patterns.
+3. ~~**Strategy label coverage**~~ — **Resolved.** API now has 200 matches with `strategy_category` populated (cheese:81, macro:62, all_in:31, timing:26). Training script normalizes `timing` → `timing_attack`.
 
 4. **`nat_start` and expansion scouting** — Currently hardcoded to -1 in the training script. These are critical features for distinguishing macro (fast expansion) from cheese (no expansion). Fix: add these to the match-level-full endpoint, or populate them from the per-match rush_detect events endpoint once it's fixed.

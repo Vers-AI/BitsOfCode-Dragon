@@ -177,6 +177,8 @@ def derive_strategy_label(row: dict) -> str:
     """
     # Priority 0: API strategy_category (ground truth from enriched endpoint)
     api_category = (row.get("strategy_category_api") or "").strip().lower()
+    if api_category == "timing":
+        api_category = "timing_attack"
     if api_category in ("cheese", "all_in", "timing_attack", "macro"):
         return api_category
 
