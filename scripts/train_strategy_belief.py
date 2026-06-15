@@ -22,6 +22,7 @@ Output:
 """
 
 import argparse
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -474,7 +475,7 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
     """
     rows = []
     fetched_events = 0
-    max_event_fetches = min(len(matches), 200)  # Rate limit
+    max_event_fetches = min(len(matches), 500)
 
     for idx, (_, match) in enumerate(matches.iterrows()):
         match_id = match.get("arena_match_id", 0)
@@ -530,6 +531,7 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
         if fetched_events < max_event_fetches:
             events = fetch_match_events(match_id, api_url)
             fetched_events += 1
+            time.sleep(0.05)
             if events:
                 timing = _extract_timing_from_events(events)
                 # Merge timing into row (only overwrite defaults)
@@ -866,7 +868,7 @@ def build_opponent_priors(df: pd.DataFrame, output_path: str = str(OPPONENT_PRIO
     for key, count in top:
         alphas = priors[key]
         alpha_str = ", ".join(f"{cat}={a:.0f}" for cat, a in zip(categories, alphas))
-        print(f"  {key}: {count} games → {alpha_str}")
+        print(f"  {key}: {count} games -> {alpha_str}")
 
     return data
 
