@@ -466,6 +466,14 @@ class PiG_Bot(AresBot):
         
         # Update game state based on game time
         current_time = self.time
+        
+        # Fail-safe: Force complete build if banking too many minerals.
+        # Runs in ALL game states — a stuck build runner blocks handle_macro()
+        # entirely, so this must not be gated to early game only.
+        if self.minerals > 800 and not self.build_order_runner.build_completed:
+            self.build_order_runner.set_build_completed()
+            print(f"Build order force-completed at {self.time:.1f}s due to high minerals")
+        
         if current_time >= self.mid_game_threshold:
             self.game_state = 2  # late game
         elif current_time >= self.early_game_threshold:
@@ -475,10 +483,6 @@ class PiG_Bot(AresBot):
                     self.mediator.clear_role(tag=zealot.tag)
                     self.mediator.assign_role(tag=zealot.tag, role=UnitRole.ATTACKING)
         else:
-             # Fail-safe: Force complete build if banking too many minerals
-            if self.minerals > 800 and not self.build_order_runner.build_completed:
-                self.build_order_runner.set_build_completed()
-                print(f"Build order force-completed at {self.time:.1f}s due to high minerals")
             self.game_state = 0  # early game
             # Gatekeeper for Zerg and Protoss (if position exists)
             if self.enemy_race in {Race.Zerg, Race.Random, Race.Protoss} and self.gatekeeping_pos is not None:

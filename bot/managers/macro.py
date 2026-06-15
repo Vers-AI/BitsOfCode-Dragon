@@ -567,6 +567,146 @@ def resource_pressure_nudge(composition: dict, bot) -> dict:
     return nudged
 
 
+def strategy_nudge_proportions(composition: dict, bot) -> dict:
+    """Layer 1.5: Shift proportions toward units effective against predicted enemy composition.
+
+    Uses strategy belief (P(cheese/all_in/timing/macro)) to predict what enemy units
+    we'll face, then scores our composition against those predicted units using the
+    existing COUNTER_TABLE. This is data-driven — the only "opinion" is what units
+    each strategy/race typically produces (STRATEGY_EXPECTED_UNITS).
+
+    Chained after counter-table nudge, before resource-pressure nudge.
+    Probability-weighted across categories above STRATEGY_NUDGE_THRESHOLD.
+    Max shift ±STRATEGY_NUDGE_MAX (10%), clamped to PRODUCTION_MIN_PROPORTION floor,
+    re-normalized to 1.0.
+
+    Perf note: O(k * m) where k = unit types in comp (~5), m = expected unit types (~5).
+    Runs once per macro cycle — negligible frame cost.
+
+    Args:
+        composition: Army composition dict (already counter-nudged)
+        bot: Bot instance for strategy belief access
+
+    Returns:
+        New composition dict with strategy-adjusted proportions
+    """
+    from bot.constants import (
+        STRATEGY_EXPECTED_UNITS,
+        STRATEGY_NUDGE_MAX,
+        STRATEGY_NUDGE_THRESHOLD,
+    )
+
+    # Guard: strategy belief must be enabled and have a prediction
+    if not bot.config.get("Belief", {}).get("enable_strategy", False):
+        return composition
+
+    prediction = getattr(
+        getattr(bot, "belief_state", None), "strategy", None
+    )
+    if prediction is None:
+        return composition
+    prediction = prediction.last_prediction
+    if prediction is None:
+        return composition
+
+    enemy_race = bot.enemy_race
+
+    # Accumulate probability-weighted effectiveness scores across categories
+    # Each category above threshold contributes proportionally to its P(category)
+    effectiveness: dict[UnitTypeId, float] = {}
+    total_weight = 0.0
+
+    for category, prob in prediction.probs.items():
+        if prob < STRATEGY_NUDGE_THRESHOLD:
+            continue
+        expected_units = STRATEGY_EXPECTED_UNITS.get((category, enemy_race))
+        if expected_units is None:
+            continue
+
+        # Convert expected unit proportions to a fake "enemy list" for
+        # _compute_effectiveness. Weight each unit type by its proportion.
+        # _compute_effectiveness sums COUNTER_TABLE scores per enemy unit,
+        # so we create weighted "virtual" enemies.
+        fake_enemies = []
+        for unit_type, proportion in expected_units.items():
+            # Skip non-unit entries (Pylon, PhotonCannon, etc.) — not in COUNTER_TABLE
+            if unit_type in (UnitTypeId.PYLON, UnitTypeId.PHOTONCANNON,
+                             UnitTypeId.BUNKER, UnitTypeId.SPINECRAWLER,
+                             UnitTypeId.SCV, UnitTypeId.DRONE, UnitTypeId.PROBE,
+                             UnitTypeId.MULE):
+                continue
+            # Create a minimal fake unit with type_id for _compute_effectiveness
+            # We need enough copies to represent the proportion weight
+            count = max(1, round(proportion * 10))  # Scale to integer counts
+            for _ in range(count):
+                fake_enemies.append(_FakeEnemy(unit_type))
+
+        if not fake_enemies:
+            continue
+
+        # Score our composition against these predicted enemies
+        cat_effectiveness = _compute_effectiveness(composition, fake_enemies)
+        if not cat_effectiveness:
+            continue
+
+        # Weight by P(category) and accumulate
+        for unit_type, score in cat_effectiveness.items():
+            effectiveness[unit_type] = effectiveness.get(unit_type, 0.0) + score * prob
+        total_weight += prob
+
+    if not effectiveness or total_weight < 0.01:
+        return composition
+
+    # Normalize effectiveness scores to [-1, +1] range, then scale by STRATEGY_NUDGE_MAX
+    scores = list(effectiveness.values())
+    max_score = max(scores)
+    min_score = min(scores)
+    score_range = max_score - min_score
+
+    if score_range < 0.1:
+        return composition  # All scores equal — no nudge needed
+
+    mid = (max_score + min_score) / 2.0
+    nudged: dict = {}
+    for unit_type, info in composition.items():
+        score = effectiveness.get(unit_type, mid)  # Default to mid if not scored
+        normalized = (score - mid) / (score_range / 2.0)  # -1 to +1
+        nudge = normalized * STRATEGY_NUDGE_MAX
+        new_proportion = info["proportion"] + nudge
+        # Only apply min floor if unit has base proportion > 0 or got a positive nudge
+        if info["proportion"] > 0 or nudge > 0:
+            new_proportion = max(new_proportion, PRODUCTION_MIN_PROPORTION)
+        else:
+            new_proportion = 0.0
+        nudged[unit_type] = {
+            "proportion": new_proportion,
+            "priority": info["priority"],
+        }
+
+    # Re-normalize to 1.0
+    total = sum(v["proportion"] for v in nudged.values())
+    if total > 0:
+        items = list(nudged.values())
+        for info in items:
+            info["proportion"] = round(info["proportion"] / total, 4)
+        rounding_error = 1.0 - sum(v["proportion"] for v in items)
+        items[-1]["proportion"] = round(items[-1]["proportion"] + rounding_error, 4)
+
+    return nudged
+
+
+class _FakeEnemy:
+    """Minimal stand-in for an enemy unit with just a type_id.
+
+    Used by strategy_nudge_proportions() to pass predicted enemy types
+    through _compute_effectiveness() without needing real Unit objects.
+    """
+    __slots__ = ("type_id",)
+
+    def __init__(self, type_id: UnitTypeId):
+        self.type_id = type_id
+
+
 # No static upgrade list - use get_desired_upgrades() instead
 
 def calculate_optimal_worker_count(bot) -> int:
@@ -874,6 +1014,17 @@ def select_army_composition(bot, main_army: Units) -> dict:
         comp = nudge_proportions(selected_composition, enemy_units)
     else:
         comp = selected_composition
+    
+    # Step 1.5: Strategy nudge (shifts proportions toward units effective vs predicted enemies)
+    # Wrapped in try/except so a bug in strategy nudge can't break army production
+    try:
+        strategy_comp = strategy_nudge_proportions(comp, bot)
+        # Validate: proportions must sum to ~1.0 and all be non-negative
+        total = sum(v["proportion"] for v in strategy_comp.values())
+        if 0.9 < total < 1.1 and all(v["proportion"] >= 0 for v in strategy_comp.values()):
+            comp = strategy_comp
+    except Exception as e:
+        print(f"[StrategyNudge] Fallback to counter-nudged composition: {e}")
     
     # Step 2: Resource-pressure nudge (shifts proportions toward affordable units)
     comp = resource_pressure_nudge(comp, bot)
@@ -1345,7 +1496,14 @@ async def handle_macro(
         macro_plan.add(GasBuildingController(to_count=gas_target, max_pending=2))
         
         spawn_target = warp_prism[0].position if warp_prism else spawn_location
-        spawn_freeflow = True if bot._used_cheese_response else freeflow
+        # Freeflow prevents SpawnController from breaking on unaffordable high-priority
+        # units. Use it when: cheese defense active, get_freeflow_mode says yes,
+        # or we have a significant mineral bank (can't afford to stall production).
+        spawn_freeflow = (
+            bot._used_cheese_response
+            or freeflow
+            or bot.minerals > 500  # High bank → always freeflow to avoid stall
+        )
         
         # During reduced economy, use freeflow mode so cheap affordable units
         # still get built (Layer 1 priority reorder puts them first).

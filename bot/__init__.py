@@ -1,3 +1,3 @@
-BOT_VERSION = "0.9.3"
+BOT_VERSION = "0.10.0"
 
 from .bot import PiG_Bot

@@ -13,6 +13,7 @@ Organization:
 from dataclasses import dataclass, field
 from typing import Callable, Union
 
+from sc2.data import Race
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.upgrade_id import UpgradeId
 
@@ -494,6 +495,176 @@ STRATEGY_TIMING_GUARDS: dict[str, dict] = {
 }
 """Timing thresholds for auto-TRUE guards, organized by race.
 Values in game-time seconds."""
+
+# ===== STRATEGY-AWARE THRESHOLDS =====
+STRATEGY_THREAT_MULTIPLIER: dict[StrategyCategory, float] = {
+    StrategyCategory.CHEESE: 0.6,          # 15 → 9.0 (3 stalkers triggers)
+    StrategyCategory.ALL_IN: 0.7,          # 15 → 10.5
+    StrategyCategory.TIMING_ATTACK: 0.85,   # 15 → 12.75
+    StrategyCategory.MACRO: 1.0,            # 15 → 15.0 (unchanged)
+}
+"""Multiplier for UNDER_ATTACK_VALUE_THRESHOLD based on strategy belief.
+Lower values = more sensitive to threats. Cheese lowers threshold by 40%,
+so a small force near our base triggers defensive posture earlier."""
+
+STRATEGY_THREAT_CLEAR_MULTIPLIER: dict[StrategyCategory, float] = {
+    StrategyCategory.CHEESE: 0.6,          # 5 → 3.0
+    StrategyCategory.ALL_IN: 0.7,          # 5 → 3.5
+    StrategyCategory.TIMING_ATTACK: 0.85,   # 5 → 4.25
+    StrategyCategory.MACRO: 1.0,            # 5 → 5.0 (unchanged)
+}
+"""Multiplier for UNDER_ATTACK_CLEAR_VALUE based on strategy belief.
+Lower values = harder to clear the under_attack flag. Prevents oscillation
+when small threats keep appearing near our base against known cheesers."""
+
+# ===== STRATEGY-AWARE COMPOSITION NUDGING =====
+STRATEGY_NUDGE_MAX = 0.10
+"""Maximum proportion shift from strategy nudge (same cap as PRODUCTION_MAX_NUDGE)."""
+
+STRATEGY_NUDGE_THRESHOLD = 0.4
+"""Only apply strategy nudge when P(category) exceeds this threshold."""
+
+STRATEGY_EXPECTED_UNITS: dict[tuple[StrategyCategory, Race], dict[UnitTypeId, float]] = {
+    # Zerg cheese: 12-pool, proxy hatch spine — lings + drones + queen
+    (StrategyCategory.CHEESE, Race.Zerg): {
+        UnitTypeId.ZERGLING: 0.55,
+        UnitTypeId.DRONE: 0.30,
+        UnitTypeId.QUEEN: 0.10,
+        UnitTypeId.SPINECRAWLER: 0.05,
+    },
+    # Zerg all-in: roach/ravager push — armored heavy
+    (StrategyCategory.ALL_IN, Race.Zerg): {
+        UnitTypeId.ROACH: 0.45,
+        UnitTypeId.RAVAGER: 0.25,
+        UnitTypeId.ZERGLING: 0.15,
+        UnitTypeId.QUEEN: 0.10,
+        UnitTypeId.DRONE: 0.05,
+    },
+    # Zerg timing: ling/bane timing — light units + splash
+    (StrategyCategory.TIMING_ATTACK, Race.Zerg): {
+        UnitTypeId.ZERGLING: 0.50,
+        UnitTypeId.BANELING: 0.20,
+        UnitTypeId.DRONE: 0.20,
+        UnitTypeId.QUEEN: 0.07,
+        UnitTypeId.SPINECRAWLER: 0.03,
+    },
+    # Zerg macro: roach/hydra/lurker — diverse composition
+    (StrategyCategory.MACRO, Race.Zerg): {
+        UnitTypeId.ROACH: 0.25,
+        UnitTypeId.HYDRALISK: 0.20,
+        UnitTypeId.ZERGLING: 0.15,
+        UnitTypeId.LURKERMPBURROWED: 0.10,
+        UnitTypeId.DRONE: 0.20,
+        UnitTypeId.QUEEN: 0.08,
+        UnitTypeId.SPINECRAWLER: 0.02,
+    },
+    # Terran cheese: proxy rax, bunker rush — marines + SCVs
+    (StrategyCategory.CHEESE, Race.Terran): {
+        UnitTypeId.MARINE: 0.50,
+        UnitTypeId.SCV: 0.35,
+        UnitTypeId.REAPER: 0.10,
+        UnitTypeId.MARAUDER: 0.05,
+    },
+    # Terran all-in: cyclone push, 1-1-1, bio all-in
+    (StrategyCategory.ALL_IN, Race.Terran): {
+        UnitTypeId.MARINE: 0.35,
+        UnitTypeId.MARAUDER: 0.20,
+        UnitTypeId.CYCLONE: 0.15,
+        UnitTypeId.SIEGETANK: 0.15,
+        UnitTypeId.SCV: 0.10,
+        UnitTypeId.MEDIVAC: 0.05,
+    },
+    # Terran timing: bio timing, widow mine drop
+    (StrategyCategory.TIMING_ATTACK, Race.Terran): {
+        UnitTypeId.MARINE: 0.40,
+        UnitTypeId.MARAUDER: 0.15,
+        UnitTypeId.WIDOWMINE: 0.10,
+        UnitTypeId.MEDIVAC: 0.10,
+        UnitTypeId.SCV: 0.15,
+        UnitTypeId.SIEGETANK: 0.10,
+    },
+    # Terran macro: bio macro, mech
+    (StrategyCategory.MACRO, Race.Terran): {
+        UnitTypeId.MARINE: 0.30,
+        UnitTypeId.MARAUDER: 0.15,
+        UnitTypeId.MEDIVAC: 0.15,
+        UnitTypeId.SIEGETANKSIEGED: 0.10,
+        UnitTypeId.VIKINGFIGHTER: 0.08,
+        UnitTypeId.GHOST: 0.07,
+        UnitTypeId.SCV: 0.10,
+        UnitTypeId.HELLION: 0.05,
+    },
+    # Protoss cheese: cannon rush, proxy gateway — zealots + probes
+    (StrategyCategory.CHEESE, Race.Protoss): {
+        UnitTypeId.ZEALOT: 0.45,
+        UnitTypeId.PROBE: 0.25,
+        UnitTypeId.ADEPT: 0.15,
+        UnitTypeId.PHOTONCANNON: 0.10,
+        UnitTypeId.PYLON: 0.05,
+    },
+    # Protoss all-in: 4-gate, 2-base colossus/blink
+    (StrategyCategory.ALL_IN, Race.Protoss): {
+        UnitTypeId.ZEALOT: 0.35,
+        UnitTypeId.STALKER: 0.30,
+        UnitTypeId.ADEPT: 0.15,
+        UnitTypeId.SENTRY: 0.10,
+        UnitTypeId.PROBE: 0.10,
+    },
+    # Protoss timing: stargate timing, immortal timing, DT drop
+    (StrategyCategory.TIMING_ATTACK, Race.Protoss): {
+        UnitTypeId.STALKER: 0.30,
+        UnitTypeId.ZEALOT: 0.20,
+        UnitTypeId.IMMORTAL: 0.15,
+        UnitTypeId.PHOENIX: 0.15,
+        UnitTypeId.SENTRY: 0.10,
+        UnitTypeId.PROBE: 0.10,
+    },
+    # Protoss macro: 3-base robo/stargate
+    (StrategyCategory.MACRO, Race.Protoss): {
+        UnitTypeId.STALKER: 0.25,
+        UnitTypeId.ZEALOT: 0.15,
+        UnitTypeId.IMMORTAL: 0.15,
+        UnitTypeId.COLOSSUS: 0.10,
+        UnitTypeId.SENTRY: 0.10,
+        UnitTypeId.PHOENIX: 0.10,
+        UnitTypeId.PROBE: 0.10,
+        UnitTypeId.HIGHTEMPLAR: 0.05,
+    },
+}
+"""Expected enemy unit proportions per (strategy category, race).
+Used by strategy_nudge_proportions() to predict what we'll face and nudge
+our composition toward effective counters via COUNTER_TABLE. Proportions
+are based on Liquipedia/community meta knowledge of typical compositions
+at the time each strategy hits."""
+
+# ===== STRATEGY-AWARE SCOUTING =====
+STRATEGY_HUNT_TARGETS: dict[StrategyCategory, list[str]] = {
+    StrategyCategory.CHEESE: ["own_fourth", "own_third", "enemy_nat", "enemy_spawn"],
+    StrategyCategory.ALL_IN: ["enemy_nat", "enemy_spawn"],
+    StrategyCategory.TIMING_ATTACK: ["enemy_nat", "enemy_third", "enemy_spawn"],
+    StrategyCategory.MACRO: ["enemy_spawn", "enemy_nat", "enemy_third", "enemy_fourth"],
+}
+"""Hunt target priority order per strategy category for observer/worker/hallucination scouts.
+Keys are accessor strings resolved by get_strategy_hunt_targets() using mediator methods.
+Cheese checks our own proxy locations first; macro checks enemy bases in order."""
+
+STRATEGY_HUNT_THRESHOLD = 0.4
+"""Only override hunt targets when P(dominant strategy) exceeds this threshold."""
+
+STRATEGY_SCOUT_WAYPOINTS: dict[StrategyCategory, list[str]] = {
+    StrategyCategory.CHEESE: ["FOURTH", "THIRD", "ENEMY_NAT", "ENEMY_SPAWN"],
+    StrategyCategory.ALL_IN: ["ENEMY_NAT", "ENEMY_SPAWN"],
+    StrategyCategory.TIMING_ATTACK: ["ENEMY_NAT", "ENEMY_THIRD", "ENEMY_SPAWN"],
+    # MACRO: no override — keep YAML default waypoints
+}
+"""Build runner scout waypoint overrides per strategy category.
+Uses ARES BuildOrderTargetOptions strings resolved by get_strategy_scout_waypoints().
+Cheese checks our own proxy locations (FOURTH, THIRD) first.
+MACRO has no override — YAML default routes are fine for macro games."""
+
+STRATEGY_SCOUT_OVERRIDE_THRESHOLD = 0.5
+"""Only override YAML scout waypoints when P(dominant strategy) exceeds this threshold.
+Higher than STRATEGY_HUNT_THRESHOLD because overriding the build runner scout is more disruptive."""
 
 # ===== CHOKE/RAMP DETECTION =====
 RAMP_CHOKE_RADIUS = 2.5

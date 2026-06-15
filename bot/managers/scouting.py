@@ -19,9 +19,14 @@ from bot.constants import (
     DEFENDER_SQUAD_RADIUS,
     FRESH_INTEL_THRESHOLD,
     MEMORY_EXPIRY_TIME,
+    STRATEGY_HUNT_TARGETS,
+    STRATEGY_HUNT_THRESHOLD,
+    STRATEGY_SCOUT_WAYPOINTS,
+    STRATEGY_SCOUT_OVERRIDE_THRESHOLD,
     UNIT_ENEMY_DETECTION_RANGE,
     VISIBLE_AGE_THRESHOLD,
 )
+from bot.constants import StrategyCategory
 from bot.intel import get_enemy_intel_quality
 from cython_extensions import cy_distance_to
 
@@ -32,6 +37,77 @@ LAST_KNOWN_AGE_THRESHOLD = 15.0  # Use last known position if < 15s old
 
 # Radius within which the observer is "near" the enemy army and should orbit
 ORBIT_NEAR_RADIUS = 15.0
+
+
+def _resolve_hunt_accessor(bot, accessor: str) -> Optional[Point2]:
+    """Resolve a hunt target accessor string to a Point2 position.
+
+    Maps accessor strings from STRATEGY_HUNT_TARGETS to mediator positions.
+    Returns None if the position is unavailable (e.g., enemy_fourth before scouting).
+
+    Accessor strings:
+        "enemy_spawn" → bot.enemy_start_locations[0]
+        "enemy_nat"   → bot.mediator.get_enemy_nat
+        "enemy_third"  → bot.mediator.get_enemy_third
+        "enemy_fourth" → bot.mediator.get_enemy_fourth
+        "own_third"   → bot.mediator.get_own_expansions[1][0]
+        "own_fourth"  → bot.mediator.get_own_expansions[2][0]
+    """
+    try:
+        if accessor == "enemy_spawn":
+            return bot.enemy_start_locations[0]
+        elif accessor == "enemy_nat":
+            return bot.mediator.get_enemy_nat
+        elif accessor == "enemy_third":
+            return bot.mediator.get_enemy_third
+        elif accessor == "enemy_fourth":
+            return bot.mediator.get_enemy_fourth
+        elif accessor == "own_third":
+            expansions = bot.mediator.get_own_expansions
+            return expansions[1][0] if len(expansions) > 1 else None
+        elif accessor == "own_fourth":
+            expansions = bot.mediator.get_own_expansions
+            return expansions[2][0] if len(expansions) > 2 else None
+    except (IndexError, KeyError, TypeError):
+        return None
+    return None
+
+
+def get_strategy_hunt_targets(bot) -> Optional[list[Point2]]:
+    """Get strategy-aware hunt targets based on the dominant strategy belief.
+
+    Returns a list of Point2 positions ordered by priority for scouting,
+    or None if strategy belief is disabled or not confident enough.
+
+    Uses STRATEGY_HUNT_TARGETS to determine which positions to check
+    based on the predicted strategy (cheese checks proxy locations first,
+    macro checks enemy bases in order).
+    """
+    if not bot.config.get("Belief", {}).get("enable_strategy", False):
+        return None
+
+    strategy = getattr(getattr(bot, "belief_state", None), "strategy", None)
+    if strategy is None or strategy.last_prediction is None:
+        return None
+
+    prediction = strategy.last_prediction
+    dominant = max(prediction.probs, key=prediction.probs.get)
+    confidence = prediction.probs[dominant]
+
+    if confidence < STRATEGY_HUNT_THRESHOLD:
+        return None
+
+    accessors = STRATEGY_HUNT_TARGETS.get(dominant)
+    if accessors is None:
+        return None
+
+    targets = []
+    for accessor in accessors:
+        pos = _resolve_hunt_accessor(bot, accessor)
+        if pos is not None:
+            targets.append(pos)
+
+    return targets if targets else None
 
 
 def get_hunt_target(bot, unit: Unit) -> Point2:
@@ -86,14 +162,20 @@ def get_hunt_target(bot, unit: Unit) -> Point2:
             # to the centroid
             return centroid
     
-    # Fallback: patrol enemy expansions using ARES properties
-    # Order: 4th → 3rd → nat → main (armies often stage at outer bases)
-    hunt_targets = [
-        bot.mediator.get_enemy_fourth,
-        bot.mediator.get_enemy_third,
-        bot.mediator.get_enemy_nat,
-        bot.enemy_start_locations[0],  # Enemy main last
-    ]
+    # Fallback: patrol expansions using strategy-aware targets or default order
+    # Strategy belief can redirect scouts to proxy locations (cheese) or
+    # skip our own bases (macro) instead of always cycling 4th→3rd→nat→main
+    strategy_targets = get_strategy_hunt_targets(bot)
+    if strategy_targets:
+        hunt_targets = strategy_targets
+    else:
+        # Default: cycle enemy expansions 4th → 3rd → nat → main
+        hunt_targets = [
+            bot.mediator.get_enemy_fourth,
+            bot.mediator.get_enemy_third,
+            bot.mediator.get_enemy_nat,
+            bot.enemy_start_locations[0],  # Enemy main last
+        ]
     
     # Initialize or get current hunt target index
     hunt_key = f"hunt_{tag}"
@@ -250,6 +332,114 @@ def _extract_scout_waypoints(bot) -> list[Point2]:
     return [bot.enemy_start_locations[0]]
 
 
+def _resolve_scout_waypoint(bot, waypoint_str: str) -> Optional[Point2]:
+    """Resolve a BuildOrderTargetOptions string to a Point2 position.
+
+    Maps ARES waypoint strings from STRATEGY_SCOUT_WAYPOINTS to actual positions
+    using the same resolution logic as ARES build runner's _get_target().
+
+    Args:
+        bot: The bot instance
+        waypoint_str: ARES BuildOrderTargetOptions string (e.g., "ENEMY_NAT", "FOURTH")
+
+    Returns:
+        Point2 position, or None if unavailable
+    """
+    try:
+        if waypoint_str == "ENEMY_SPAWN":
+            return bot.enemy_start_locations[0]
+        elif waypoint_str == "ENEMY_NAT":
+            return bot.mediator.get_enemy_nat
+        elif waypoint_str == "ENEMY_THIRD":
+            return bot.mediator.get_enemy_third
+        elif waypoint_str == "ENEMY_FOURTH":
+            return bot.mediator.get_enemy_fourth
+        elif waypoint_str == "ENEMY_RAMP":
+            return bot.mediator.get_enemy_ramp.top_center
+        elif waypoint_str == "ENEMY_NAT_VISION":
+            # 10 units from enemy nat toward map center
+            enemy_nat = bot.mediator.get_enemy_nat
+            map_center = bot.game_info.map_center
+            direction = (map_center - enemy_nat)
+            distance = direction.length
+            if distance > 0:
+                return enemy_nat + direction / distance * 10
+            return enemy_nat
+        elif waypoint_str == "ENEMY_NAT_HG_SPOT":
+            return bot.mediator.get_closest_overlord_spot(
+                from_pos=bot.mediator.get_enemy_nat
+            )
+        elif waypoint_str == "SPAWN":
+            return bot.start_location
+        elif waypoint_str == "NAT":
+            return bot.mediator.get_own_nat
+        elif waypoint_str == "RAMP":
+            return bot.main_base_ramp.top_center
+        elif waypoint_str == "THIRD":
+            expansions = bot.mediator.get_own_expansions
+            return expansions[1][0] if len(expansions) > 1 else None
+        elif waypoint_str == "FOURTH":
+            expansions = bot.mediator.get_own_expansions
+            return expansions[2][0] if len(expansions) > 2 else None
+        elif waypoint_str == "FIFTH":
+            expansions = bot.mediator.get_own_expansions
+            return expansions[3][0] if len(expansions) > 3 else None
+        elif waypoint_str == "SIXTH":
+            expansions = bot.mediator.get_own_expansions
+            return expansions[4][0] if len(expansions) > 4 else None
+        elif waypoint_str == "MAP_CENTER":
+            return bot.game_info.map_center
+        elif waypoint_str == "NAT_WALL":
+            return bot.mediator.get_own_nat
+        elif waypoint_str == "REAPER_WALL":
+            return bot.start_location
+    except (IndexError, KeyError, TypeError, AttributeError):
+        return None
+    return None
+
+
+def get_strategy_scout_waypoints(bot) -> Optional[list[Point2]]:
+    """Get strategy-aware build runner scout waypoints based on strategy belief.
+
+    Returns a list of Point2 waypoints for the build runner scout, ordered by
+    priority based on the predicted strategy. Returns None if strategy belief
+    is disabled, not confident enough, or if the strategy is MACRO (keep YAML
+    default for macro games).
+
+    Uses STRATEGY_SCOUT_WAYPOINTS to determine which positions to check.
+    Cheese checks our own proxy locations (FOURTH, THIRD) first.
+    """
+    if not bot.config.get("Belief", {}).get("enable_strategy", False):
+        return None
+
+    strategy = getattr(getattr(bot, "belief_state", None), "strategy", None)
+    if strategy is None or strategy.last_prediction is None:
+        return None
+
+    prediction = strategy.last_prediction
+    dominant = max(prediction.probs, key=prediction.probs.get)
+    confidence = prediction.probs[dominant]
+
+    # MACRO keeps YAML default — no override needed
+    if dominant == StrategyCategory.MACRO:
+        return None
+
+    if confidence < STRATEGY_SCOUT_OVERRIDE_THRESHOLD:
+        return None
+
+    waypoint_strs = STRATEGY_SCOUT_WAYPOINTS.get(dominant)
+    if waypoint_strs is None:
+        return None
+
+    waypoints = []
+    for ws in waypoint_strs:
+        pos = _resolve_scout_waypoint(bot, ws)
+        if pos is not None:
+            waypoints.append(pos)
+
+    return waypoints if waypoints else None
+
+
 def _generate_base_scout_waypoints(bot) -> list[Point2]:
     """Generate waypoints: enemy nat → enemy main perimeter → enemy third.
 
@@ -352,7 +542,12 @@ def control_build_runner_scout(bot) -> None:
 
         # --- Initialize waypoint tracking for new scouts ---
         if tag not in bot._br_scout_waypoints:
-            waypoints = _extract_scout_waypoints(bot)
+            # Strategy-aware waypoints override YAML defaults when belief is confident
+            strategy_waypoints = get_strategy_scout_waypoints(bot)
+            if strategy_waypoints:
+                waypoints = strategy_waypoints
+            else:
+                waypoints = _extract_scout_waypoints(bot)
             bot._br_scout_waypoints[tag] = {"waypoints": waypoints, "idx": 0}
 
         scout_data = bot._br_scout_waypoints[tag]

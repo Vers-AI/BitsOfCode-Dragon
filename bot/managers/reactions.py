@@ -27,6 +27,8 @@ from bot.constants import (
     UNDER_ATTACK_CLEAR_VALUE,
     COMMON_UNIT_IGNORE_TYPES,
     MEMORY_EXPIRY_TIME,
+    STRATEGY_THREAT_MULTIPLIER,
+    STRATEGY_THREAT_CLEAR_MULTIPLIER,
 )
 from bot.constants import StrategyCategory
 
@@ -642,13 +644,31 @@ def threat_detection(bot, main_army: Units) -> None:
         ) if known_enemy else 0
     threat_ratio = total_threat_value / max(known_army_value, 1.0)
     
+    # Strategy-aware thresholds: known cheesers trigger defensive posture earlier
+    # and hold it longer. Multipliers lower both trigger and clear thresholds.
+    use_strategy = (
+        bot.config.get("Belief", {}).get("enable_strategy", False)
+        and bot.belief_state.strategy is not None
+        and bot.belief_state.strategy.last_prediction is not None
+    )
+    if use_strategy:
+        prediction = bot.belief_state.strategy.last_prediction
+        dominant = max(prediction.probs, key=prediction.probs.get)
+        trigger_mult = STRATEGY_THREAT_MULTIPLIER.get(dominant, 1.0)
+        clear_mult = STRATEGY_THREAT_CLEAR_MULTIPLIER.get(dominant, 1.0)
+        effective_trigger = UNDER_ATTACK_VALUE_THRESHOLD * trigger_mult
+        effective_clear = UNDER_ATTACK_CLEAR_VALUE * clear_mult
+    else:
+        effective_trigger = UNDER_ATTACK_VALUE_THRESHOLD
+        effective_clear = UNDER_ATTACK_CLEAR_VALUE
+
     # Update _under_attack flag with hysteresis (higher threshold to set, lower to clear)
     # Runs every frame even when no threats detected to allow flag to clear properly
     if bot._under_attack:
-        if total_threat_value < UNDER_ATTACK_CLEAR_VALUE:
+        if total_threat_value < effective_clear:
             bot._under_attack = False
     else:
-        if total_threat_value >= UNDER_ATTACK_VALUE_THRESHOLD:
+        if total_threat_value >= effective_trigger:
             bot._under_attack = True
         elif threat_ratio >= UNDER_ATTACK_RATIO_THRESHOLD:
             bot._under_attack = True
