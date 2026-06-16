@@ -550,8 +550,8 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
 
     # === RULE-BASED DETECTION ===
 
-    # marine_rush: ≥2 barracks + 1 base + early
-    if rax_count >= 2 and bases == 1 and time_now < 300.0:
+    # marine_rush: ≥2 barracks + 1 base + early, but NOT proxy (proxies → proxy_rax via scoring)
+    if rax_count >= 2 and bases == 1 and time_now < 300.0 and not rax_proxy:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "marine_rush"
         bot._cheese_source = "rules"
@@ -589,7 +589,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
 
     # Proxy rax signals
     if rax_proxy:
-        score_proxy += 4
+        score_proxy += 5
     if rax_time is not None and rax_time < 65.0:  # Rax before 1:05
         score_proxy += 3
     if rax_count >= 2 and rax_proxy:
