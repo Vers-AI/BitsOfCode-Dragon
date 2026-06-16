@@ -359,6 +359,22 @@ def _render_combat_sim_overlay(bot, main_army: Units) -> None:
                 )
                 _y += _step
 
+    # Scout VOI staleness display (when enabled)
+    if bot.config.get("Belief", {}).get("enable_scout_voi", False):
+        location_last_seen = getattr(bot, "_location_last_seen", {})
+        if location_last_seen:
+            game_time = bot.time
+            staleness_parts = []
+            for key in sorted(location_last_seen.keys()):
+                staleness = game_time - location_last_seen[key]
+                staleness_parts.append(f"{key}:{staleness:.0f}s")
+            voi_str = " ".join(staleness_parts[:5])
+            bot.client.debug_text_2d(
+                f"VOI: {voi_str}",
+                Point2((0.1, _y)), None, 10
+            )
+            _y += _step
+
     # Global fight result
     try:
         global_result = bot.mediator.can_win_fight(

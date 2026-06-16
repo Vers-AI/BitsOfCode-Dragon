@@ -282,6 +282,20 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
                   f"T:{pred.p_timing:.0%} M:{pred.p_macro:.0%} "
                   f"[{pred.level2}]")
 
+    # === Telemetry: Scout VOI staleness snapshot (when enabled) ===
+    if bot.config.get("Belief", {}).get("enable_scout_voi", False):
+        location_last_seen = getattr(bot, "_location_last_seen", {})
+        if location_last_seen:
+            voi_fields: dict = {"_ts": bot.time}
+            staleness_parts = []
+            game_time = bot.time
+            for key in sorted(location_last_seen.keys()):
+                voi_fields[f"last_seen_{key}"] = round(location_last_seen[key], 1)
+                staleness = game_time - location_last_seen[key]
+                staleness_parts.append(f"{key}:{staleness:.0f}s")
+            log_event(subsystem="belief", action="periodic", reason="scout_voi", **voi_fields)
+            print(f"  VOI: {' '.join(staleness_parts[:5])}")
+
     # === Telemetry: Rush detection transitions (Zerg/Random only) ===
     if bot.enemy_race in {Race.Zerg, Race.Random}:
         _emit_cheese_detection_transitions(bot)
@@ -672,6 +686,14 @@ def emit_match_record(bot, game_result, game_time: float,
             # Opponent prior applied (Phase 4): record which prior shifted the prediction
             if pred.source == "BN+OPP":
                 match_fields["opponent_prior_applied"] = True
+
+    # Scout VOI staleness snapshot (when enabled)
+    if bot.config.get("Belief", {}).get("enable_scout_voi", False):
+        location_last_seen = getattr(bot, "_location_last_seen", {})
+        if location_last_seen:
+            match_fields["scout_voi_enabled"] = True
+            for key in sorted(location_last_seen.keys()):
+                match_fields[f"last_seen_{key}_final"] = round(location_last_seen[key], 1)
 
     log_match(**match_fields)
 

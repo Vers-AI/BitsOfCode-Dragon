@@ -16,14 +16,22 @@ from ares.managers.squad_manager import UnitSquad
 from bot.combat import attack_target
 from bot.constants import (
     ATTACKING_SQUAD_RADIUS,
+    CANNON_LABELS,
+    CANNON_RUSH_HUNT_TARGETS,
+    CANNON_RUSH_SCOUT_WAYPOINTS,
     DEFENDER_SQUAD_RADIUS,
     FRESH_INTEL_THRESHOLD,
     MEMORY_EXPIRY_TIME,
+    PROXY_HUNT_TARGETS,
+    PROXY_LABELS,
+    RUSH_HUNT_TARGETS,
+    RUSH_LABELS,
     STRATEGY_HUNT_TARGETS,
     STRATEGY_HUNT_THRESHOLD,
     STRATEGY_SCOUT_WAYPOINTS,
     STRATEGY_SCOUT_OVERRIDE_THRESHOLD,
     UNIT_ENEMY_DETECTION_RANGE,
+    VOI_MIN_HUNT_TARGETS,
     VISIBLE_AGE_THRESHOLD,
 )
 from bot.constants import StrategyCategory
@@ -42,19 +50,29 @@ ORBIT_NEAR_RADIUS = 15.0
 def _resolve_hunt_accessor(bot, accessor: str) -> Optional[Point2]:
     """Resolve a hunt target accessor string to a Point2 position.
 
-    Maps accessor strings from STRATEGY_HUNT_TARGETS to mediator positions.
-    Returns None if the position is unavailable (e.g., enemy_fourth before scouting).
+    Maps accessor strings from STRATEGY_HUNT_TARGETS and Level-2 tables
+    to mediator positions. Returns None if the position is unavailable
+    (e.g., enemy_fourth before scouting, or own_fifth on small maps).
 
     Accessor strings:
-        "enemy_spawn" → bot.enemy_start_locations[0]
-        "enemy_nat"   → bot.mediator.get_enemy_nat
-        "enemy_third"  → bot.mediator.get_enemy_third
-        "enemy_fourth" → bot.mediator.get_enemy_fourth
-        "own_third"   → bot.mediator.get_own_expansions[1][0]
-        "own_fourth"  → bot.mediator.get_own_expansions[2][0]
+        "enemy_spawn"      → bot.enemy_start_locations[0]
+        "enemy_nat"       → bot.mediator.get_enemy_nat
+        "enemy_third"      → bot.mediator.get_enemy_third
+        "enemy_fourth"     → bot.mediator.get_enemy_fourth
+        "enemy_fifth"      → bot.mediator.get_enemy_expansions[4][0]
+        "enemy_sixth"      → bot.mediator.get_enemy_expansions[5][0]
+        "own_third"        → bot.mediator.get_own_expansions[1][0]
+        "own_fourth"       → bot.mediator.get_own_expansions[2][0]
+        "own_fifth"        → bot.mediator.get_own_expansions[3][0]
+        "own_sixth"        → bot.mediator.get_own_expansions[4][0]
+        "own_nat_behind"   → center point behind our nat mineral line
+        "own_main_behind"  → center point behind our main mineral line
+        "map_center"       → bot.game_info.map_center
+        "enemy_ramp"       → bot.mediator.get_enemy_ramp.top_center
+        "enemy_main"       → bot.enemy_start_locations[0] (alias for enemy_spawn)
     """
     try:
-        if accessor == "enemy_spawn":
+        if accessor == "enemy_spawn" or accessor == "enemy_main":
             return bot.enemy_start_locations[0]
         elif accessor == "enemy_nat":
             return bot.mediator.get_enemy_nat
@@ -62,13 +80,39 @@ def _resolve_hunt_accessor(bot, accessor: str) -> Optional[Point2]:
             return bot.mediator.get_enemy_third
         elif accessor == "enemy_fourth":
             return bot.mediator.get_enemy_fourth
+        elif accessor == "enemy_fifth":
+            expansions = bot.mediator.get_enemy_expansions
+            return expansions[4][0] if len(expansions) > 4 else None
+        elif accessor == "enemy_sixth":
+            expansions = bot.mediator.get_enemy_expansions
+            return expansions[5][0] if len(expansions) > 5 else None
+        elif accessor == "enemy_ramp":
+            return bot.mediator.get_enemy_ramp.top_center
         elif accessor == "own_third":
             expansions = bot.mediator.get_own_expansions
             return expansions[1][0] if len(expansions) > 1 else None
         elif accessor == "own_fourth":
             expansions = bot.mediator.get_own_expansions
             return expansions[2][0] if len(expansions) > 2 else None
-    except (IndexError, KeyError, TypeError):
+        elif accessor == "own_fifth":
+            expansions = bot.mediator.get_own_expansions
+            return expansions[3][0] if len(expansions) > 3 else None
+        elif accessor == "own_sixth":
+            expansions = bot.mediator.get_own_expansions
+            return expansions[4][0] if len(expansions) > 4 else None
+        elif accessor == "own_nat_behind":
+            behind = bot.mediator.get_behind_mineral_positions(
+                th_pos=bot.mediator.get_own_nat
+            )
+            return behind[1] if len(behind) > 1 else None
+        elif accessor == "own_main_behind":
+            behind = bot.mediator.get_behind_mineral_positions(
+                th_pos=bot.start_location
+            )
+            return behind[1] if len(behind) > 1 else None
+        elif accessor == "map_center":
+            return bot.game_info.map_center
+    except (IndexError, KeyError, TypeError, AttributeError):
         return None
     return None
 
@@ -79,9 +123,11 @@ def get_strategy_hunt_targets(bot) -> Optional[list[Point2]]:
     Returns a list of Point2 positions ordered by priority for scouting,
     or None if strategy belief is disabled or not confident enough.
 
-    Uses STRATEGY_HUNT_TARGETS to determine which positions to check
-    based on the predicted strategy (cheese checks proxy locations first,
-    macro checks enemy bases in order).
+    Level-2 routing: when a specific cheese subtype is identified (e.g.,
+    proxy_rax, cannon_rush, 12_pool), uses dedicated hunt target tables
+    that route scouts to the right locations for that subtype.
+    Falls back to category-level tables when Level-2 is unknown or
+    produces too few valid positions on small maps.
     """
     if not bot.config.get("Belief", {}).get("enable_strategy", False):
         return None
@@ -97,12 +143,34 @@ def get_strategy_hunt_targets(bot) -> Optional[list[Point2]]:
     if confidence < STRATEGY_HUNT_THRESHOLD:
         return None
 
-    accessors = STRATEGY_HUNT_TARGETS.get(dominant)
-    if accessors is None:
+    # Level-2 routing: specific cheese subtypes get dedicated tables
+    level2 = prediction.level2 or ""
+    if level2 in PROXY_LABELS:
+        accessors = PROXY_HUNT_TARGETS
+    elif level2 in CANNON_LABELS:
+        accessors = CANNON_RUSH_HUNT_TARGETS
+    elif level2 in RUSH_LABELS:
+        accessors = RUSH_HUNT_TARGETS
+    else:
+        accessors = None
+
+    if accessors is not None:
+        targets = []
+        for accessor in accessors:
+            pos = _resolve_hunt_accessor(bot, accessor)
+            if pos is not None:
+                targets.append(pos)
+        if len(targets) >= VOI_MIN_HUNT_TARGETS:
+            return targets
+        # Too few valid positions (small map) — fall through to category table
+
+    # Fallback: category-level routing
+    cat_accessors = STRATEGY_HUNT_TARGETS.get(dominant)
+    if cat_accessors is None:
         return None
 
     targets = []
-    for accessor in accessors:
+    for accessor in cat_accessors:
         pos = _resolve_hunt_accessor(bot, accessor)
         if pos is not None:
             targets.append(pos)
@@ -162,20 +230,25 @@ def get_hunt_target(bot, unit: Unit) -> Point2:
             # to the centroid
             return centroid
     
-    # Fallback: patrol expansions using strategy-aware targets or default order
-    # Strategy belief can redirect scouts to proxy locations (cheese) or
-    # skip our own bases (macro) instead of always cycling 4th→3rd→nat→main
+    # Fallback: patrol expansions using strategy-aware targets, VOI, or default order
+    # Priority: Level-2/strategy targets → VOI staleness×relevance → default expansion cycle
     strategy_targets = get_strategy_hunt_targets(bot)
     if strategy_targets:
         hunt_targets = strategy_targets
     else:
-        # Default: cycle enemy expansions 4th → 3rd → nat → main
-        hunt_targets = [
-            bot.mediator.get_enemy_fourth,
-            bot.mediator.get_enemy_third,
-            bot.mediator.get_enemy_nat,
-            bot.enemy_start_locations[0],  # Enemy main last
-        ]
+        # Mid-late game: use staleness × relevance ranking when army is lost
+        from bot.belief.scout_voi import get_voi_destinations
+        voi_targets = get_voi_destinations(bot)
+        if voi_targets:
+            hunt_targets = [pos for pos, _ in voi_targets]
+        else:
+            # Default: cycle enemy expansions 4th → 3rd → nat → main
+            hunt_targets = [
+                bot.mediator.get_enemy_fourth,
+                bot.mediator.get_enemy_third,
+                bot.mediator.get_enemy_nat,
+                bot.enemy_start_locations[0],
+            ]
     
     # Initialize or get current hunt target index
     hunt_key = f"hunt_{tag}"
@@ -389,6 +462,22 @@ def _resolve_scout_waypoint(bot, waypoint_str: str) -> Optional[Point2]:
             return expansions[4][0] if len(expansions) > 4 else None
         elif waypoint_str == "MAP_CENTER":
             return bot.game_info.map_center
+        elif waypoint_str == "OWN_NAT_BEHIND":
+            behind = bot.mediator.get_behind_mineral_positions(
+                th_pos=bot.mediator.get_own_nat
+            )
+            return behind[1] if len(behind) > 1 else None
+        elif waypoint_str == "OWN_MAIN_BEHIND":
+            behind = bot.mediator.get_behind_mineral_positions(
+                th_pos=bot.start_location
+            )
+            return behind[1] if len(behind) > 1 else None
+        elif waypoint_str == "ENEMY_FIFTH":
+            expansions = bot.mediator.get_enemy_expansions
+            return expansions[4][0] if len(expansions) > 4 else None
+        elif waypoint_str == "ENEMY_SIXTH":
+            expansions = bot.mediator.get_enemy_expansions
+            return expansions[5][0] if len(expansions) > 5 else None
         elif waypoint_str == "NAT_WALL":
             return bot.mediator.get_own_nat
         elif waypoint_str == "REAPER_WALL":
@@ -406,8 +495,9 @@ def get_strategy_scout_waypoints(bot) -> Optional[list[Point2]]:
     is disabled, not confident enough, or if the strategy is MACRO (keep YAML
     default for macro games).
 
-    Uses STRATEGY_SCOUT_WAYPOINTS to determine which positions to check.
-    Cheese checks our own proxy locations (FOURTH, THIRD) first.
+    Level-2 routing: cannon rush uses CANNON_RUSH_SCOUT_WAYPOINTS which stay
+    near our own bases. Other Level-2 labels fall through to the existing
+    STRATEGY_SCOUT_WAYPOINTS table.
     """
     if not bot.config.get("Belief", {}).get("enable_strategy", False):
         return None
@@ -427,9 +517,14 @@ def get_strategy_scout_waypoints(bot) -> Optional[list[Point2]]:
     if confidence < STRATEGY_SCOUT_OVERRIDE_THRESHOLD:
         return None
 
-    waypoint_strs = STRATEGY_SCOUT_WAYPOINTS.get(dominant)
-    if waypoint_strs is None:
-        return None
+    # Level-2 routing: cannon rush has its own waypoint route
+    level2 = prediction.level2 or ""
+    if level2 in CANNON_LABELS:
+        waypoint_strs = CANNON_RUSH_SCOUT_WAYPOINTS
+    else:
+        waypoint_strs = STRATEGY_SCOUT_WAYPOINTS.get(dominant)
+        if waypoint_strs is None:
+            return None
 
     waypoints = []
     for ws in waypoint_strs:

@@ -25,6 +25,7 @@ Belief:
     enable_composition: True  # Phase 1: Probability-weighted enemy army tracking
     enable_strategy: True     # Phase 2: Probabilistic strategy classification
     enable_opponent: True     # Phase 4: Cross-game opponent priors (Dirichlet)
+    enable_scout_voi: False   # Phase 3: Level-2 routing + staleness×relevance ranking
 
 Distances:
     GroundEnemyNearBases: 25.

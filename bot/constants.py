@@ -666,6 +666,66 @@ STRATEGY_SCOUT_OVERRIDE_THRESHOLD = 0.5
 """Only override YAML scout waypoints when P(dominant strategy) exceeds this threshold.
 Higher than STRATEGY_HUNT_THRESHOLD because overriding the build runner scout is more disruptive."""
 
+# ===== STRATEGY LEVEL-2 ROUTING =====
+
+PROXY_HUNT_TARGETS: list[str] = [
+    "own_third", "own_fourth", "own_fifth", "own_sixth",
+    "enemy_sixth", "enemy_fifth", "enemy_fourth", "enemy_third",
+    "own_third", "map_center",
+]
+"""Perimeter sweep for proxy rax/gateway/hatch_spine.
+Traces a square around the map covering edge positions where proxy buildings are typically placed.
+On small maps, expansions past own_fourth/enemy_fourth resolve to None and get filtered naturally."""
+
+CANNON_RUSH_HUNT_TARGETS: list[str] = [
+    "own_third", "own_nat_behind", "own_main_behind", "own_third",
+]
+"""Cannon rush: behind our own mineral lines where pylons/cannons go.
+own_nat_behind and own_main_behind resolve via get_behind_mineral_positions()."""
+
+RUSH_HUNT_TARGETS: list[str] = [
+    "enemy_nat", "enemy_spawn", "enemy_third", "enemy_spawn",
+]
+"""Rush: their base to confirm no expansion. No map center (rush comes from their direction)."""
+
+PROXY_LABELS: set[str] = {"proxy_rax", "proxy_gateway", "proxy_hatch_spine"}
+"""Level-2 labels that trigger PROXY_HUNT_TARGETS routing."""
+
+CANNON_LABELS: set[str] = {"cannon_rush"}
+"""Level-2 labels that trigger CANNON_RUSH_HUNT_TARGETS routing."""
+
+RUSH_LABELS: set[str] = {"12_pool", "speedling", "bunker_rush", "worker_rush", "marauder_push"}
+"""Level-2 labels that trigger RUSH_HUNT_TARGETS routing."""
+
+CANNON_RUSH_SCOUT_WAYPOINTS: list[str] = [
+    "OWN_NAT_BEHIND", "OWN_MAIN_BEHIND", "THIRD", "NAT", "RAMP",
+]
+"""Build runner scout waypoints for cannon rush response.
+Stays near our own bases — behind mineral lines where cannons go, then third/nat/ramp."""
+
+VOI_MIN_HUNT_TARGETS = 2
+"""Minimum valid positions from Level-2 routing before falling back to STRATEGY_HUNT_TARGETS."""
+
+# ===== SCOUT VOI  =====
+
+SCOUT_VOI_RELEVANCE: dict[str, float] = {
+    "enemy_nat": 1.5,
+    "last_army_pos": 1.4,
+    "enemy_third": 1.3,
+    "enemy_main": 1.0,
+    "enemy_fourth": 0.8,
+    "enemy_ramp": 0.7,
+}
+"""Relevance weights for mid-late-game staleness × relevance VOI ranking.
+Higher = more decision-relevant location."""
+
+VOI_VISION_RADIUS = 10.0
+"""Radius around a scout position to mark a candidate location as 'seen'.
+Scouts within this radius update _location_last_seen for that location."""
+
+SCOUT_VOI_COMPOSITION_BONUS = 0.3
+"""Small additive bonus to VOI score for locations that would confirm expected-but-unseen unit types."""
+
 # ===== CHOKE/RAMP DETECTION =====
 RAMP_CHOKE_RADIUS = 2.5
 """Radius around ramp top/bottom for choke grid marking (actual ramp ~2-3 tiles wide)"""

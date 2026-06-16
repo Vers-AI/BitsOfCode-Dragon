@@ -90,6 +90,7 @@ class PiG_Bot(AresBot):
         }
         self.observer_targets = {}  # Maps observer.tag -> current target
         self._observer_detection_assignments: dict[int, int] = {}  # observer tag → enemy unit tag (detection duty)
+        self._location_last_seen: dict[str, float] = {}  # Scout VOI: location key → game time last scouted
 
         # Flags for in-game logic
         self._commenced_attack = False
@@ -357,6 +358,11 @@ class PiG_Bot(AresBot):
                 visible_structures=self.enemy_structures,
                 game_time=self.time,
             )
+
+        # Scout VOI staleness tracking (Phase 3, Part 2)
+        if self.config.get("Belief", {}).get("enable_scout_voi", False):
+            from bot.belief.scout_voi import update_location_sightings
+            update_location_sightings(self)
 
         # Reset per-frame flags (set by combat during this step)
         self._blind_ramp_target = None
