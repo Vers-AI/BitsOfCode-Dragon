@@ -189,7 +189,7 @@ def detect_worker_rush(bot: "PiG_Bot") -> bool:
             bot._worker_rush_detected_time = bot.time
             bot._not_worker_rush = False
             bot._cheese_source = "auto-TRUE:ARES"
-            bot._cheese_chat_pending = "(worker rush detected)"
+            bot._strategy_chat_pending = "(worker rush detected)"
             print(f"{bot.time_formatted}: Worker rush detected (ARES)")
         return True
     return False
@@ -242,7 +242,7 @@ def _detect_zerg_ling_rush(bot: "PiG_Bot") -> bool:
         bot._cheese_label = "12_pool"
         bot._auto_true_fired = True
         bot._cheese_source = "auto-TRUE"
-        bot._cheese_chat_pending = "(early lings detected)"
+        bot._strategy_chat_pending = "(early lings detected)"
         print(f"{bot.time_formatted}: Rush detected (Auto-TRUE A): "
               f"Ling seen at {first_ling:.1f}s → 12_pool")
         return True
@@ -254,7 +254,7 @@ def _detect_zerg_ling_rush(bot: "PiG_Bot") -> bool:
         bot._cheese_label = "12_pool"
         bot._auto_true_fired = True
         bot._cheese_source = "auto-TRUE"
-        bot._cheese_chat_pending = "(slow-ling contact)"
+        bot._strategy_chat_pending = "(slow-ling contact)"
         print(f"{bot.time_formatted}: Rush detected (Auto-TRUE B): "
               f"Slow-ling contact at {first_contact:.1f}s → 12_pool")
         return True
@@ -266,7 +266,7 @@ def _detect_zerg_ling_rush(bot: "PiG_Bot") -> bool:
         bot._cheese_label = "speedling"
         bot._auto_true_fired = True
         bot._cheese_source = "auto-TRUE"
-        bot._cheese_chat_pending = "(speed-ling contact)"
+        bot._strategy_chat_pending = "(speed-ling contact)"
         print(f"{bot.time_formatted}: Rush detected (Auto-TRUE C): "
               f"Speed-ling contact at {first_contact:.1f}s → speedling")
         return True
@@ -342,7 +342,7 @@ def _detect_zerg_ling_rush(bot: "PiG_Bot") -> bool:
         bot._cheese_detected = True
         bot._cheese_label = "12_pool"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = f"(rule score={score_12p})"
+        bot._strategy_chat_pending = f"(rule score={score_12p})"
         print(f"{bot.time_formatted}: Rush detected (rules)! "
               f"12_pool (score={score_12p})")
         return True
@@ -351,7 +351,7 @@ def _detect_zerg_ling_rush(bot: "PiG_Bot") -> bool:
         bot._cheese_detected = True
         bot._cheese_label = "speedling"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = f"(rule score={score_speed})"
+        bot._strategy_chat_pending = f"(rule score={score_speed})"
         print(f"{bot.time_formatted}: Rush detected (rules)! "
               f"speedling (score={score_speed})")
         return True
@@ -391,7 +391,7 @@ def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
         bot._zerg_allin_detected = True
         bot._zerg_allin_label = "roach_rush"
         bot._cheese_source = "auto-TRUE:ARES"
-        bot._cheese_chat_pending = "(roach rush detected)"
+        bot._strategy_chat_pending = "(roach rush detected)"
         print(f"{bot.time_formatted}: Zerg all-in detected (ARES): roach_rush")
         return True
 
@@ -400,7 +400,7 @@ def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
         bot._zerg_allin_detected = True
         bot._zerg_allin_label = "ravager_push"
         bot._cheese_source = "auto-TRUE:ARES"
-        bot._cheese_chat_pending = "(ravager rush detected)"
+        bot._strategy_chat_pending = "(ravager rush detected)"
         print(f"{bot.time_formatted}: Zerg all-in detected (ARES): ravager_push")
         return True
 
@@ -411,7 +411,7 @@ def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
         bot._zerg_allin_detected = True
         bot._zerg_allin_label = "roach_rush"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(roach warren early + 1 base)"
+        bot._strategy_chat_pending = "(roach warren early + 1 base)"
         print(f"{bot.time_formatted}: Zerg all-in detected (rules): "
               f"roach_rush (rw@{rw_time:.0f}s, bases={bases})")
         return True
@@ -424,7 +424,7 @@ def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
         bot._zerg_allin_detected = True
         bot._zerg_allin_label = "ravager_push"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(ravager + 1 base)"
+        bot._strategy_chat_pending = "(ravager + 1 base)"
         print(f"{bot.time_formatted}: Zerg all-in detected (rules): "
               f"ravager_push (bases={bases})")
         return True
@@ -435,7 +435,7 @@ def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
         bot._zerg_allin_detected = True
         bot._zerg_allin_label = "roach_ravager_push"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(2-base roach/ravager push)"
+        bot._strategy_chat_pending = "(2-base roach/ravager push)"
         print(f"{bot.time_formatted}: Zerg all-in detected (rules): "
               f"roach_ravager_push (rw@{rw_time:.0f}s, bases={bases})")
         return True
@@ -447,7 +447,7 @@ def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
             bot._zerg_allin_detected = True
             bot._zerg_allin_label = "one_base_all_in"
             bot._cheese_source = "rules"
-            bot._cheese_chat_pending = "(1 base all-in)"
+            bot._strategy_chat_pending = "(1 base all-in)"
             print(f"{bot.time_formatted}: Zerg all-in detected (rules): "
               f"one_base_all_in (bases={bases}, t={time_now:.0f}s)")
             return True
@@ -459,7 +459,7 @@ def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
         bot._zerg_allin_detected = True
         bot._zerg_allin_label = "two_base_all_in"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(2 base all-in)"
+        bot._strategy_chat_pending = "(2 base all-in)"
         print(f"{bot.time_formatted}: Zerg all-in detected (rules): "
               f"two_base_all_in (bases={bases}, t={time_now:.0f}s)")
         return True
@@ -472,7 +472,7 @@ def _detect_zerg_allin(bot: "PiG_Bot") -> bool:
         # detect_cheese() returns True for non-macro strategies
         if not hasattr(bot, '_zerg_timing_label'):
             bot._zerg_timing_label = "roach_timing"
-            bot._cheese_chat_pending = "(roach timing)"
+            bot._strategy_chat_pending = "(roach timing)"
             print(f"{bot.time_formatted}: Zerg timing detected (rules): "
                   f"roach_timing (rw@{rw_time:.0f}s, bases={bases})")
             return True
@@ -523,7 +523,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "proxy_rax"
         bot._cheese_source = "auto-TRUE"
-        bot._cheese_chat_pending = "(proxy barracks detected)"
+        bot._strategy_chat_pending = "(proxy barracks detected)"
         print(f"{bot.time_formatted}: Terran strategy detected (Auto-TRUE): "
               f"Proxy rax at {rax_time:.1f}s")
         return True
@@ -533,7 +533,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "bunker_rush"
         bot._cheese_source = "auto-TRUE"
-        bot._cheese_chat_pending = "(bunker rush detected)"
+        bot._strategy_chat_pending = "(bunker rush detected)"
         print(f"{bot.time_formatted}: Terran strategy detected (Auto-TRUE): "
               f"Bunker rush at {bunker_time:.1f}s")
         return True
@@ -543,7 +543,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "marauder_push"
         bot._cheese_source = "auto-TRUE:ARES"
-        bot._cheese_chat_pending = "(marauder rush detected)"
+        bot._strategy_chat_pending = "(marauder rush detected)"
         print(f"{bot.time_formatted}: Terran strategy detected (Auto-TRUE): "
               f"marauder_push (ARES)")
         return True
@@ -555,7 +555,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "marine_rush"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(marine rush: rax + 1 base)"
+        bot._strategy_chat_pending = "(marine rush: rax + 1 base)"
         print(f"{bot.time_formatted}: Terran strategy detected (rules): "
               f"marine_rush (rax={rax_count}, bases={bases})")
         return True
@@ -567,7 +567,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
             bot._terran_strategy_detected = True
             bot._terran_strategy_label = "one_base_all_in"
             bot._cheese_source = "rules"
-            bot._cheese_chat_pending = "(1 base all-in)"
+            bot._strategy_chat_pending = "(1 base all-in)"
             print(f"{bot.time_formatted}: Terran strategy detected (rules): "
                   f"one_base_all_in (bases={bases}, t={time_now:.0f}s)")
             return True
@@ -577,7 +577,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "two_base_all_in"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(2 base all-in)"
+        bot._strategy_chat_pending = "(2 base all-in)"
         print(f"{bot.time_formatted}: Terran strategy detected (rules): "
               f"two_base_all_in (rax={rax_count}, bases={bases})")
         return True
@@ -616,7 +616,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "proxy_rax"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = f"(proxy score={score_proxy})"
+        bot._strategy_chat_pending = f"(proxy score={score_proxy})"
         print(f"{bot.time_formatted}: Terran strategy detected (rules): "
               f"proxy_rax (score={score_proxy})")
         return True
@@ -625,7 +625,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "bunker_rush"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = f"(bunker score={score_bunker})"
+        bot._strategy_chat_pending = f"(bunker score={score_bunker})"
         print(f"{bot.time_formatted}: Terran strategy detected (rules): "
               f"bunker_rush (score={score_bunker})")
         return True
@@ -634,7 +634,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "all_in"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = f"(all-in score={score_allin})"
+        bot._strategy_chat_pending = f"(all-in score={score_allin})"
         print(f"{bot.time_formatted}: Terran strategy detected (rules): "
               f"all_in (score={score_allin})")
         return True
@@ -647,7 +647,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "bio_timing"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(bio timing: rax + medivac)"
+        bot._strategy_chat_pending = "(bio timing: rax + medivac)"
         print(f"{bot.time_formatted}: Terran timing detected (rules): "
               f"bio_timing (rax={rax_count}, medivac@{medivac_time:.0f}s)")
         return True
@@ -657,7 +657,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "tank_timing"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(tank timing)"
+        bot._strategy_chat_pending = "(tank timing)"
         print(f"{bot.time_formatted}: Terran timing detected (rules): "
               f"tank_timing (factory + tanks)")
         return True
@@ -667,7 +667,7 @@ def _detect_terran_strategy(bot: "PiG_Bot") -> bool:
         bot._terran_strategy_detected = True
         bot._terran_strategy_label = "widow_mine_drop"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(widow mine drop)"
+        bot._strategy_chat_pending = "(widow mine drop)"
         print(f"{bot.time_formatted}: Terran timing detected (rules): "
               f"widow_mine_drop (starport + mines)")
         return True
@@ -725,7 +725,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
             bot._protoss_strategy_detected = True
             bot._protoss_strategy_label = "cannon_rush"
             bot._cheese_source = "auto-TRUE"
-            bot._cheese_chat_pending = "(cannon rush detected)"
+            bot._strategy_chat_pending = "(cannon rush detected)"
             print(f"{bot.time_formatted}: Protoss strategy detected (Auto-TRUE): "
                   f"cannon_rush at {cannon_time:.1f}s")
             return True
@@ -735,7 +735,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "proxy_gate"
         bot._cheese_source = "auto-TRUE"
-        bot._cheese_chat_pending = "(proxy gates detected)"
+        bot._strategy_chat_pending = "(proxy gates detected)"
         print(f"{bot.time_formatted}: Protoss strategy detected (Auto-TRUE): "
               f"proxy_gate at {gw_time:.1f}s")
         return True
@@ -745,7 +745,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "proxy_gate"
         bot._cheese_source = "auto-TRUE:ARES"
-        bot._cheese_chat_pending = "(proxy zealot detected)"
+        bot._strategy_chat_pending = "(proxy zealot detected)"
         print(f"{bot.time_formatted}: Protoss strategy detected (Auto-TRUE): "
               f"proxy_gate (ARES)")
         return True
@@ -755,7 +755,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "four_gate"
         bot._cheese_source = "auto-TRUE:ARES"
-        bot._cheese_chat_pending = "(four gate detected)"
+        bot._strategy_chat_pending = "(four gate detected)"
         print(f"{bot.time_formatted}: Protoss strategy detected (Auto-TRUE): "
               f"four_gate (ARES)")
         return True
@@ -767,7 +767,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "four_gate"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(4+ gates + 1 base)"
+        bot._strategy_chat_pending = "(4+ gates + 1 base)"
         print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
               f"four_gate (gates={total_gates}, bases={bases})")
         return True
@@ -777,7 +777,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "six_gate"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(6+ gates + 2 bases)"
+        bot._strategy_chat_pending = "(6+ gates + 2 bases)"
         print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
               f"six_gate (gates={total_gates}, bases={bases})")
         return True
@@ -787,7 +787,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "two_base_colossus"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(2-base colossus)"
+        bot._strategy_chat_pending = "(2-base colossus)"
         print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
               f"two_base_colossus (robo_bay@{robo_bay_time:.0f}s)")
         return True
@@ -797,7 +797,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "two_base_all_in"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(2 base all-in)"
+        bot._strategy_chat_pending = "(2 base all-in)"
         print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
               f"two_base_all_in (gates={total_gates}, bases={bases})")
         return True
@@ -809,7 +809,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
             bot._protoss_strategy_detected = True
             bot._protoss_strategy_label = "one_base_all_in"
             bot._cheese_source = "rules"
-            bot._cheese_chat_pending = "(1 base all-in)"
+            bot._strategy_chat_pending = "(1 base all-in)"
             print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
                   f"one_base_all_in (bases={bases}, t={time_now:.0f}s)")
             return True
@@ -863,7 +863,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "cannon_rush"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = f"(cannon score={score_cannon})"
+        bot._strategy_chat_pending = f"(cannon score={score_cannon})"
         print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
               f"cannon_rush (score={score_cannon})")
         return True
@@ -872,7 +872,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "proxy_gate"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = f"(proxy score={score_proxy})"
+        bot._strategy_chat_pending = f"(proxy score={score_proxy})"
         print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
               f"proxy_gate (score={score_proxy})")
         return True
@@ -881,7 +881,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "four_gate"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = f"(4gate score={score_four_gate})"
+        bot._strategy_chat_pending = f"(4gate score={score_four_gate})"
         print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
               f"four_gate (score={score_four_gate})")
         return True
@@ -890,7 +890,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "all_in"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = f"(all-in score={score_allin})"
+        bot._strategy_chat_pending = f"(all-in score={score_allin})"
         print(f"{bot.time_formatted}: Protoss strategy detected (rules): "
               f"all_in (score={score_allin})")
         return True
@@ -902,7 +902,7 @@ def _detect_protoss_strategy(bot: "PiG_Bot") -> bool:
         bot._protoss_strategy_detected = True
         bot._protoss_strategy_label = "stargate_timing"
         bot._cheese_source = "rules"
-        bot._cheese_chat_pending = "(stargate timing)"
+        bot._strategy_chat_pending = "(stargate timing)"
         print(f"{bot.time_formatted}: Protoss timing detected (rules): "
               f"stargate_timing (stargate@{stargate_time:.0f}s)")
         return True

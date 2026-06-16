@@ -166,7 +166,7 @@ class StrategyBelief:
         if not detect_cheese(bot):
             return None
 
-        # Auto-TRUE guards already set _cheese_chat_pending via detect_cheese()
+        # Auto-TRUE guards already set _strategy_chat_pending via detect_cheese()
         # No additional chat needed here
 
         # Map the detected strategy label to a StrategyPrediction
@@ -404,7 +404,7 @@ class StrategyBelief:
         """Send in-game chat for non-macro strategy predictions.
 
         Only sends once per category change to avoid spamming every frame.
-        Uses bot._cheese_chat_pending so it integrates with the existing
+        Uses bot._strategy_chat_pending so it integrates with the existing
         chat-send logic in bot.py on_step().
         """
         from bot.constants import StrategyCategory
@@ -431,7 +431,7 @@ class StrategyBelief:
         else:
             msg = f"[{source}] {label.value} {pct}%"
 
-        bot._cheese_chat_pending = msg
+        bot._strategy_chat_pending = msg
         print(f"{bot.time_formatted}: Strategy classified ({source}): "
               f"{label.value} {pct}% ({level2})")
 

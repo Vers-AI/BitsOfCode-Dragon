@@ -325,10 +325,10 @@ class PiG_Bot(AresBot):
         for tag in get_replay_tags_to_send(self):
             await self.chat_send(f"Tag: {tag}")
         
-        # Send pending cheese detection chat (set by cheese_detection.py)
-        if hasattr(self, '_cheese_chat_pending') and self._cheese_chat_pending:
-            await self.chat_send(self._cheese_chat_pending)
-            self._cheese_chat_pending = None
+        # Send pending strategy detection chat (set by strategy_belief.py / strategy_detect.py)
+        if hasattr(self, '_strategy_chat_pending') and self._strategy_chat_pending:
+            await self.chat_send(self._strategy_chat_pending)
+            self._strategy_chat_pending = None
         
         # Update performance metrics (SQ tracking)
         self.performance_monitor.update(iteration, self)

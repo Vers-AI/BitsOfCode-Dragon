@@ -9,6 +9,7 @@ Limitations: Transition events only emit on value change; periodic snapshots sam
 from sc2.ids.unit_typeid import UnitTypeId
 from ares.consts import UnitRole, WORKER_TYPES, TIE_OR_BETTER
 from sc2.data import Race
+from bot.constants import StrategyCategory, STRATEGY_LABELS
 from bot.managers.macro import get_economy_state
 from bot.utilities.telemetry import (
     log_event, log_transition, log_match, log_event_no_sample,
@@ -16,11 +17,39 @@ from bot.utilities.telemetry import (
 
 
 def _get_cheese_type(bot) -> str:
-    """Derive cheese_type from replay tags (first detected cheese wins)."""
+    """Derive strategy label from detection flags (first match wins).
+
+    Covers all labels that strategy_detect.py can set, so the fallback
+    path in get_replay_tags_to_send() has full coverage even when the
+    belief system is disabled. Priority: specific labels > ARES mediator
+    booleans > generic labels.
+    """
+    # Zerg: ling rush labels
     if (bot.enemy_race in {Race.Zerg, Race.Random}
             and hasattr(bot, '_cheese_detected') and bot._cheese_detected
             and hasattr(bot, '_cheese_label') and bot._cheese_label in {'12_pool', 'speedling'}):
         return bot._cheese_label
+    # Zerg: all-in labels
+    if (bot.enemy_race in {Race.Zerg, Race.Random}
+            and hasattr(bot, '_zerg_allin_label')
+            and bot._zerg_allin_label not in {'none', ''}):
+        return bot._zerg_allin_label
+    # Zerg: timing labels
+    if (bot.enemy_race in {Race.Zerg, Race.Random}
+            and hasattr(bot, '_zerg_timing_label')
+            and bot._zerg_timing_label not in {'none', ''}):
+        return bot._zerg_timing_label
+    # Terran: strategy labels
+    if (bot.enemy_race == Race.Terran
+            and hasattr(bot, '_terran_strategy_label')
+            and bot._terran_strategy_label not in {'none', ''}):
+        return bot._terran_strategy_label
+    # Protoss: strategy labels
+    if (bot.enemy_race == Race.Protoss
+            and hasattr(bot, '_protoss_strategy_label')
+            and bot._protoss_strategy_label not in {'none', ''}):
+        return bot._protoss_strategy_label
+    # ARES mediator booleans (race-agnostic, highest priority overrides)
     if not bot._not_worker_rush:
         return "worker_rush"
     if bot._cannon_rush_response:
@@ -405,59 +434,101 @@ def _emit_cheese_detection_transitions(bot) -> None:
         )
 
 
+def _build_commitment_lookup() -> dict[str, str]:
+    """Build a complete label→commitment mapping from the canonical STRATEGY_LABELS.
+
+    Covers all 4 categories. Extras not in STRATEGY_LABELS come from
+    strategy_detect.py and _get_cheese_type() — these are appended below.
+    """
+    lookup: dict[str, str] = {}
+    for category, race_dict in STRATEGY_LABELS.items():
+        cat_name = category.value
+        for _race, labels in race_dict.items():
+            for label in labels:
+                lookup[label] = cat_name
+
+    # Labels produced by strategy_detect.py that aren't in STRATEGY_LABELS
+    extras: dict[str, str] = {
+        "speedling": "cheese",
+        "worker_rush": "cheese",
+        "marine_rush": "all_in",
+        "marauder_rush": "all_in",
+        "marauder_push": "all_in",
+        "proxy_zealot": "cheese",
+        "proxy_gate": "cheese",
+        "roach_rush": "all_in",
+        "ravager_rush": "all_in",
+        "ravager_push": "all_in",
+        "one_base_all_in": "all_in",
+        "two_base_all_in": "all_in",
+        "all_in": "all_in",
+        "six_gate": "all_in",
+        "stargate_timing": "timing_attack",
+        "bio_timing": "timing_attack",
+        "tank_timing": "timing_attack",
+        "widow_mine_drop": "timing_attack",
+        "roach_timing": "timing_attack",
+        "ling_bane_timing": "timing_attack",
+    }
+    lookup.update(extras)
+    return lookup
+
+
+_COMMITMENT_LOOKUP = _build_commitment_lookup()
+"""Maps any known strategy label to its commitment category name."""
+
+
 def get_replay_tags_to_send(bot) -> list[str]:
     """
     Collect replay tags that should be sent this iteration.
     Returns list of tags to send via chat_send().
 
-    Tags are only sent once per game (tracked in bot._replay_tags_sent).
+    Emits a Commitment tag and a Strategy tag from the belief system's
+    StrategyPrediction. Each tag is sent only once per game. For macro
+    games, only the Commitment tag is emitted (no specific build to tag).
+
+    Falls back to legacy _get_cheese_type() when the belief system is
+    disabled or has not yet produced a prediction.
     """
     if not hasattr(bot, '_replay_tags_sent'):
         bot._replay_tags_sent = set()
 
     tags = []
 
-    if (bot.enemy_race in {Race.Zerg, Race.Random}
-            and hasattr(bot, '_cheese_detected')
-            and bot._cheese_detected
-            and hasattr(bot, '_cheese_label')
-            and bot._cheese_label in {'12_pool', 'speedling'}
-            and 'Rush' not in bot._replay_tags_sent):
+    pred = None
+    if (hasattr(bot, 'belief_state')
+            and bot.belief_state is not None
+            and bot.belief_state.strategy is not None):
+        pred = bot.belief_state.strategy.last_prediction
 
-        tags.append(f"Rush_{bot._cheese_label}")
-        bot._replay_tags_sent.add('Rush')
+    if pred is not None:
+        # Commitment tag (always sent, even macro)
+        cat_key = f"Commitment_{pred.label.value}"
+        if cat_key not in bot._replay_tags_sent:
+            tags.append(cat_key)
+            bot._replay_tags_sent.add(cat_key)
 
-    if not bot._not_worker_rush and 'WorkerRush' not in bot._replay_tags_sent:
-        tags.append("WorkerRush")
-        bot._replay_tags_sent.add('WorkerRush')
-
-    if bot._cannon_rush_response and 'CannonRush' not in bot._replay_tags_sent:
-        tags.append("CannonRush")
-        bot._replay_tags_sent.add('CannonRush')
-
-    if bot.mediator.get_enemy_marine_rush and 'MarineRush' not in bot._replay_tags_sent:
-        tags.append("MarineRush")
-        bot._replay_tags_sent.add('MarineRush')
-
-    if bot.mediator.get_enemy_marauder_rush and 'MarauderRush' not in bot._replay_tags_sent:
-        tags.append("MarauderRush")
-        bot._replay_tags_sent.add('MarauderRush')
-
-    if bot.mediator.get_is_proxy_zealot and 'ProxyZealot' not in bot._replay_tags_sent:
-        tags.append("ProxyZealot")
-        bot._replay_tags_sent.add('ProxyZealot')
-
-    if bot.mediator.get_enemy_four_gate and 'FourGate' not in bot._replay_tags_sent:
-        tags.append("FourGate")
-        bot._replay_tags_sent.add('FourGate')
-
-    if bot.mediator.get_enemy_roach_rushed and 'RoachRush' not in bot._replay_tags_sent:
-        tags.append("RoachRush")
-        bot._replay_tags_sent.add('RoachRush')
-
-    if bot.mediator.get_enemy_ravager_rush and 'RavagerRush' not in bot._replay_tags_sent:
-        tags.append("RavagerRush")
-        bot._replay_tags_sent.add('RavagerRush')
+        # Strategy tag (skip for macro — no specific build worth filtering on)
+        if (pred.level2
+                and pred.level2 not in ("none", "unknown")
+                and pred.label != StrategyCategory.MACRO):
+            strat_key = f"Strategy_{pred.level2}"
+            if strat_key not in bot._replay_tags_sent:
+                tags.append(strat_key)
+                bot._replay_tags_sent.add(strat_key)
+    else:
+        # Fallback: legacy cheese detection when belief system is off
+        cheese_type = _get_cheese_type(bot)
+        if cheese_type != "none":
+            commitment = _COMMITMENT_LOOKUP.get(cheese_type, "cheese")
+            cat_key = f"Commitment_{commitment}"
+            if cat_key not in bot._replay_tags_sent:
+                tags.append(cat_key)
+                bot._replay_tags_sent.add(cat_key)
+            strat_key = f"Strategy_{cheese_type}"
+            if strat_key not in bot._replay_tags_sent:
+                tags.append(strat_key)
+                bot._replay_tags_sent.add(strat_key)
 
     return tags
 
