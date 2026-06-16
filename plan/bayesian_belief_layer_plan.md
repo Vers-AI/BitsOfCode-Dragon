@@ -286,9 +286,10 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 - Nudge pipeline: counter-table (Step 1) → strategy nudge (Step 1.5, predictive forward model) → resource-pressure (Step 2) → priority reorder (Step 3)
 
 **Not yet done**:
-- Integration testing with games (`enable_strategy: True` is on; needs live validation)
+- Integration testing with games (`enable_scout_voi: False` currently; needs live validation after enabling)
+- Level-2 routing needs live testing with proxy/cannon/rush games
 
-**Done (this session — Phases A-E)**:
+**Done (previous sessions — Phases A-E)**:
 - ✅ Phase A: Strategy-aware threat thresholds — `STRATEGY_THREAT_MULTIPLIER` and `STRATEGY_THREAT_CLEAR_MULTIPLIER` in `threat_detection()` (reactions.py)
 - ✅ Phase B: Strategy-aware composition nudging — `strategy_nudge_proportions()` using COUNTER_TABLE derivation with `STRATEGY_EXPECTED_UNITS` (macro.py)
 - ✅ Phase C: Strategy-aware hunt targets — `get_strategy_hunt_targets()` modifying `get_hunt_target()` fallback (scouting.py)
@@ -296,43 +297,213 @@ The categories in Opponent Belief (aggressive/defensive/macro) map directly to S
 - ✅ BN model training — trained and saved to `bot/models/strategy_belief_model.pkl` (previous session)
 - ✅ Opponent Belief — Dirichlet priors from API, saved to `bot/models/opponent_priors.json` (previous session)
 
+**Done (this session — Phase 3)**:
+- ✅ Part 1: Level-2-aware hunt targets — PROXY/CANNON/RUSH tables in `constants.py`, routing in `get_strategy_hunt_targets()` and `get_strategy_scout_waypoints()`
+- ✅ Part 2: Staleness × relevance VOI — `bot/belief/scout_voi.py` with `get_voi_destinations()` and `update_location_sightings()`
+- ✅ New accessor strings in `_resolve_hunt_accessor()` and `_resolve_scout_waypoint()`
+- ✅ VOI fallback in `get_hunt_target()` between strategy tables and default expansion cycle
+- ✅ `_location_last_seen` init in `bot.py`, `update_location_sightings()` call per step (guarded by `enable_scout_voi`)
+- ✅ Telemetry: periodic `belief/scout_voi` events, match-end staleness snapshot, debug overlay
+- ✅ Bug fix: CANNON_RUSH_SCOUT_WAYPOINTS used non-existent ARES strings — fixed to use resolver-compatible strings
+- ✅ Bug fix: `update_location_sightings()` was running every frame even when `enable_scout_voi: False` — added config guard
+
 ---
 
-### Phase 3: Scout VOI — Destination Selection by Information Gain
+### Phase 3: Scout VOI — Smart Destination Selection
 
-**What**: Rank scout **destinations** by expected belief entropy reduction. The type of scout (observer, hallucinated phoenix, worker probe) remains determined by stage and availability, as it is today.
+**What**: Two-part enhancement to scouting destinations:
+1. **Early-game**: Level-2-aware routing — proxy, cannon rush, and rush send scouts to different locations based on the specific cheese type detected
+2. **Mid-late-game**: Staleness × relevance ranking — when the army is lost and strategy has converged, rank destinations by how stale they are and how decision-relevant they are
 
-**Current gap**: Scouting uses fixed urgency thresholds. Observers cycle expansions mechanically. No sense of *which destination would reduce the most uncertainty for the current decision*.
+The type of scout (observer, hallucinated phoenix, worker probe) remains determined by stage and availability, as it is today.
 
-**Model**: For each candidate scout destination, estimate expected reduction in composition belief entropy:
-- Deciding whether to attack → highest VOI is seeing the enemy army
-- Defending a rush → highest VOI is seeing the natural (did they expand or commit?)
-- Macro mode → highest VOI is seeing tech structures (what composition are they building?)
-
-Uses `scipy.stats.entropy()` on current composition belief distribution to compute information gain.
+**Current gap**: Scouting uses strategy-aware tables for the dominant strategy category (Phase C), but these lump all cheese into one route (`own_fourth → own_third → enemy_nat → enemy_spawn`). Proxy rax, cannon rush, and ling rush need very different scouting patterns. In mid-late game when the army is lost, scouts cycle expansions mechanically with no sense of which destination is most stale or decision-relevant.
 
 **Important clarification**: VOI affects **where** scouts go, not **which type** of scout to use. Observer > hallucinated phoenix > worker probe selection stays in the existing `scouting.py` logic, which correctly prioritizes by capability and availability. VOI only changes the destination ranking within that scout type.
 
-**Library**: `scipy.stats.entropy` (already installed)
+#### Part 1: Level-2-Aware Scouting (Early Game)
 
-**Data source**: Runs entirely from Composition Belief + Strategy Belief state at runtime. No offline training.
+Strategy belief produces a `level2` label (e.g., `"proxy_rax"`, `"cannon_rush"`, `"12_pool"`) that distinguishes between cheese subtypes. Each subtype needs a different scouting pattern:
+
+| Level-2 label | What we're looking for | Where to scout |
+|---|---|---|
+| `proxy_rax`, `proxy_gateway`, `proxy_hatch_spine` | Proxy buildings near our base | Perimeter sweep: own expansions → enemy expansions → back to own → map center |
+| `cannon_rush` | Pylons/cannons behind our mineral lines | Our own territory: behind nat and main mineral lines |
+| `12_pool`, `speedling`, `bunker_rush`, `worker_rush`, `marauder_push` | Rush coming from their base | Their natural → their main → their third → their main again |
+
+**Proxy hunt targets** trace a square around the map, covering edge positions where proxy buildings are typically placed:
+
+```python
+PROXY_HUNT_TARGETS: list[str] = [
+    "own_third",      # Up our side
+    "own_fourth",
+    "own_fifth",
+    "own_sixth",
+    "enemy_sixth",    # Across the top
+    "enemy_fifth",
+    "enemy_fourth",
+    "enemy_third",    # Down their side
+    "own_third",      # Back to start
+    "map_center",     # Transit point on the way back
+]
+```
+
+On small maps, `own_fifth` through `enemy_fifth` resolve to `None` and get filtered, so the path naturally shortens to the available expansions. The square pattern still works — just smaller.
+
+**Cannon rush hunt targets** stay close to our own bases:
+
+```python
+CANNON_RUSH_HUNT_TARGETS: list[str] = [
+    "own_third",          # Common proxy location near our base
+    "own_nat_behind",     # Behind our natural mineral line (ARES get_behind_mineral_positions)
+    "own_main_behind",    # Behind our main mineral line (ARES get_behind_mineral_positions)
+    "own_third",          # Circle back — may have built while we were elsewhere
+]
+```
+
+`own_nat_behind` and `own_main_behind` resolve to the center point of `get_behind_mineral_positions()` for our natural and main bases respectively — exactly where pylons and cannons go.
+
+**Rush hunt targets** go straight to their base to confirm no expansion:
+
+```python
+RUSH_HUNT_TARGETS: list[str] = [
+    "enemy_nat",      # Did they expand? Key question for rush vs macro
+    "enemy_spawn",    # Their main — where production is
+    "enemy_third",    # Hidden third base (2-base timing)
+    "enemy_spawn",    # Loop back — they may have moved units out
+]
+```
+
+Note: **Map center only appears in proxy targets**. Cannon rush is near our bases, rush is near their bases — neither needs a central transit point.
+
+**Resolution logic** in `get_strategy_hunt_targets()`:
+- If `prediction.level2` is proxy-related (`proxy_rax`, `proxy_gateway`, `proxy_hatch_spine`) → use `PROXY_HUNT_TARGETS`
+- If `prediction.level2` is `cannon_rush` → use `CANNON_RUSH_HUNT_TARGETS`
+- If `prediction.level2` is rush-related (`12_pool`, `speedling`, `bunker_rush`, `worker_rush`, `marauder_push`) → use `RUSH_HUNT_TARGETS`
+- If `prediction.label` is `CHEESE` but level2 is unknown → use existing `STRATEGY_HUNT_TARGETS[CHEESE]` as fallback
+- ALL_IN, TIMING, MACRO → use existing tables (unchanged)
+
+**New accessor strings** for `_resolve_hunt_accessor()`:
+
+| Accessor string | Resolution |
+|---|---|
+| `"own_fifth"` | `bot.mediator.get_own_expansions[4][0]` (IndexError → None) |
+| `"own_sixth"` | `bot.mediator.get_own_expansions[5][0]` (IndexError → None) |
+| `"own_nat_behind"` | `bot.mediator.get_behind_mineral_positions(bot.mediator.get_own_nat)[1]` (center point) |
+| `"own_main_behind"` | `bot.mediator.get_behind_mineral_positions(bot.start_location)[1]` (center point) |
+| `"enemy_fifth"` | `bot.mediator.get_enemy_expansions[4][0]` (IndexError → None) |
+| `"enemy_sixth"` | `bot.mediator.get_enemy_expansions[5][0]` (IndexError → None) |
+| `"map_center"` | `bot.game_info.map_center` |
+
+**New accessor strings** for `_resolve_scout_waypoint()` (build runner scouts):
+
+| ARES string | Resolution |
+|---|---|
+| `"OWN_FIFTH"` | `bot.mediator.get_own_expansions[4][0]` |
+| `"OWN_SIXTH"` | `bot.mediator.get_own_expansions[5][0]` |
+| `"OWN_NAT_BEHIND"` | `bot.mediator.get_behind_mineral_positions(bot.mediator.get_own_nat)[1]` |
+| `"OWN_MAIN_BEHIND"` | `bot.mediator.get_behind_mineral_positions(bot.start_location)[1]` |
+| `"ENEMY_FIFTH"` | `bot.mediator.get_enemy_expansions[4][0]` |
+| `"ENEMY_SIXTH"` | `bot.mediator.get_enemy_expansions[5][0]` |
+| `"MAP_CENTER"` | `bot.game_info.map_center` (already exists) |
+
+**Cannon rush scout waypoints** (build runner):
+
+```python
+CANNON_RUSH_SCOUT_WAYPOINTS: list[str] = [
+    "OWN_NAT_BEHIND", "OWN_MAIN_BEHIND", "THIRD", "NAT", "RAMP",
+]
+```
+
+Note: `OWN_THIRD`, `OWN_NAT`, `OWN_RAMP`, `OWN_NAT_HG_SPOT` don't exist in ARES `BuildOrderTargetOptions`. The actual strings that `_resolve_scout_waypoint()` handles are `"THIRD"`, `"NAT"`, `"RAMP"` for own-base waypoints, plus the new `"OWN_NAT_BEHIND"` and `"OWN_MAIN_BEHIND"` for behind-mineral-line positions where cannons actually go.
+
+#### Part 2: Staleness × Relevance Ranking (Mid-Late Game)
+
+When strategy has converged (P(macro) > threshold or army is lost), cycle-expansion scouting is replaced by a relevance-weighted staleness system.
+
+**Candidate locations and relevance weights**:
+
+| Key | Relevance | Why |
+|---|---|---|
+| `enemy_nat` | 1.5 | Natural resolves "expand or commit" — most decision-relevant |
+| `last_army_pos` | 1.4 | Where we last saw them |
+| `enemy_third` | 1.3 | Third base = macro confirmation |
+| `enemy_main` | 1.0 | Main base, always some value |
+| `enemy_fourth` | 0.8 | Late-game relevance only |
+| `enemy_ramp` | 0.7 | Ramp crossing = army movement indicator |
+
+**Staleness tracking**: `bot._location_last_seen: dict[str, float]` maps each candidate location key to the game time it was last scouted. Updated once per step by checking if any friendly scout (observer, hallucinated phoenix, worker with SCOUTING or BUILD_RUNNER_SCOUT role) is within `VOI_VISION_RADIUS = 10.0` units of that location. Never-scouted locations get maximum staleness (`bot.time`).
+
+**VOI score**: `staleness × relevance` for each candidate. Sorted descending. Most-stale, most-relevant location goes first. This naturally rotates scouts across locations over time.
+
+**Composition uncertainty bonus** (secondary signal): Small additive bonus (`SCOUT_VOI_COMPOSITION_BONUS = 0.3`) to locations that would confirm expected-but-unseen unit types. If composition belief expects Immortals (from structure priors) but hasn't confirmed them, `enemy_nat` and `enemy_main` get a small boost because production structures are usually there.
+
+**Integration in `get_hunt_target()`**:
+
+```python
+# Fallback: no cached army
+strategy_targets = get_strategy_hunt_targets(bot)  # Level-2 aware (Part 1)
+if strategy_targets:
+    hunt_targets = strategy_targets  # Early game / cheese
+else:
+    voi_targets = get_voi_destinations(bot)  # Mid-late game, army lost (Part 2)
+    if voi_targets:
+        hunt_targets = voi_targets
+    else:
+        # Default: cycle enemy expansions 4th → 3rd → nat → main
+        hunt_targets = [enemy_fourth, enemy_third, enemy_nat, enemy_spawn]
+```
+
+**Minimum-length guard**: If Level-2 routing produces fewer than 2 valid positions (e.g., small map where most expansions resolve to None), fall back to the existing `STRATEGY_HUNT_TARGETS[dominant]` table.
+
+**Feature flag**: `config.yml` → `Belief.enable_scout_voi: false` (Phase 3 Part 2 only). Level-2 routing (Part 1) is gated by `Belief.enable_strategy` since it depends on strategy belief's Level-2 labels. When `enable_scout_voi` is disabled, `update_location_sightings()` does not run and `get_voi_destinations()` returns None, falling back to default expansion cycling.
+
+**No new runtime dependencies.** No `scipy.stats.entropy` — relevance weights are fixed constants, staleness is game-time tracking.
 
 **Decisions affected**:
-- `get_hunt_target()` → rank destinations by VOI instead of cycling expansions mechanically
-- `control_observers()` → prioritize the destination with highest information gain
-- `control_hallucination_scout()` → send to highest-VOI destination (not just based on urgency)
+- `get_strategy_hunt_targets()` → Level-2-aware routing with PROXY/CANNON/RUSH tables (Part 1)
+- `get_strategy_scout_waypoints()` → Level-2-aware build runner scout routing for cannon rush (Part 1)
+- `get_hunt_target()` → VOI fallback between strategy tables and default expansion cycle (Part 2)
 
 **Files to create**:
-- `bot/belief/scout_voi.py`
+- `bot/belief/scout_voi.py` — staleness × relevance ranking and location tracking (Part 2 only; ~100 LOC)
 
 **Files to modify**:
-- `bot/managers/scouting.py` — `get_hunt_target()`, observer assignment, hallucination scout targeting
+- `bot/managers/scouting.py` — `get_strategy_hunt_targets()` enhanced with Level-2 routing; `get_strategy_scout_waypoints()` enhanced with Level-2 routing for cannon rush; `get_hunt_target()` adds VOI fallback; `_resolve_hunt_accessor()` adds 8 new accessor strings; `_resolve_scout_waypoint()` adds 6 new ARES strings
+- `bot/constants.py` — Add PROXY_HUNT_TARGETS, CANNON_RUSH_HUNT_TARGETS, RUSH_HUNT_TARGETS, PROXY_LABELS, CANNON_LABELS, RUSH_LABELS, CANNON_RUSH_SCOUT_WAYPOINTS, VOI_MIN_HUNT_TARGETS (strategy section); SCOUT_VOI_RELEVANCE, VOI_VISION_RADIUS, SCOUT_VOI_COMPOSITION_BONUS (VOI section)
+- `bot/bot.py` — Init `_location_last_seen = {}`, call `update_location_sightings(self)` in `on_step` (guarded by `enable_scout_voi` config)
+- `bot/belief/__init__.py` — Export `get_voi_destinations`, `update_location_sightings`
+- `bot/utilities/game_report.py` — Scout VOI staleness telemetry in periodic + match-end reports (gated by `enable_scout_voi`)
+- `bot/utilities/debug.py` — Scout VOI staleness overlay line (gated by `enable_scout_voi`)
+- `config.yml` — Add `enable_scout_voi: false` under `Belief:`
 
-**No new dependencies.** Uses `scipy.stats.entropy`.
+**Depends on**: Phase 2 (Strategy Belief) for Level-2 labels. Phase 1 (Composition Belief) for staleness × relevance when strategy has converged.
 
-**Depends on**: Phase 1 (Composition Belief) must exist to compute entropy. Phase 2 (Strategy Belief) enhances VOI by adding "what strategy are they on?" as a question to resolve.
+**LOC estimate**: ~100 in `bot/belief/scout_voi.py` (VOI only), ~50 in `bot/managers/scouting.py` (Level-2 routing + VOI fallback + new accessors), ~30 in `bot/constants.py`, ~5 in `bot/bot.py`, ~2 in `bot/belief/__init__.py`, ~15 in `bot/utilities/game_report.py`, ~10 in `bot/utilities/debug.py`. **Total: ~210 LOC**.
 
-**LOC estimate**: ~60 in `bot/belief/scout_voi.py`, ~20 in integration points
+#### Implementation Status (Complete ✅)
+
+**Architecture**: Two separate modules. Level-2 routing (Part 1) is inline in `scouting.py` — it reads `prediction.level2` and selects from constant lookup tables (PROXY/CANNON/RUSH). Staleness × relevance (Part 2) is in `bot/belief/scout_voi.py` — it tracks `_location_last_seen` and scores locations by `staleness × relevance`. Both are feature-gated: Level-2 by `enable_strategy`, VOI by `enable_scout_voi`.
+
+**Files created**:
+- `bot/belief/scout_voi.py` — `get_voi_destinations()` (staleness × relevance ranking), `update_location_sightings()` (per-step scout proximity check). ~100 LOC.
+
+**Files modified**:
+- `bot/managers/scouting.py` — `get_strategy_hunt_targets()` now inlines Level-2 routing (PROXY/CANNON/RUSH label matching before category fallback); `get_strategy_scout_waypoints()` now inlines Level-2 routing for cannon rush; `get_hunt_target()` adds VOI fallback between strategy targets and default expansion cycle; `_resolve_hunt_accessor()` adds 8 new accessors (own_fifth, own_sixth, own_nat_behind, own_main_behind, enemy_fifth, enemy_sixth, enemy_ramp, enemy_main, map_center); `_resolve_scout_waypoint()` adds 6 new ARES strings (OWN_NAT_BEHIND, OWN_MAIN_BEHIND, ENEMY_FIFTH, ENEMY_SIXTH, FIFTH, SIXTH already existed)
+- `bot/constants.py` — Added PROXY_HUNT_TARGETS, CANNON_RUSH_HUNT_TARGETS, RUSH_HUNT_TARGETS, PROXY_LABELS, CANNON_LABELS, RUSH_LABELS, CANNON_RUSH_SCOUT_WAYPOINTS, VOI_MIN_HUNT_TARGETS (strategy section); SCOUT_VOI_RELEVANCE, VOI_VISION_RADIUS, SCOUT_VOI_COMPOSITION_BONUS (VOI section)
+- `bot/bot.py` — `_location_last_seen: dict[str, float] = {}` init; `update_location_sightings(self)` call in `on_step` guarded by `enable_scout_voi`
+- `bot/belief/__init__.py` — Exports `get_voi_destinations`, `update_location_sightings`
+- `bot/utilities/game_report.py` — Periodic `belief/scout_voi` telemetry event + console staleness print + match-end `last_seen_{key}_final` snapshot
+- `bot/utilities/debug.py` — VOI staleness overlay line showing top-5 locations
+- `config.yml` — Added `enable_scout_voi: false` under `Belief:`
+
+**Design decisions**:
+- Level-2 routing (PROXY/CANNON/RUSH tables) lives in `scouting.py`, not `scout_voi.py` — it's strategy logic, not VOI logic
+- `scout_voi.py` only contains staleness × relevance (Part 2) — clean separation of concerns
+- `update_location_sightings()` is guarded by `enable_scout_voi` config flag — no per-frame overhead when disabled
+- `CANNON_RUSH_SCOUT_WAYPOINTS` uses ARES-compatible strings that `_resolve_scout_waypoint()` actually handles: `"OWN_NAT_BEHIND"`, `"OWN_MAIN_BEHIND"`, `"THIRD"`, `"NAT"`, `"RAMP"` — not non-existent strings like `"OWN_THIRD"`, `"OWN_NAT"`
+- `enemy_main` accessor is an alias for `enemy_spawn` in `_resolve_hunt_accessor()` — SCOUT_VOI_RELEVANCE uses `enemy_main` as key
+- Map center only appears in PROXY_HUNT_TARGETS — cannon rush and rush don't need it
 
 ---
 
@@ -467,7 +638,7 @@ Steps 1-4 are telemetry + analysis, not a belief model. Step 5 may never be need
 
 | Library | Version | Status | Used By | Why |
 |---------|---------|--------|---------|-----|
-| `scipy.stats` | 1.17.1 | **Already installed** (transitive via sklearn) | Phases 1, 3, 4 | Exponential (composition decay), Entropy (VOI), Dirichlet (opponent) |
+| `scipy.stats` | 1.17.1 | **Already installed** (transitive via sklearn) | Phases 1, 4 | Exponential (composition decay), Dirichlet (opponent) |
 | `scikit-learn` | 1.8.0 | **Already installed** (ares dep) | Potential future calibration | `CalibratedClassifierCV` if step 5 is needed |
 | `numpy` | 2.4.4 | **Already installed** | All phases | Array operations for belief state |
 | `pgmpy` | 1.1.2 | **Dev-only dependency** (not runtime) | Phase 2 training | `DiscreteBayesianNetwork`, `VariableElimination`, `MaximumLikelihoodEstimator` — only needed by `scripts/train_strategy_belief.py`; runtime loads pickled model via `joblib` |
@@ -488,7 +659,9 @@ Steps 1-4 are telemetry + analysis, not a belief model. Step 5 may never be need
 class BeliefState:
     composition: CompositionBelief   # Phase 1
     strategy: StrategyBelief | None = None  # Phase 2 (optional, feature-gated)
-    # Phase 3: ScoutVOI — not yet implemented
+    # Phase 3: ScoutVOI — staleness tracking lives in bot._location_last_seen
+    #          get_voi_destinations() and update_location_sightings() are standalone functions in scout_voi.py
+    #          Level-2 routing (PROXY/CANNON/RUSH) lives in scouting.py, not here
     # Phase 4: OpponentBelief lives in BeliefUpdater, not BeliefState
     #          (it's a cross-game prior, not a per-frame belief)
 ```
@@ -511,8 +684,9 @@ strategy.P_macro -> float                            # P(macro play)
 strategy.label -> str                                   # MAP estimate (backward compat)
 
 # Phase 3: Scout VOI
-scout_voi.rank_targets() -> list[tuple[Point2, float]]  # Destination → expected info gain
-# Scout TYPE selection (observer/phoenix/worker) stays in existing scouting.py logic
+get_voi_destinations(bot) -> list[tuple[Point2, float]]  # Staleness × relevance ranked destinations
+update_location_sightings(bot) -> None  # Update _location_last_seen per step
+# Level-2 routing: get_strategy_hunt_targets() uses PROXY/CANNON/RUSH tables
 
 # Phase 4: Opponent Belief (lives in BeliefUpdater, not BeliefState)
 # Cross-game prior applied to Strategy Belief at game start
@@ -554,8 +728,8 @@ if bot.belief_state.strategy.P_timing_attack > 0.6:
 else:
     attack_threshold = TIE_OR_BETTER
 
-# scouting.py — destination selection by VOI (type selection unchanged)
-target = bot.belief_state.scout_voi.rank_targets()[0]  # Highest VOI destination
+# scouting.py — destination selection by staleness × relevance (Phase 3)
+targets = get_voi_destinations(bot)  # Returns [(Point2, score), ...] sorted by VOI
 # observer/phoenix/worker selection still uses existing logic
 ```
 
@@ -577,8 +751,13 @@ target = bot.belief_state.scout_voi.rank_targets()[0]  # Highest VOI destination
 | `macro.py:strategy_nudge_proportions()` | Strategy Belief | Predictive composition nudging using `STRATEGY_EXPECTED_UNITS` (Phase B) |
 | `scouting.py:get_hunt_target()` | Strategy Belief | Strategy-aware hunt target order via `STRATEGY_HUNT_TARGETS` (Phase C) |
 | `scouting.py:control_build_runner_scout()` | Strategy Belief | Strategy-aware scout waypoints via `STRATEGY_SCOUT_WAYPOINTS` (Phase D) |
-| `scouting.py:get_hunt_target()` | Scout VOI | Rank destinations by information gain (Phase 3, not yet implemented) |
-| `scouting.py:control_observers()` | Scout VOI | Prioritize highest-VOI destination (Phase 3, not yet implemented) |
+| `scouting.py:get_hunt_target()` | Scout VOI | Level-2 routing for cheese (Part 1); VOI fallback for mid-late game (Part 2) |
+| `scouting.py:get_strategy_hunt_targets()` | Strategy Belief + Level-2 | Level-2-aware PROXY/CANNON/RUSH routing (Part 1, inline) |
+| `scouting.py:get_strategy_scout_waypoints()` | Strategy Belief + Level-2 | Level-2-aware build runner scout routing for cannon rush (Part 1, inline) |
+| `scouting.py:_resolve_hunt_accessor()` | Scout VOI | New accessors: own_fifth, own_sixth, own_nat_behind, own_main_behind, enemy_fifth, enemy_sixth, map_center, enemy_ramp, enemy_main |
+| `scouting.py:_resolve_scout_waypoint()` | Scout VOI | New ARES strings: OWN_NAT_BEHIND, OWN_MAIN_BEHIND, ENEMY_FIFTH, ENEMY_SIXTH |
+| `bot/utilities/game_report.py` | Scout VOI | Periodic staleness telemetry + match-end snapshot (gated by enable_scout_voi) |
+| `bot/utilities/debug.py` | Scout VOI | Debug overlay line showing staleness per location (gated by enable_scout_voi) |
 
 ---
 
@@ -590,7 +769,7 @@ target = bot.belief_state.scout_voi.rank_targets()[0]  # Highest VOI destination
 |-------------|-----------------|-------------|
 | Composition | `intel` periodic events + `on_unit_destroyed` callback | `scouted_enemy_units`, `scouted_enemy_structures`, `visible_enemy_count` |
 | Strategy | `rush_detect` events + match record (cloud API) | All timing features, `ml_probs`, `ml_confidence`, `cheese_type` |
-| Scout VOI | Runs from other beliefs at runtime | No separate telemetry needed |
+| Scout VOI | Composition Belief + Strategy Belief state at runtime + `bot._location_last_seen` staleness dict | Periodic telemetry (`belief/scout_voi`), match-end snapshot (`last_seen_{key}_final`), debug overlay |
 | Opponent | Match record | `opponent_id`, `result`, `cheese_type`, `length`, `enemy_race`, `map` |
 
 ### New Telemetry Events Needed
@@ -598,6 +777,7 @@ target = bot.belief_state.scout_voi.rank_targets()[0]  # Highest VOI destination
 | Event | Subsystem | Why | Fields |
 |-------|-----------|-----|--------|
 | Per-unit last-seen | `intel` | Foundation for composition belief decay | Internal state change, not a telemetry event. Populate `_enemy_unit_last_seen` dict. |
+| Scout VOI staleness | `belief` | Track which locations are stale and how scouts rotate across them | `last_seen_{key}` for each candidate location (periodic, gated by `enable_scout_voi`) |
 | Observer target | `scouting` | Training data for VOI destination effectiveness | `observer_role: str`, `target_type: str`, `target_position: str`, `observation_result: str` (saw_army/saw_structures/saw_nothing/observer_died) |
 | Engagement decision | `combat` | Record why bot chose to engage/retreat (future threshold tuning) | `decision: str` (engage/retreat/hold), `reason: str`, `freshness: float`, `own_supply: int` |
 | Engagement outcome | `combat` | Ground truth for sim calibration analysis | `engagement_result: str` (win/loss/retreat), `sim_result_category: str`, `own_supply: int`, `enemy_supply_visible: int`, `intel_freshness: float` |
@@ -910,7 +1090,7 @@ Per AGENTS.md rules: +5 points max per task, refactor exemption for splits >500 
 |-------|-----------|-------------|----------|-------------|-------------|-------|--------|
 | 1 | +3 | +3 (CompositionBelief, BeliefState, BeliefUpdater) | 0 | +1 (belief_state on bot, on_unit_destroyed) | +2 (combat, reactions, intel) | 5 | Within budget |
 | 2 | +3 | +1 (StrategyBelief) | +1 (pgmpy) | 0 | +1 (reactions) | 4 | Within budget (+queries/views.py shared infra) |
-| 3 | +1 | +1 (ScoutVOI) | 0 | 0 | +1 (scouting) | 2 | Within budget |
+| 3 | +1 | 0 (functions, no class) | 0 | 0 | +2 (scouting, constants) | 3 | Within budget |
 | 4 | +1 | +1 (OpponentBelief) | 0 | 0 | +4 (bot, strategy_belief, belief_updater, game_report, config, train script) | 5 | ✅ Complete |
 
 Each phase is a separate task. Budget resets per phase.
@@ -919,10 +1099,10 @@ Each phase is a separate task. Budget resets per phase.
 
 ## Over-Engineering Triggers (Self-Check)
 
-- ✅ No class for logic with <3 methods and no state — each belief model manages ≥5 related state variables
+- ✅ No class for logic with <3 methods and no state — each belief model manages ≥5 related state variables; Scout VOI uses functions, not a class
 - ✅ No new config flags beyond the feature gates (which are the existing pattern from `config.yml`)
 - ✅ No adapters/interfaces with only one implementation — each belief model has one implementation, no adapter pattern
-- ✅ No new dependency replacing ≤10 LOC — pgmpy replaces 300+ LOC of hand-rolled rules in `rush_detection.py` and `reactions.py`
+- ✅ No new dependency replacing ≤10 LOC — pgmpy replaces 300+ LOC of hand-rolled rules in `rush_detection.py` and `reactions.py`; Phase 3 uses no new deps (no scipy.stats.entropy, just staleness × relevance with fixed weights)
 - ✅ No pipelines/state machines where a loop + guard works — belief updates are simple functions called sequentially from `belief_updater.py`
 - ✅ Threat assessment is NOT a separate model — it's a consumer of Composition Belief (weighted units) and Strategy Belief (predictive risk), reducing unnecessary abstraction
 - ✅ Engagement calibration is data collection → analysis → tuning, not a belief model — avoids premature modeling
@@ -933,9 +1113,9 @@ Each phase is a separate task. Budget resets per phase.
 
 1. **Biggest assumption**: That pgmpy's `VariableElimination` runs fast enough for per-frame inference on our networks (7-10 nodes). It should be — small networks, sparse connectivity, 3-4 states per node. But it must be profiled on the first implementation. Plan: if >0.5ms, cache inference results and only re-query when evidence changes (the evidence only changes when a scout report comes in, which is at most once per second).
 
-2. **Most likely failure/edge**: `data/` is empty locally — no JSONL telemetry files from dev sessions. But the cloud API has 200+ games. The training pipeline (`train_strategy_belief.py`) already fetches from the API, so Phase 2 training can proceed now. The API now has `strategy_category` populated for all 200 matches (cheese:81, macro:62, all_in:31, timing:26). Remaining gaps: (a) the rush_detect per-match events API endpoint returns empty, so Zerg timing features default to -1; (b) API sends `timing` instead of `timing_attack` — training script normalizes this.
+2. **Most likely failure/edge**: On small maps (e.g., Acropolis), `own_fifth` through `enemy_fifth` resolve to `None` in the proxy hunt target list, shrinking the perimeter sweep. The `VOI_MIN_HUNT_TARGETS = 2` guard catches the worst case. Also, `get_behind_mineral_positions()` returns ≥3 points — unusual mineral layouts could return fewer, but the `len(behind) > 1` guard handles that.
 
-3. **Smallest change to improve robustness**: Populate `_enemy_unit_last_seen` (10 LOC in `update_enemy_intel_tracking()`). This is the foundation for composition belief decay and is currently a ghost — declared but never written to. It costs nothing, breaks nothing, and unblocks Phase 1.
+3. **Smallest change to improve robustness**: `CANNON_RUSH_SCOUT_WAYPOINTS` originally used non-existent ARES strings (`OWN_THIRD`, `OWN_NAT`, `OWN_RAMP`, `OWN_NAT_HG_SPOT`) — fixed to use strings the resolver actually handles (`OWN_NAT_BEHIND`, `OWN_MAIN_BEHIND`, `THIRD`, `NAT`, `RAMP`). `update_location_sightings()` was running every frame even when `enable_scout_voi: False` — fixed with a config guard.
 ---
 
 ## Data Pipeline Readiness (2026-06-03)
