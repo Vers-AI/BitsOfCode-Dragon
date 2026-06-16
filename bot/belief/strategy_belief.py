@@ -5,12 +5,12 @@ Purpose: Replace per-race boolean cheese detection with a unified probabilistic
          cheese, all_in, timing_attack, macro. Each category can carry a Level-2
          build label (e.g., cheese→12_pool, cheese→cannon_rush).
 
-Key Decisions: Three-layer evaluation: auto-TRUE guards → BN model → flat prior.
-               Auto-TRUE guards are deterministic and override probabilities (P=1.0).
-               ARES mediator booleans (marine_rush, proxy_zealot, etc.) map to
-               Level-1 categories as deterministic guards with P→1.0 for their class.
-               BN model slot accepts a trained pgmpy DiscreteBayesianNetwork;
-               falls back to rule-based scoring when model file is missing.
+Key Decisions: Three-layer evaluation: BN model → auto-TRUE guards → rule-based.
+               BN model is the primary classifier (numpy CPD lookup, no pgmpy).
+               Auto-TRUE guards are deterministic overrides (P=1.0) when model
+               is unavailable. Rules are the last-resort fallback.
+               BN inference uses BNInference (numpy .npz) — pgmpy is only
+               needed for training, not runtime.
 
 Limitations: Level-2 labels for Terran and Protoss are limited to what ARES
              mediator detects. Full Level-2 taxonomy requires BN training data.
@@ -30,6 +30,7 @@ from bot.constants import (
     STRATEGY_TIMING_GUARDS,
     StrategyCategory,
 )
+from bot.belief.bn_inference import BNInference
 
 if TYPE_CHECKING:
     from bot.bot import PiG_Bot
@@ -78,35 +79,15 @@ class StrategyBelief:
     BeliefState consumption.
 
     Evaluation order:
-      1. BN model: trained network, produces posterior probabilities (primary)
+      1. BN model: numpy CPD lookup, produces posterior probabilities (primary)
       2. Auto-TRUE guards: deterministic, only when model is missing (fallback)
       3. Rule-based scoring: soft probabilities from accumulated evidence (last resort)
     """
 
     def __init__(self):
-        self._model = None
-        self._model_categories: list[str] = []  # e.g. ['cheese', 'macro']
-        self._model_loaded = False
+        self._bn = BNInference()
+        self._model_loaded = self._bn.is_loaded
         self._last_prediction: Optional[StrategyPrediction] = None
-        self._load_model()
-
-    def _load_model(self) -> None:
-        model_path = Path("bot/models/strategy_belief_model.pkl")
-        if model_path.exists():
-            try:
-                import joblib
-                saved = joblib.load(model_path)
-                # Saved model is a dict with keys: model, categories, feature_cols, ...
-                if isinstance(saved, dict) and 'model' in saved:
-                    self._model = saved['model']
-                    self._model_categories = saved.get('categories', [])
-                else:
-                    # Legacy: saved directly as a model object
-                    self._model = saved
-                self._model_loaded = True
-            except Exception as e:
-                print(f"[StrategyBelief] Failed to load model: {e}")
-                self._model_loaded = False
 
     def update(
         self,
@@ -131,7 +112,7 @@ class StrategyBelief:
             StrategyPrediction with probs, label, level2, source, game_time.
         """
         # Primary: BN model (always runs when available)
-        if self._model_loaded and self._model is not None:
+        if self._model_loaded:
             model_result = self._evaluate_model(bot, game_time, opponent_prior)
             if model_result is not None:
                 self._last_prediction = model_result
@@ -439,12 +420,12 @@ class StrategyBelief:
         self, bot: "PiG_Bot", game_time: float,
         opponent_prior: Optional[dict[StrategyCategory, float]] = None,
     ) -> Optional[StrategyPrediction]:
-        """Layer 2: BN model prediction.
+        """Layer 1: BN model prediction via numpy CPD lookup.
 
         Discretizes current observations into the same bins used during
-        training, then queries the pgmpy DiscreteBayesianNetwork via
-        predict_probability(). If an opponent prior is provided, the BN
-        output is multiplied by the prior then renormalized.
+        training, then looks up P(strategy | evidence) from the CPD array.
+        If an opponent prior is provided, the BN output is multiplied by
+        the prior then renormalized.
 
         Args:
             bot: The bot instance for accessing enemy info and mediator.
@@ -454,28 +435,15 @@ class StrategyBelief:
 
         Returns None if model is unavailable or produces invalid output.
         """
-        if self._model is None:
+        if not self._model_loaded:
             return None
 
         try:
-            import pandas as pd
-            evidence = self._build_bn_evidence(bot, game_time)
-            result_df = self._model.predict_probability(evidence)
+            evidence = self._build_evidence(bot, game_time)
+            category_probs = self._bn.predict(**evidence)
 
-            # Result columns are like 'strategy_cheese', 'strategy_macro'
-            # Extract probabilities for each known category
-            category_probs = {}
-            for cat in StrategyCategory:
-                col_name = f"strategy_{cat.value}"
-                if col_name in result_df.columns:
-                    category_probs[cat] = float(result_df[col_name].iloc[0])
-                else:
-                    category_probs[cat] = 0.0
-
-            # Normalize to sum to 1.0 (in case some categories are missing)
-            total = sum(category_probs.values())
-            if total > 0:
-                category_probs = {k: v / total for k, v in category_probs.items()}
+            if category_probs is None:
+                return None
 
             # Apply opponent prior if available: P(adjusted) = P(BN) * alpha, then normalize
             # This is a Dirichlet-multinomial posterior where BN provides the likelihood
@@ -500,14 +468,14 @@ class StrategyBelief:
                 level2=best_l2,
                 source=source,
                 game_time=game_time,
-                evidence=evidence.iloc[0].to_dict() if hasattr(evidence, 'iloc') else None,
+                evidence=evidence,
             )
         except Exception as e:
             print(f"[StrategyBelief] BN prediction error: {e}")
             return None
 
-    def _build_bn_evidence(self, bot: "PiG_Bot", game_time: float):
-        """Build discretized evidence DataFrame for the BN model.
+    def _build_evidence(self, bot: "PiG_Bot", game_time: float) -> dict[str, str]:
+        """Build discretized evidence dict for the BN model.
 
         The BN has nodes: enemy_race, duration_bin, pool_bin, rax_bin,
         gateway_bin, bases_bin, factory_bin → strategy.
@@ -515,8 +483,6 @@ class StrategyBelief:
         Out-of-domain values (e.g., "unknown", "short") are mapped to
         the closest valid model state.
         """
-        import pandas as pd
-
         # enemy_race: direct string (model knows: Protoss, Random, Terran, Zerg)
         race_map = {"Zerg": "Zerg", "Terran": "Terran", "Protoss": "Protoss"}
         enemy_race = race_map.get(bot.enemy_race.name, "Zerg")
@@ -592,7 +558,7 @@ class StrategyBelief:
         factory_count = getattr(bot, "_factory_count", 0)
         factory_bin = "yes" if factory_count > 0 else "no"
 
-        return pd.DataFrame([{
+        return {
             "enemy_race": enemy_race,
             "duration_bin": duration_bin,
             "pool_bin": pool_bin,
@@ -600,7 +566,7 @@ class StrategyBelief:
             "gateway_bin": gateway_bin,
             "bases_bin": bases_bin,
             "factory_bin": factory_bin,
-        }])
+        }
 
     def _evaluate_rules(
         self, bot: "PiG_Bot", game_time: float
@@ -934,8 +900,7 @@ class StrategyBelief:
         by consumers — do not mutate the probs dict.
         """
         cp = StrategyBelief.__new__(StrategyBelief)
-        cp._model = self._model
-        cp._model_categories = self._model_categories
+        cp._bn = self._bn
         cp._model_loaded = self._model_loaded
         cp._last_prediction = self._last_prediction
         return cp

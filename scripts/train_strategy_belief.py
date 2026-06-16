@@ -919,6 +919,15 @@ def main():
         print(f"\n=== Model saved to {args.output} ===")
         print(f"Categories: {result['categories']}")
         print(f"Training samples: {result['n_samples']}")
+
+        # Auto-export .npz for runtime (no pgmpy dependency)
+        npz_path = Path(args.output).with_suffix(".npz")
+        try:
+            from scripts.export_bn_model import export_model
+            export_model(Path(args.output), npz_path)
+            print(f"=== Also exported .npz to {npz_path} ===")
+        except Exception as e:
+            print(f"Warning: .npz export failed ({e}). Run export_bn_model.py manually.")
     else:
         print("\n=== BN model NOT saved — rule-based guards will be used ===")
         print("Collect more data (50+ games per race) and re-run this script.")
