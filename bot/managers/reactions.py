@@ -1,11 +1,31 @@
 # bot/managers/reactions.py
+"""Reaction management — strategy-specific responses to detected threats.
+
+Purpose: Centralize reaction routing, lifecycle, and state management.
+The ReactionManager class owns all reaction state and dispatches to
+handler functions. Handlers are pure per-frame logic — no flag management.
+
+Architecture:
+  - Category layer (CHEESE/ALL_IN/TIMING/MACRO) → macro/build influence
+  - Strategy layer (level2 label) → tactical handler selection
+  - Category constrains which handlers are valid; strategy picks the specific one.
+
+Key Decisions: Handlers are pure functions. The manager owns activation,
+  deactivation, cleanup, and state. No scattered bot._* flags.
+Limitations: ALL_IN and TIMING handlers are placeholders (None) until
+  implemented. The manager routes correctly but takes no action for them.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable, Optional
+
 import numpy as np
 
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.ability_id import AbilityId
 from sc2.units import Units
 from sc2.position import Point2
-
 
 # Ares imports
 from ares.consts import UnitRole, WORKER_TYPES, UnitTreeQueryType
@@ -29,19 +49,449 @@ from bot.constants import (
     MEMORY_EXPIRY_TIME,
     STRATEGY_THREAT_MULTIPLIER,
     STRATEGY_THREAT_CLEAR_MULTIPLIER,
+    REACTION_CATEGORY_CONFIGS,
 )
 from bot.constants import StrategyCategory
 
+if TYPE_CHECKING:
+    from bot.bot import PiG_Bot
+
+
+# ===== REACTION MANAGER =====
+
+class ReactionManager:
+    """Owns all reaction state. Single point of contact for detection →
+    reaction routing → lifecycle → consumer queries.
+
+    Two layers:
+      - Category (CHEESE/ALL_IN/TIMING/MACRO) → macro/build influence
+      - Strategy (level2 label) → tactical handler selection
+
+    Category constrains which handlers are valid; strategy picks the
+    specific one. If no specific handler exists for a level2 label,
+    the category default handler is used.
+    """
+
+    def __init__(self):
+        self._active_category: Optional[StrategyCategory] = None
+        self._active_strategy: Optional[str] = None
+        self._reaction_start_time: float = -1.0
+        self._transitioned: bool = False
+
+        # Handler registry: category → {level2_label → handler}
+        # Handlers are set after module init to avoid circular imports.
+        self._handlers: dict[StrategyCategory, dict[str, Callable]] = {}
+        # Category defaults: category → fallback handler (used when no specific handler matches)
+        self._category_defaults: dict[StrategyCategory, Optional[Callable]] = {}
+        # Deactivation checks: strategy → should_deactivate function
+        self._deactivation_checks: dict[str, Callable] = {}
+
+    def register_handlers(self) -> None:
+        """Register handler functions. Called after module init to avoid circular imports."""
+        self._handlers = {
+            StrategyCategory.CHEESE: {
+                "worker_rush": defend_worker_rush,
+                "cannon_rush": defend_cannon_rush,
+            },
+            StrategyCategory.ALL_IN: {
+                # Placeholder — no ALL_IN handlers yet
+            },
+            StrategyCategory.TIMING_ATTACK: {
+                # Placeholder — no TIMING handlers yet
+            },
+            StrategyCategory.MACRO: {
+                # No handlers — standard play
+            },
+        }
+        self._category_defaults = {
+            StrategyCategory.CHEESE: cheese_reaction,
+            StrategyCategory.ALL_IN: None,       # Future: all_in_reaction
+            StrategyCategory.TIMING_ATTACK: None, # No-op for now
+            StrategyCategory.MACRO: None,         # No-op
+        }
+        self._deactivation_checks = {
+            "worker_rush": _should_deactivate_worker_rush,
+            "cannon_rush": _should_deactivate_cannon_rush,
+        }
+
+    # --- Consumer API (replaces scattered bot._* flag reads) ---
+
+    @property
+    def is_active(self) -> bool:
+        """Any reaction currently running?"""
+        return self._active_category is not None
+
+    @property
+    def is_cheese_response(self) -> bool:
+        """Should macro use CHEESE_DEFENSE_ARMY, stop gas, etc.?
+        True when cheese is active and not yet transitioned to standard play."""
+        return (self._active_category is not None
+                and not self._transitioned)
+
+    @property
+    def is_early_defensive(self) -> bool:
+        """Should combat hold the army back? Same as is_cheese_response for now."""
+        return self.is_cheese_response
+
+    @property
+    def keep_workers_safe(self) -> bool:
+        """Should Mining keep gas workers safe?
+        False during worker rush (workers are fighting, not mining)."""
+        return self._active_strategy != "worker_rush"
+
+    @property
+    def active_reaction_name(self) -> Optional[str]:
+        """The level2 label of the active reaction, or None."""
+        return self._active_strategy
+
+    @property
+    def reaction_start_time(self) -> float:
+        """Game time when the current reaction was activated."""
+        return self._reaction_start_time
+
+    @property
+    def category_config(self):
+        """The CategoryConfig for the active category, or MACRO config if inactive."""
+        from bot.constants import REACTION_CATEGORY_CONFIGS
+        cat = self._active_category or StrategyCategory.MACRO
+        return REACTION_CATEGORY_CONFIGS[cat]
+
+    # --- Core lifecycle ---
+
+    def update(self, bot: "PiG_Bot") -> None:
+        """Read current StrategyPrediction, decide if reaction should change.
+
+        Routes detection output to the appropriate handler. Always runs,
+        even when under attack (unlike the old early_threat_sensor gate).
+        """
+        prediction = None
+        use_belief = bot.config.get("Belief", {}).get("enable_strategy", True)
+
+        # Primary path: Strategy Belief (probabilistic classification)
+        if use_belief and bot.belief_state.strategy is not None:
+            prediction = bot.belief_state.strategy.last_prediction
+
+        # Fallback: rule-based detection (sets bot._* labels)
+        elif detect_cheese(bot):
+            # Build a synthetic prediction from the detected labels
+            prediction = self._prediction_from_rules(bot)
+
+        # Route the prediction
+        if prediction is not None:
+            self._route_prediction(bot, prediction)
+
+    def execute(self, bot: "PiG_Bot") -> None:
+        """Run the active reaction's handler. Called from bot.py on_step."""
+        if not self.is_active:
+            return
+
+        # Check transition/deactivation every frame
+        self._check_deactivation(bot)
+
+        if not self.is_active:
+            return  # Deactivated during check
+
+        handler = self._get_handler()
+        if handler is not None:
+            handler(bot)
+
+    def deactivate(self, bot: "PiG_Bot") -> None:
+        """Centralized cleanup for any reaction. Resets all state."""
+        # Return defending workers to gathering
+        defending_workers = bot.mediator.get_units_from_role(
+            role=UnitRole.DEFENDING,
+            unit_type=UnitTypeId.PROBE,
+        )
+        for worker in defending_workers:
+            bot.mediator.assign_role(tag=worker.tag, role=UnitRole.GATHERING)
+
+        # Complete cheese reaction build if active
+        if (bot.build_order_runner.chosen_opening == "Cheese_Reaction_Build"
+                and not bot.build_order_runner.build_completed):
+            bot.build_order_runner.set_build_completed()
+
+        # Reset state
+        self._active_category = None
+        self._active_strategy = None
+        self._reaction_start_time = -1.0
+        self._transitioned = False
+        bot._under_attack = False
+
+    # --- Internal routing ---
+
+    def _route_prediction(self, bot: "PiG_Bot", prediction) -> None:
+        """Route a StrategyPrediction to the appropriate handler."""
+        category = prediction.label
+        level2 = prediction.level2
+
+        # Only activate for non-macro categories
+        if category == StrategyCategory.MACRO:
+            if self.is_active:
+                self._check_deactivation(bot)
+            return
+
+        # Determine handler
+        handler = self._resolve_handler(category, level2)
+
+        # If same reaction already active, no change needed
+        if (self._active_category == category
+                and self._active_strategy == level2
+                and handler is not None):
+            return
+
+        # Category changed — full transition with cleanup
+        if self._active_category is not None and self._active_category != category:
+            self.deactivate(bot)
+
+        # Activate new reaction
+        self._active_category = category
+        self._active_strategy = level2
+        self._reaction_start_time = bot.time
+        self._transitioned = False
+
+        # Apply category config: build order switch
+        config = self.category_config
+        if config.build is not None:
+            remove_completed = bot.structures(UnitTypeId.CYBERNETICSCORE).exists
+            bot.build_order_runner.switch_opening(config.build, remove_completed=remove_completed)
+
+            # Cancel fast-expanding Nexus if category says to
+            if config.cancel_nexus:
+                pending_townhalls = cy_structure_pending_ares(bot, UnitTypeId.NEXUS)
+                if pending_townhalls == 1 and bot.time < 2 * 60:
+                    for pt in bot.townhalls.not_ready:
+                        bot.mediator.cancel_structure(structure=pt)
+
+        # Set under_attack flag for threat detection
+        bot._under_attack = True
+
+    def _resolve_handler(self, category: StrategyCategory, level2: str) -> Optional[Callable]:
+        """Look up handler by (category, level2), fall back to category default."""
+        category_handlers = self._handlers.get(category, {})
+        handler = category_handlers.get(level2)
+        if handler is not None:
+            return handler
+        return self._category_defaults.get(category)
+
+    def _get_handler(self) -> Optional[Callable]:
+        """Get the handler for the currently active reaction."""
+        if self._active_category is None or self._active_strategy is None:
+            return None
+        return self._resolve_handler(self._active_category, self._active_strategy)
+
+    def _check_deactivation(self, bot: "PiG_Bot") -> None:
+        """Check if the active reaction should deactivate or transition."""
+        if not self.is_active:
+            return
+
+        # Check strategy-specific deactivation (e.g., no more enemy workers near base)
+        if self._active_strategy in self._deactivation_checks:
+            should_deactivate = self._deactivation_checks[self._active_strategy](bot)
+            if should_deactivate:
+                self.deactivate(bot)
+                return
+
+        # Category-default: cheese transitions to standard army (not full deactivation)
+        # Transition = keep reaction active but switch army comp; deactivation = end reaction entirely
+        if self._active_category == StrategyCategory.CHEESE and not self._transitioned:
+            economy_state = _get_economy_state(bot)
+            if bot.game_state >= 1 or (not bot._under_attack and economy_state in ("moderate", "full")):
+                self._transitioned = True
+
+    def _prediction_from_rules(self, bot: "PiG_Bot"):
+        """Build a synthetic StrategyPrediction from rule-based detection labels.
+
+        Used as fallback when Strategy Belief is disabled.
+        """
+        from bot.belief.strategy_belief import StrategyPrediction
+
+        # Worker rush (all races)
+        if getattr(bot, '_worker_rush_detected', False):
+            return StrategyPrediction(
+                probs={
+                    StrategyCategory.CHEESE: 1.0,
+                    StrategyCategory.ALL_IN: 0.0,
+                    StrategyCategory.TIMING_ATTACK: 0.0,
+                    StrategyCategory.MACRO: 0.0,
+                },
+                label=StrategyCategory.CHEESE,
+                level2="worker_rush",
+                source="rules:worker_rush",
+                game_time=bot.time,
+            )
+
+        # Cannon rush
+        if getattr(bot, '_protoss_strategy_label', 'none') == 'cannon_rush':
+            return StrategyPrediction(
+                probs={
+                    StrategyCategory.CHEESE: 1.0,
+                    StrategyCategory.ALL_IN: 0.0,
+                    StrategyCategory.TIMING_ATTACK: 0.0,
+                    StrategyCategory.MACRO: 0.0,
+                },
+                label=StrategyCategory.CHEESE,
+                level2="cannon_rush",
+                source="rules:cannon_rush",
+                game_time=bot.time,
+            )
+
+        # Generic cheese (any other detection)
+        cheese_label = getattr(bot, '_cheese_label', 'none')
+        if cheese_label != 'none':
+            return StrategyPrediction(
+                probs={
+                    StrategyCategory.CHEESE: 0.8,
+                    StrategyCategory.ALL_IN: 0.2,
+                    StrategyCategory.TIMING_ATTACK: 0.0,
+                    StrategyCategory.MACRO: 0.0,
+                },
+                label=StrategyCategory.CHEESE,
+                level2=cheese_label,
+                source="rules:cheese",
+                game_time=bot.time,
+            )
+
+        # Zerg all-in
+        zerg_label = getattr(bot, '_zerg_allin_label', 'none')
+        if zerg_label != 'none':
+            return StrategyPrediction(
+                probs={
+                    StrategyCategory.CHEESE: 0.1,
+                    StrategyCategory.ALL_IN: 0.7,
+                    StrategyCategory.TIMING_ATTACK: 0.2,
+                    StrategyCategory.MACRO: 0.0,
+                },
+                label=StrategyCategory.ALL_IN,
+                level2=zerg_label,
+                source="rules:zerg_allin",
+                game_time=bot.time,
+            )
+
+        # Terran strategy
+        terran_label = getattr(bot, '_terran_strategy_label', 'none')
+        if terran_label != 'none':
+            if terran_label in ('proxy_rax', 'bunker_rush'):
+                return StrategyPrediction(
+                    probs={
+                        StrategyCategory.CHEESE: 0.8,
+                        StrategyCategory.ALL_IN: 0.2,
+                        StrategyCategory.TIMING_ATTACK: 0.0,
+                        StrategyCategory.MACRO: 0.0,
+                    },
+                    label=StrategyCategory.CHEESE,
+                    level2=terran_label,
+                    source="rules:terran_cheese",
+                    game_time=bot.time,
+                )
+            if terran_label in ('all_in', 'marine_rush', 'one_base_all_in', 'two_base_all_in'):
+                return StrategyPrediction(
+                    probs={
+                        StrategyCategory.CHEESE: 0.2,
+                        StrategyCategory.ALL_IN: 0.6,
+                        StrategyCategory.TIMING_ATTACK: 0.2,
+                        StrategyCategory.MACRO: 0.0,
+                    },
+                    label=StrategyCategory.ALL_IN,
+                    level2=terran_label,
+                    source="rules:terran_allin",
+                    game_time=bot.time,
+                )
+            if terran_label in ('bio_timing', 'tank_timing', 'widow_mine_drop'):
+                return StrategyPrediction(
+                    probs={
+                        StrategyCategory.CHEESE: 0.0,
+                        StrategyCategory.ALL_IN: 0.15,
+                        StrategyCategory.TIMING_ATTACK: 0.75,
+                        StrategyCategory.MACRO: 0.1,
+                    },
+                    label=StrategyCategory.TIMING_ATTACK,
+                    level2=terran_label,
+                    source="rules:terran_timing",
+                    game_time=bot.time,
+                )
+
+        # Protoss strategy
+        protoss_label = getattr(bot, '_protoss_strategy_label', 'none')
+        if protoss_label != 'none':
+            if protoss_label in ('four_gate', 'six_gate', 'all_in', 'two_base_colossus', 'two_base_all_in', 'one_base_all_in'):
+                return StrategyPrediction(
+                    probs={
+                        StrategyCategory.CHEESE: 0.1,
+                        StrategyCategory.ALL_IN: 0.7,
+                        StrategyCategory.TIMING_ATTACK: 0.2,
+                        StrategyCategory.MACRO: 0.0,
+                    },
+                    label=StrategyCategory.ALL_IN,
+                    level2=protoss_label,
+                    source="rules:protoss_allin",
+                    game_time=bot.time,
+                )
+            if protoss_label == 'stargate_timing':
+                return StrategyPrediction(
+                    probs={
+                        StrategyCategory.CHEESE: 0.0,
+                        StrategyCategory.ALL_IN: 0.15,
+                        StrategyCategory.TIMING_ATTACK: 0.75,
+                        StrategyCategory.MACRO: 0.1,
+                    },
+                    label=StrategyCategory.TIMING_ATTACK,
+                    level2=protoss_label,
+                    source="rules:protoss_timing",
+                    game_time=bot.time,
+                )
+
+        # No detection
+        return None
+
+
+# ===== HELPER FUNCTIONS =====
+
+def _get_economy_state(bot: "PiG_Bot") -> str:
+    """Get economy state string for transition checks. Avoids circular import."""
+    from bot.utilities.performance_monitor import get_economy_state
+    return get_economy_state(bot)
+
+
+def _should_deactivate_worker_rush(bot: "PiG_Bot") -> bool:
+    """No enemy workers near our base → worker rush is over."""
+    defense_point = (bot.natural_expansion
+                     if bot.structures.closer_than(8, bot.natural_expansion)
+                     else bot.start_location)
+    enemy_units = bot.mediator.get_units_in_range(
+        start_points=[defense_point],
+        distances=25,
+        query_tree=UnitTreeQueryType.AllEnemy,
+    )[0]
+    enemy_workers = enemy_units.filter(lambda u: u.type_id in WORKER_TYPES)
+    return not bool(enemy_workers)
+
+
+def _should_deactivate_cannon_rush(bot: "PiG_Bot") -> bool:
+    """No enemy probes/cannons/pylons near our base → cannon rush is over."""
+    enemy_units = bot.mediator.get_units_in_range(
+        start_points=[bot.start_location],
+        distances=14,
+        query_tree=UnitTreeQueryType.AllEnemy,
+    )[0]
+    enemy_probes = enemy_units.filter(lambda u: u.type_id == UnitTypeId.PROBE)
+    enemy_cannons = enemy_units.filter(lambda u: u.type_id == UnitTypeId.PHOTONCANNON)
+    enemy_pylons = enemy_units.filter(lambda u: u.type_id == UnitTypeId.PYLON)
+    return not bool(enemy_probes or enemy_cannons or enemy_pylons)
+
+
+# ===== HANDLER FUNCTIONS =====
+# Pure per-frame logic. No flag management — the ReactionManager owns all state.
 
 
 def defend_cannon_rush(bot):
-    """
-    Defends against cannon rush by pulling appropriate number of workers.
-    Uses continue-based priority chain for clean worker control.
-    Workers automatically return to mining when no threats present.
-    
-    Args:
-        bot: The bot instance
+    """Defend against cannon rush by pulling workers and targeting threats.
+
+    Pure per-frame logic — no flag management. The ReactionManager handles
+    activation, deactivation, and cleanup. This function only does the
+    micro: pull workers, prioritize targets, auto-return to mining.
+
+    Deactivation is handled by _should_deactivate_cannon_rush() which
+    checks for absence of enemy probes/cannons/pylons near our base.
     """
     # Get enemy units in base area
     enemy_units: Units = bot.mediator.get_units_in_range(
@@ -49,62 +499,25 @@ def defend_cannon_rush(bot):
         distances=14,
         query_tree=UnitTreeQueryType.AllEnemy,
     )[0]
-    
+
     enemy_probes = enemy_units.filter(lambda u: u.type_id == UnitTypeId.PROBE)
     enemy_cannons = enemy_units.filter(lambda u: u.type_id == UnitTypeId.PHOTONCANNON)
     enemy_pylons = enemy_units.filter(lambda u: u.type_id == UnitTypeId.PYLON)
-    
-    # Check if cannon rush is active
-    has_cannon_threats = bool(enemy_probes or enemy_cannons or enemy_pylons)
-    
-    if not has_cannon_threats:
-        # No threats - clean up if we were defending
-        if getattr(bot, '_cannon_rush_active', False):
-            defending_workers = bot.mediator.get_units_from_role(
-                role=UnitRole.DEFENDING,
-                unit_type=UnitTypeId.PROBE
-            )
-            # Return all defenders to gathering
-            for worker in defending_workers:
-                bot.mediator.assign_role(tag=worker.tag, role=UnitRole.GATHERING)
-            
-            # Complete cheese reaction build if both threats cleared
-            if (bot._used_cheese_response
-                and not getattr(bot, '_worker_rush_active', False)  # Other threat also clear
-                and bot.build_order_runner.chosen_opening == "Cheese_Reaction_Build"
-                and not bot.build_order_runner.build_completed):
-                bot.build_order_runner.set_build_completed()
-                bot._used_cheese_response = False
-                print(f"Cheese reaction build completed - cannon rush cleared at {bot.time:.1f}s")
-            
-            # Reset flags
-            bot._cannon_rush_active = False
-            bot._cannon_rush_response = False
-            bot._under_attack = False
-        return
-    
-    # Set initial flags if not already set
-    if not getattr(bot, '_cannon_rush_active', False):
-        bot._cannon_rush_active = True
-        bot.build_order_runner.switch_opening("Cheese_Reaction_Build", remove_completed=False)
-        bot._used_cheese_response = True
-        bot._under_attack = True
-        bot._worker_cannon_rush_response = True
-    
+
     # Calculate how many workers to pull (cannon-specific formula)
     workers_needed = min(24, len(enemy_cannons) + (len(enemy_probes) // 2) + 8)
-    
+
     # Get current defending workers
     defending_workers = bot.mediator.get_units_from_role(
         role=UnitRole.DEFENDING,
         unit_type=UnitTypeId.PROBE
     )
-    
+
     # Get workers that should be mining (not already defending)
     available_workers = bot.workers.filter(
         lambda w: w.tag not in defending_workers.tags
     )
-    
+
     # Assign more workers if needed
     while len(defending_workers) < workers_needed and available_workers:
         worker = available_workers.closest_to(bot.start_location)
@@ -113,25 +526,25 @@ def defend_cannon_rush(bot):
         bot.mediator.assign_role(tag=worker.tag, role=UnitRole.DEFENDING)
         defending_workers.append(worker)
         available_workers.remove(worker)
-    
-    # Per-worker control with priority chain (from example pattern)
+
+    # Per-worker control with priority chain
     for worker in defending_workers:
-        # 1. Handle resource return (from example)
+        # 1. Handle resource return
         if worker.is_carrying_resource and bot.townhalls:
             worker.return_resource()
             continue
-        
-        # 2. Cannon-specific prioritization (your logic - keep this!)
+
+        # 2. Cannon-specific prioritization
         # Prioritize cannons that are nearly complete or complete
         urgent_targets = enemy_cannons.filter(
             lambda c: c.build_progress > 0.5 or c.is_ready
         )
-        
+
         if urgent_targets:
             target = cy_closest_to(worker.position, urgent_targets)
             worker.attack(target)
             continue
-        
+
         if enemy_probes:
             target = cy_closest_to(worker.position, enemy_probes)
             # Only attack if in range and ready (smarter targeting)
@@ -140,35 +553,36 @@ def defend_cannon_rush(bot):
             else:
                 worker.move(target.position)
             continue
-        
+
         if enemy_cannons:  # Cannons < 50% complete
             target = cy_closest_to(worker.position, enemy_cannons)
             worker.attack(target)
             continue
-        
+
         if enemy_pylons:
             target = cy_closest_to(worker.position, enemy_pylons)
             worker.attack(target)
             continue
-        
-        # 3. Automatic fallback to mining (from example - no timer needed!)
+
+        # 3. Automatic fallback to mining
         if bot.mineral_field:
             mf = cy_closest_to(worker.position, bot.mineral_field)
             worker.gather(mf)
             bot.mediator.assign_role(tag=worker.tag, role=UnitRole.GATHERING)
 
 def defend_worker_rush(bot):
-    """
-    Defends against worker rush by pulling appropriate number of workers.
-    Uses continue-based priority chain for clean worker control.
-    Workers automatically return to mining when no threats present.
-    
-    Args:
-        bot: The bot instance
+    """Defend against worker rush by pulling workers and kiting.
+
+    Pure per-frame logic — no flag management. The ReactionManager handles
+    activation, deactivation, and cleanup. This function only does the
+    micro: pull workers, kite enemies, auto-return to mining.
+
+    Deactivation is handled by _should_deactivate_worker_rush() which
+    checks for absence of enemy workers near our base.
     """
     # Get all enemy units in our base and filter for workers
     defense_point = bot.natural_expansion if bot.structures.closer_than(8, bot.natural_expansion) else bot.start_location
-    
+
     enemy_units = bot.mediator.get_units_in_range(
         start_points=[defense_point],
         distances=25,  # Larger radius to catch workers coming in
@@ -176,57 +590,20 @@ def defend_worker_rush(bot):
     )[0]
     enemy_workers = enemy_units.filter(lambda u: u.type_id in WORKER_TYPES)
 
-    # Check if worker rush is active
-    has_worker_threats = bool(enemy_workers)
-    
-    if not has_worker_threats:
-        # No threats - clean up if we were defending
-        if getattr(bot, '_worker_rush_active', False):
-            defending_workers = bot.mediator.get_units_from_role(
-                role=UnitRole.DEFENDING,
-                unit_type=UnitTypeId.PROBE
-            )
-            # Return all defenders to gathering
-            for worker in defending_workers:
-                bot.mediator.assign_role(tag=worker.tag, role=UnitRole.GATHERING)
-            
-            # Complete cheese reaction build if both threats cleared
-            if (bot._used_cheese_response
-                and not getattr(bot, '_cannon_rush_active', False)  # Other threat also clear
-                and bot.build_order_runner.chosen_opening == "Cheese_Reaction_Build"
-                and not bot.build_order_runner.build_completed):
-                bot.build_order_runner.set_build_completed()
-                bot._used_cheese_response = False
-                print(f"Cheese reaction build completed - worker rush cleared at {bot.time:.1f}s")
-            
-            # Reset flags
-            bot._worker_rush_active = False
-            bot._not_worker_rush = True
-            bot._under_attack = False
-        return
-
-    # Set initial flags if not already set
-    if not getattr(bot, '_worker_rush_active', False):
-        bot._worker_rush_active = True
-        bot.build_order_runner.switch_opening("Cheese_Reaction_Build", remove_completed=False)
-        bot._used_cheese_response = True
-        bot._under_attack = True
-        bot._not_worker_rush = False
-
     # Get current defending workers
     defending_workers = bot.mediator.get_units_from_role(
         role=UnitRole.DEFENDING,
         unit_type=UnitTypeId.PROBE
     )
-    
+
     # Calculate how many workers to pull (worker rush specific: 1.5x enemy workers)
     workers_needed = min(16, max(4, int(len(enemy_workers) * 1.5)))
-    
+
     # Get workers that should be mining (not already defending)
     available_workers = bot.workers.filter(
         lambda w: w.tag not in defending_workers.tags
     )
-    
+
     # Assign more workers if needed
     while len(defending_workers) < workers_needed and available_workers:
         worker = available_workers.closest_to(bot.start_location)
@@ -235,22 +612,21 @@ def defend_worker_rush(bot):
         bot.mediator.assign_role(tag=worker.tag, role=UnitRole.DEFENDING)
         defending_workers.append(worker)
         available_workers.remove(worker)
-    
-    # Per-worker control with priority chain (from example pattern)
+
+    # Per-worker control with priority chain
     for worker in defending_workers:
-        # 1. Handle resource return (from example)
+        # 1. Handle resource return
         if worker.is_carrying_resource and bot.townhalls:
             worker.return_resource()
             continue
-        
+
         # 2. Worker rush specific: use WorkerKiteBack for micro
         if enemy_workers:
             target = cy_closest_to(worker.position, enemy_workers)
-            # Use WorkerKiteBack behavior for better micro (kiting)
             bot.register_behavior(WorkerKiteBack(unit=worker, target=target))
             continue
-        
-        # 3. Automatic fallback to mining (from example - no timer needed!)
+
+        # 3. Automatic fallback to mining
         if bot.mineral_field:
             mf = cy_closest_to(worker.position, bot.mineral_field)
             worker.gather(mf)
@@ -258,63 +634,18 @@ def defend_worker_rush(bot):
 
 
 def cheese_reaction(bot):
+    """Generic cheese defense handler.
+
+    The build order switch and Nexus cancel are handled by ReactionManager
+    via CategoryConfig. This function is the category default for CHEESE
+    when no specific handler (worker_rush, cannon_rush) matches.
+
+    Currently a no-op — per-frame micro for generic cheese (12-pool,
+    speedling, proxy rax, etc.) is handled by the build order switch
+    and CHEESE_DEFENSE_ARMY composition. Future: add specific micro
+    for proxy defense, wall-off logic, etc.
     """
-    Builds pylon/gateway/shield battery to defend early cheese.
-    """
-    #print(f"Current build: {bot.build_order_runner.chosen_opening}")
-    
-    remove_completed = False
-    if bot.structures(UnitTypeId.CYBERNETICSCORE).exists:
-        remove_completed = True
-    
-    bot.build_order_runner.switch_opening("Cheese_Reaction_Build", remove_completed=remove_completed)
-    
-    # Cancel a fast-expanding Nexus if it's started and we detect cheese
-    pending_townhalls = cy_structure_pending_ares(bot, UnitTypeId.NEXUS)
-    if pending_townhalls == 1 and bot.time < 2 * 60:
-        for pt in bot.townhalls.not_ready:
-            bot.mediator.cancel_structure(structure=pt)
-
-    
-
-
-
-def early_threat_sensor(bot):
-    """
-    Detects early threats like zergling rush, proxy zealots, etc.
-    Sets flags so the bot can respond (e.g., cheese_reaction).
-
-    When Strategy Belief is enabled, uses P(strategy=cheese) ≥ 0.6
-    to trigger cheese response instead of per-race booleans.
-    """
-    # Strategy Belief path: use probabilistic classification
-    if (bot.config.get("Belief", {}).get("enable_strategy", True)
-            and bot.belief_state.strategy is not None):
-        prediction = bot.belief_state.strategy.last_prediction
-        if prediction is not None and prediction.p_cheese >= 0.6:
-            bot._used_cheese_response = True
-            # Map specific Level-2 cheese labels to their handlers
-            if prediction.level2 == "worker_rush":
-                if bot._worker_rush_detected_time < 0:
-                    bot._worker_rush_detected_time = bot.time
-                bot._not_worker_rush = False
-            elif prediction.level2 == "cannon_rush":
-                bot._cannon_rush_response = True
-            return
-
-    # Fallback: detect_cheese() covers all race-specific detectors
-    # (proxy rax, bunker rush, cannon rush, proxy gates, four gate,
-    #  ling rush, roach/ravager rush, worker rush)
-    elif detect_cheese(bot):
-        bot._used_cheese_response = True
-        # Set race-specific response flags from detected labels
-        if getattr(bot, '_protoss_strategy_label', 'none') == 'cannon_rush':
-            bot._cannon_rush_response = True
-        if getattr(bot, '_worker_rush_detected', False):
-            if bot._worker_rush_detected_time < 0:
-                bot._worker_rush_detected_time = bot.time
-            bot._not_worker_rush = False
-    
+    pass
 
 
 # ===== THREAT ASSESSMENT FUNCTIONS =====

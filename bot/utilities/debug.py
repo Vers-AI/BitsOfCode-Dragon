@@ -78,7 +78,7 @@ def render_combat_state_overlay(bot, main_army: Units, enemy_threat_level: int, 
     )
     _y += _step
     bot.client.debug_text_2d(
-        f"EarlyDefMode: {is_early_defensive_mode} Cheese: {bot._used_cheese_response}", 
+        f"EarlyDefMode: {is_early_defensive_mode} Cheese: {bot.reaction_manager.is_cheese_response}", 
         Point2((0.1, _y)), None, 14
     )
     _y += _step

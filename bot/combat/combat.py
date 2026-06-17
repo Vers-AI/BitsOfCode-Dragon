@@ -1610,10 +1610,8 @@ def handle_attack_toggles(
 
     enemy_army = bot.enemy_army
     # Early game safety - don't attack during cheese reactions
-    is_early_defensive_mode = bot._used_cheese_response
-    # Clear defensive mode in mid-game
-    if bot.game_state >= 1:
-        is_early_defensive_mode = False
+    # ReactionManager handles transition; is_early_defensive is False once transitioned
+    is_early_defensive_mode = bot.reaction_manager.is_early_defensive
     
     # Debug visualization (controlled by bot.debug flag)
     render_combat_state_overlay(bot, main_army, enemy_threat_level, is_early_defensive_mode)

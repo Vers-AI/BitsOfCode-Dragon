@@ -703,6 +703,73 @@ CANNON_RUSH_SCOUT_WAYPOINTS: list[str] = [
 """Build runner scout waypoints for cannon rush response.
 Stays near our own bases — behind mineral lines where cannons go, then third/nat/ramp."""
 
+# ===== REACTION MANAGER =====
+
+@dataclass
+class CategoryConfig:
+    """Macro/build influence for a strategy category.
+
+    Consumed by macro.py and combat.py to adjust build order, probe cap,
+    army composition, and other macro-level decisions based on the
+    active reaction category.
+    """
+    build: str | None
+    """Build order name to switch to (e.g. 'Cheese_Reaction_Build'). None = use standard."""
+    probe_cap: int | None
+    """Max probes during this reaction. None = use standard cap."""
+    army_comp: dict[UnitTypeId, dict] | None
+    """Army composition override. None = use standard composition."""
+    cancel_nexus: bool
+    """Whether to cancel a fast-expanding Nexus if detected early."""
+    hold_army: bool
+    """Whether combat should hold the army back (early defensive mode)."""
+    stop_gas_below: int
+    """Stop gas mining when worker count is below this threshold. 0 = never stop gas."""
+
+
+REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
+    StrategyCategory.CHEESE: CategoryConfig(
+        build="Cheese_Reaction_Build",
+        probe_cap=30,
+        army_comp={  # CHEESE_DEFENSE_ARMY
+            UnitTypeId.ADEPT: {"proportion": 0.25, "priority": 2},
+            UnitTypeId.STALKER: {"proportion": 0.15, "priority": 0},
+            UnitTypeId.ZEALOT: {"proportion": 0.6, "priority": 1},
+        },
+        cancel_nexus=True,
+        hold_army=True,
+        stop_gas_below=21,
+    ),
+    StrategyCategory.ALL_IN: CategoryConfig(
+        build=None,  # Future: AllIn_Defense_Build
+        probe_cap=44,
+        army_comp=None,  # Future: ALL_IN_DEFENSE_ARMY
+        cancel_nexus=False,
+        hold_army=True,
+        stop_gas_below=0,
+    ),
+    StrategyCategory.TIMING_ATTACK: CategoryConfig(
+        build=None,  # Use standard build
+        probe_cap=None,  # Use standard
+        army_comp=None,  # Use standard + nudge
+        cancel_nexus=False,
+        hold_army=False,
+        stop_gas_below=0,
+    ),
+    StrategyCategory.MACRO: CategoryConfig(
+        build=None,
+        probe_cap=None,
+        army_comp=None,
+        cancel_nexus=False,
+        hold_army=False,
+        stop_gas_below=0,
+    ),
+}
+"""Category configs consumed by macro.py and combat.py.
+Each category determines build order, probe cap, army composition, and
+other macro-level decisions. ALL_IN and TIMING configs are placeholders
+for future implementation."""
+
 VOI_MIN_HUNT_TARGETS = 2
 """Minimum valid positions from Level-2 routing before falling back to STRATEGY_HUNT_TARGETS."""
 

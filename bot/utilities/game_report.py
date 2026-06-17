@@ -50,9 +50,9 @@ def _get_cheese_type(bot) -> str:
             and bot._protoss_strategy_label not in {'none', ''}):
         return bot._protoss_strategy_label
     # ARES mediator booleans (race-agnostic, highest priority overrides)
-    if not bot._not_worker_rush:
+    if bot.reaction_manager.active_reaction_name == "worker_rush":
         return "worker_rush"
-    if bot._cannon_rush_response:
+    if bot.reaction_manager.active_reaction_name == "cannon_rush":
         return "cannon_rush"
     if bot.mediator.get_enemy_marine_rush:
         return "marine_rush"
@@ -333,7 +333,7 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
     log_transition(
         subsystem="cheese_detect", action="state_change",
         reason="worker_rush",
-        key="worker_rush_active", value=not bot._not_worker_rush,
+        key="worker_rush_active", value=bot.reaction_manager.active_reaction_name == "worker_rush",
         _ts=bot.time,
     )
 
@@ -346,7 +346,7 @@ def print_periodic_intel_report(bot, iteration: int) -> None:
     print("\n  COMBAT STATUS:")
     print(f"    Attack Commenced: {bot._commenced_attack}")
     print(f"    Under Attack: {bot._under_attack}")
-    print(f"    Cheese Response: {bot._used_cheese_response}")
+    print(f"    Cheese Response: {bot.reaction_manager.is_cheese_response}")
     print(f"    Game State: {bot.game_state} ({'Early' if bot.game_state == 0 else 'Mid' if bot.game_state == 1 else 'Late'})")
 
     if fight_result is not None:
@@ -700,7 +700,7 @@ def emit_match_record(bot, game_result, game_time: float,
         "length": round(game_time, 1),
         "cheese_type": cheese_type,
         "commenced_attack": getattr(bot, '_commenced_attack', False),
-        "used_cheese_response": getattr(bot, '_used_cheese_response', False),
+        "used_cheese_response": bot.reaction_manager.is_cheese_response,
         "sq": round(pm.get_current_sq(), 1),
         "mineral_sq": round(pm.get_mineral_sq(), 1),
         "gas_sq": round(pm.get_gas_sq(), 1),
@@ -714,8 +714,9 @@ def emit_match_record(bot, game_result, game_time: float,
     }
 
     # Worker rush detection timestamp
-    if bot._worker_rush_detected_time >= 0:
-        match_fields["worker_rush_detected_at"] = round(bot._worker_rush_detected_time, 1)
+    reaction_start = bot.reaction_manager.reaction_start_time
+    if reaction_start >= 0 and bot.reaction_manager.active_reaction_name == "worker_rush":
+        match_fields["worker_rush_detected_at"] = round(reaction_start, 1)
 
     # Cheese detection timing features (present when vs Zerg/Random)
     if hasattr(bot, '_cheese_label'):

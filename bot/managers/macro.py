@@ -130,7 +130,7 @@ def get_optimal_gas_workers(bot) -> int:
         return 0
     
     # Early game with few workers - stop gas temporarily
-    if ((bot._used_cheese_response and len(gatherers) < 21)
+    if ((bot.reaction_manager.is_cheese_response and len(gatherers) < 21)
         or len(gatherers) < 12):
         return 0
     
@@ -904,7 +904,7 @@ def require_shield_battery(bot) -> bool:
     total_batteries = (bot.structures(UnitTypeId.SHIELDBATTERY).amount + 
                       cy_structure_pending_ares(bot, UnitTypeId.SHIELDBATTERY))
     
-    return bot._used_cheese_response and total_batteries == 0
+    return bot.reaction_manager.is_cheese_response and total_batteries == 0
 
 
 def get_shield_battery_base_location(bot) -> Point2:
@@ -1418,18 +1418,9 @@ async def handle_macro(
     
     economy_state = get_economy_state(bot)
     
-    # One-way transition from cheese defense to standard army
-    if bot._used_cheese_response and not bot._transitioned_from_cheese:
-        # Check transition conditions (one-way, never reverts)
-        transition_conditions = (
-            bot.game_state >= 1  # Mid-game
-            or (not bot._under_attack and economy_state in ("moderate", "full"))  # Safe + healthy economy
-        )
-        if transition_conditions:
-            bot._transitioned_from_cheese = True
-    
-    # Select army composition based on transition state
-    if not bot._used_cheese_response or bot._transitioned_from_cheese:
+    # Select army composition based on reaction state
+    # ReactionManager handles the one-way transition from cheese → standard
+    if not bot.reaction_manager.is_cheese_response:
         army_composition = select_army_composition(bot, main_army)
         expansion_count = expansion_checker(bot, main_army)
     else:
@@ -1500,7 +1491,7 @@ async def handle_macro(
         # units. Use it when: cheese defense active, get_freeflow_mode says yes,
         # or we have a significant mineral bank (can't afford to stall production).
         spawn_freeflow = (
-            bot._used_cheese_response
+            bot.reaction_manager.is_cheese_response
             or freeflow
             or bot.minerals > 500  # High bank → always freeflow to avoid stall
         )

@@ -186,8 +186,8 @@ def detect_worker_rush(bot: "PiG_Bot") -> bool:
     if bot.mediator.get_enemy_worker_rushed and bot.game_state == 0:
         if not hasattr(bot, '_worker_rush_detected'):
             bot._worker_rush_detected = True
-            bot._worker_rush_detected_time = bot.time
-            bot._not_worker_rush = False
+            # ReactionManager owns reaction state (start time, keep_safe);
+            # _cheese_source and chat are detection labels for telemetry
             bot._cheese_source = "auto-TRUE:ARES"
             bot._strategy_chat_pending = "(worker rush detected)"
             print(f"{bot.time_formatted}: Worker rush detected (ARES)")

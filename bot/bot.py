@@ -29,7 +29,7 @@ from sc2.data import Race
 # Modular imports for separated concerns
 from bot.managers.macro import handle_macro, get_optimal_gas_workers, get_freeflow_mode
 from bot.managers.structure_manager import use_chronoboost, use_recharge, use_mass_recall
-from bot.managers.reactions import defend_cannon_rush, defend_worker_rush, early_threat_sensor, cheese_reaction, threat_detection
+from bot.managers.reactions import ReactionManager, threat_detection
 from bot.combat import (
     control_main_army,
     control_defenders,
@@ -94,20 +94,13 @@ class PiG_Bot(AresBot):
 
         # Flags for in-game logic
         self._commenced_attack = False
-        self._used_cheese_response = False
-        self._transitioned_from_cheese = False  # One-way transition from cheese defense to standard army
         self._economy_switch_triggered = False  # One-way transition from base to economy-gated composition
         self._rush_time_seconds = 0.0  # Rush time calculated in on_start
         self._under_attack = False
-        self._not_worker_rush = True
-        self._worker_rush_detected_time = -1
-        self._cannon_rush_response = False
         self._is_building = False
-        
-        # Cannon rush specific flags
-        self._cannon_rush_active = False
-        self._cannon_rush_completed = False
-        self._cannon_rush_cleanup_timer = None
+
+        # Reaction manager: owns all reaction state and routing
+        self.reaction_manager = ReactionManager()
 
         # Debug flags (loaded from config.yml in on_start)
         self.debug = False  # Will be set from config.yml BotDebug
@@ -264,6 +257,9 @@ class PiG_Bot(AresBot):
         # Load opponent profiles for cross-game priors (Phase 4)
         self._belief_updater.load_opponent()
 
+        # Register reaction handlers (maps StrategyCategory + level2 → handler fn)
+        self.reaction_manager.register_handlers()
+
         # Greet opponent with prior info (or just GLHF if unknown)
         await self._send_opponent_greeting()
 
@@ -336,7 +332,7 @@ class PiG_Bot(AresBot):
         # Dynamic gas worker management (logic in macro.py)
         self.register_behavior(Mining(
             workers_per_gas=get_optimal_gas_workers(self),
-            keep_safe=self._not_worker_rush
+            keep_safe=self.reaction_manager.keep_workers_safe
         )) 
 
         # Filter expired ghosts (age >= 30s) from cached enemy army;
@@ -385,19 +381,10 @@ class PiG_Bot(AresBot):
             from bot.intel import track_enemy_timings
             track_enemy_timings(self)  # Always track timings/speed during build order phase
             self.register_behavior(RestorePower()) # Restore power to depowered buildings
-            if not self._under_attack:  # Still use early_threat_sensor for cheese detection
-                early_threat_sensor(self)    
-            # If cheese or one-base flags are set, handle them
-            if self._used_cheese_response:
-                if not self._not_worker_rush:
-                    # Handle worker rush defense
-                    defend_worker_rush(self)
-                elif self._cannon_rush_response:
-                    # Handle cannon rush defense
-                    defend_cannon_rush(self)
-                else:
-                    # Handle other cheese responses
-                    cheese_reaction(self)
+
+            # Route prediction → handler via ReactionManager
+            self.reaction_manager.update(self)
+            self.reaction_manager.execute(self)
         else:
             # Macro calls (only run if build order is complete)
             await handle_macro(

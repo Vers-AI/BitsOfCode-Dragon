@@ -154,8 +154,8 @@ class StrategyBelief:
         # detect_cheese() sets various bot._*_label attributes
         race = bot.enemy_race.name
 
-        # Worker rush (all races)
-        if getattr(bot, '_worker_rush_detected', False):
+        # Worker rush (all races) — check ReactionManager for active detection
+        if bot.reaction_manager.active_reaction_name == "worker_rush":
             return StrategyPrediction(
                 probs={
                     StrategyCategory.CHEESE: 1.0,
