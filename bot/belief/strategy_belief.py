@@ -154,8 +154,12 @@ class StrategyBelief:
         # detect_cheese() sets various bot._*_label attributes
         race = bot.enemy_race.name
 
-        # Worker rush (all races) — check ReactionManager for active detection
-        if bot.reaction_manager.active_reaction_name == "worker_rush":
+        # Worker rush (all races) — check detection flag set by detect_cheese()
+        # NOTE: Don't check reaction_manager here — it hasn't processed the
+        # prediction yet at this point in the frame (belief update runs before
+        # reaction_manager.update()). The detection flag is set in the same
+        # frame by detect_cheese() → detect_worker_rush().
+        if getattr(bot, '_worker_rush_detected', False):
             return StrategyPrediction(
                 probs={
                     StrategyCategory.CHEESE: 1.0,

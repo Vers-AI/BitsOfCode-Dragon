@@ -158,27 +158,60 @@ class ReactionManager:
 
     # --- Core lifecycle ---
 
+    # Minimum P(top category) for the BN model to trigger a reaction.
+    # Applies uniformly to all non-MACRO categories (cheese, all_in,
+    # timing_attack). Below this, the prediction means "not enough evidence
+    # yet" and we wait rather than acting. MACRO never triggers a reaction
+    # (it's the default/no-op state).
+    REACTION_CONFIDENCE_THRESHOLD: float = 0.6
+
     def update(self, bot: "PiG_Bot") -> None:
         """Read current StrategyPrediction, decide if reaction should change.
 
         Routes detection output to the appropriate handler. Always runs,
         even when under attack (unlike the old early_threat_sensor gate).
+
+        Architecture (per bayesian_belief_layer_plan.md):
+          1. BN model (primary) — route when P(top category) ≥ threshold
+          2. Auto-TRUE guards — fallback when model is unavailable
+          3. Rule-based detect_cheese() — fallback when belief is disabled
+
+        The BN model is the primary path. When it produces a prediction below
+        the confidence threshold, that's a valid "not enough evidence yet"
+        signal — we wait, not fall back to rules. The rule-based fallback only
+        runs when belief is disabled or the model hasn't produced a prediction.
         """
         prediction = None
         use_belief = bot.config.get("Belief", {}).get("enable_strategy", True)
 
-        # Primary path: Strategy Belief (probabilistic classification)
+        # Primary path: Strategy Belief (BN model + auto-TRUE guards)
+        # The BN model always produces a prediction when loaded. Auto-TRUE
+        # guards produce deterministic P=1.0 predictions when detect_cheese
+        # fires. Both are consumed via last_prediction.
         if use_belief and bot.belief_state.strategy is not None:
-            prediction = bot.belief_state.strategy.last_prediction
+            belief_pred = bot.belief_state.strategy.last_prediction
+            if belief_pred is not None and self._meets_threshold(belief_pred):
+                prediction = belief_pred
 
-        # Fallback: rule-based detection (sets bot._* labels)
-        elif detect_cheese(bot):
-            # Build a synthetic prediction from the detected labels
+        # Fallback: rule-based detection (only when belief is disabled)
+        # Per the architecture, rules are the last resort when the model is
+        # unavailable — not when the model says "low confidence".
+        elif not use_belief and detect_cheese(bot):
             prediction = self._prediction_from_rules(bot)
 
         # Route the prediction
         if prediction is not None:
             self._route_prediction(bot, prediction)
+
+    def _meets_threshold(self, prediction) -> bool:
+        """Check if a prediction's top category meets the confidence threshold.
+
+        Applies uniformly to all non-MACRO categories: P(cheese) ≥ 0.6,
+        P(all_in) ≥ 0.6, P(timing_attack) ≥ 0.6. MACRO is never routed as a
+        reaction (it's the default state, handled in _route_prediction).
+        """
+        top_prob = max(prediction.probs.values())
+        return top_prob >= self.REACTION_CONFIDENCE_THRESHOLD
 
     def execute(self, bot: "PiG_Bot") -> None:
         """Run the active reaction's handler. Called from bot.py on_step."""
