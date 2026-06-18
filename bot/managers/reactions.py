@@ -26,6 +26,7 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.ability_id import AbilityId
 from sc2.units import Units
 from sc2.position import Point2
+from sc2.data import Race
 
 # Ares imports
 from ares.consts import UnitRole, WORKER_TYPES, UnitTreeQueryType
@@ -243,8 +244,8 @@ class ReactionManager:
         for worker in defending_workers:
             bot.mediator.assign_role(tag=worker.tag, role=UnitRole.GATHERING)
 
-        # Complete cheese reaction build if active
-        if (bot.build_order_runner.chosen_opening == "Cheese_Reaction_Build"
+        # Complete cheese reaction build if active (any race variant)
+        if (_is_cheese_build(bot.build_order_runner.chosen_opening)
                 and not bot.build_order_runner.build_completed):
             bot.build_order_runner.set_build_completed()
 
@@ -292,15 +293,21 @@ class ReactionManager:
         # Apply category config: build order switch
         config = self.category_config
         if config.build is not None:
-            remove_completed = bot.structures(UnitTypeId.CYBERNETICSCORE).exists
-            bot.build_order_runner.switch_opening(config.build, remove_completed=remove_completed)
-
-            # Cancel fast-expanding Nexus if category says to
-            if config.cancel_nexus:
-                pending_townhalls = cy_structure_pending_ares(bot, UnitTypeId.NEXUS)
-                if pending_townhalls == 1 and bot.time < 2 * 60:
-                    for pt in bot.townhalls.not_ready:
-                        bot.mediator.cancel_structure(structure=pt)
+            # Cheese build varies by enemy race (nat_wall / ramp / reaper_wall)
+            is_cheese = self._active_category == StrategyCategory.CHEESE
+            build_name = (
+                _cheese_build_for_race(bot) if is_cheese else config.build
+            )
+            # PvT/PvP cheese builds use ramp/reaper_wall — different placement
+            # from the standard build, so always strip already-completed steps
+            # to avoid doubling up buildings at the wrong location. PvZ uses
+            # the same nat_wall as the standard build, so keep the existing
+            # Cyber Core check for that case.
+            if is_cheese and bot.enemy_race in (Race.Protoss, Race.Terran):
+                remove_completed = True
+            else:
+                remove_completed = bot.structures(UnitTypeId.CYBERNETICSCORE).exists
+            bot.build_order_runner.switch_opening(build_name, remove_completed=remove_completed)
 
         # Set under_attack flag for threat detection
         bot._under_attack = True
@@ -504,6 +511,26 @@ class ReactionManager:
 
 
 # ===== HELPER FUNCTIONS =====
+
+
+CHEESE_BUILD_PREFIX = "Cheese_Reaction_Build"
+
+
+def _cheese_build_for_race(bot: "PiG_Bot") -> str:
+    """Pick the cheese reaction build matching the enemy race's wall type.
+
+    PvZ / Random → nat_wall, PvP → ramp, PvT → reaper_wall.
+    """
+    if bot.enemy_race == Race.Protoss:
+        return "Cheese_Reaction_Build_Protoss"
+    if bot.enemy_race == Race.Terran:
+        return "Cheese_Reaction_Build_Terran"
+    return "Cheese_Reaction_Build"  # Zerg / Random
+
+
+def _is_cheese_build(opening_name: str) -> bool:
+    """True if the opening is any cheese reaction build variant."""
+    return opening_name.startswith(CHEESE_BUILD_PREFIX)
 
 
 def _should_deactivate_worker_rush(bot: "PiG_Bot") -> bool:

@@ -1557,9 +1557,10 @@ async def handle_macro(
         
         # Expansion logic: moderate+ gets full expansion, reduced gets safety net to 2 bases
         # Skip expansions when under attack - focus resources on defense
+        # No expansions during cheese response — focus entirely on defense
         # Note: when banking_for_expansion, ExpansionController was already
         # added at the top with prioritize=True, so we skip adding it again here.
-        if not banking_for_expansion and not bot._under_attack:
+        if not banking_for_expansion and not bot._under_attack and not bot.reaction_manager.is_cheese_response:
             if economy_state in ("moderate", "full"):
                 macro_plan.add(ExpansionController(to_count=expansion_count, max_pending=1))
             elif wants_to_expand:

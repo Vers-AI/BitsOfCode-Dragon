@@ -723,8 +723,6 @@ class CategoryConfig:
     """Max probes during this reaction. None = use standard cap."""
     army_comp: dict[UnitTypeId, dict] | None
     """Army composition override. None = use standard composition."""
-    cancel_nexus: bool
-    """Whether to cancel a fast-expanding Nexus if detected early."""
     hold_army: bool
     """Whether combat should hold the army back (early defensive mode)."""
     stop_gas_below: int
@@ -740,7 +738,6 @@ REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
             UnitTypeId.STALKER: {"proportion": 0.15, "priority": 0},
             UnitTypeId.ZEALOT: {"proportion": 0.6, "priority": 1},
         },
-        cancel_nexus=True,
         hold_army=True,
         stop_gas_below=21,
     ),
@@ -748,7 +745,6 @@ REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
         build=None,  # Future: AllIn_Defense_Build
         probe_cap=44,
         army_comp=None,  # Future: ALL_IN_DEFENSE_ARMY
-        cancel_nexus=False,
         hold_army=True,
         stop_gas_below=0,
     ),
@@ -756,7 +752,6 @@ REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
         build=None,  # Use standard build
         probe_cap=None,  # Use standard
         army_comp=None,  # Use standard + nudge
-        cancel_nexus=False,
         hold_army=False,
         stop_gas_below=0,
     ),
@@ -764,7 +759,6 @@ REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
         build=None,
         probe_cap=None,
         army_comp=None,
-        cancel_nexus=False,
         hold_army=False,
         stop_gas_below=0,
     ),
