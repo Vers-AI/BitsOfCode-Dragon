@@ -1482,7 +1482,52 @@ async def handle_macro(
     
     macro_plan: MacroPlan = MacroPlan()
     
+    # Determine if we should bank minerals for an expansion this frame.
+    #
+    # Root cause of the original bug: ExpansionController was at the END of
+    # the MacroPlan. MacroPlan.execute() returns True on the first successful
+    # behavior, so BuildWorkers (50m), AutoSupply (100m), and GasBuildingController
+    # (75m) would succeed and return True before ExpansionController ever ran.
+    # The bot never accumulated the 400m for a Nexus — it hovered at 200-350m,
+    # perpetually spending on probes/pylons/assimilators.
+    #
+    # Fix: when banking, add ExpansionController(prioritize=True) at the TOP
+    # of the MacroPlan. prioritize=True makes it return True even when it
+    # can't afford the Nexus yet, blocking all lower-priority spending.
+    #
+    # The banking condition stays active while a worker is en route to the
+    # expansion (cy_structure_pending_ares > 0) but the Nexus isn't physically
+    # under construction yet. This prevents SpawnController from spending
+    # minerals before the building manager can place the Nexus.
+    #
+    # We use expansion_count (from expansion_checker) instead of counting
+    # townhalls. expansion_checker already evaluates resource starvation,
+    # base depletion, and spending efficiency to decide if we need more
+    # bases. This works for the natural (2 bases) AND for late-game
+    # expansions when existing bases are mining out.
+    nexus_under_construction = bot.structures(UnitTypeId.NEXUS).not_ready.amount > 0
+    wants_to_expand = expansion_count > len(bot.townhalls)
+    banking_for_expansion = (
+        economy_state == "reduced"
+        and not bot._under_attack
+        and not nexus_under_construction
+        and not bot.reaction_manager.is_cheese_response
+        and wants_to_expand
+    )
+    
+    if banking_for_expansion:
+        # prioritize=True blocks all lower-priority spending until the
+        # Nexus is placed. On frame 1, it sends a worker and returns True.
+        # On subsequent frames, expansion_pending is True so the controller
+        # returns False — but we still skip SpawnController below, so only
+        # BuildWorkers (50m) and AutoSupply (100m) can spend. Minerals
+        # accumulate and the building manager places the Nexus when affordable.
+        macro_plan.add(ExpansionController(to_count=expansion_count, max_pending=1, prioritize=True))
+    
     # Always: workers and supply (all economy states)
+    # These run after ExpansionController, so they only execute if
+    # ExpansionController didn't block (i.e. we can afford the Nexus
+    # or already have enough bases).
     macro_plan.add(BuildWorkers(to_count=optimal_worker_count))
     macro_plan.add(AutoSupply(base_location=production_location))
     
@@ -1503,26 +1548,25 @@ async def handle_macro(
             or bot.minerals > 500  # High bank → always freeflow to avoid stall
         )
         
-        # During reduced economy, use freeflow mode so cheap affordable units
-        # still get built (Layer 1 priority reorder puts them first).
-        # Only fully skip spawning if we genuinely need to save for an expansion
-        # that isn't already building.
-        expansion_pending = cy_structure_pending_ares(bot, UnitTypeId.NEXUS) > 0
-        if economy_state == "reduced" and not bot._under_attack and bot.minerals < 350 and not expansion_pending:
-            # Genuinely tight and need to save for expansion — still produce in freeflow
-            # so mineral-only units (Zealots) keep flowing via priority reordering
-            macro_plan.add(SpawnController(army_composition, spawn_target=spawn_target, freeflow_mode=True))
+        # When banking for expansion, SpawnController is skipped entirely
+        # so minerals accumulate for the Nexus. Otherwise, produce army.
+        if banking_for_expansion:
+            pass  # No SpawnController — minerals go to ExpansionController
         else:
             macro_plan.add(SpawnController(army_composition, spawn_target=spawn_target, freeflow_mode=spawn_freeflow))
         
         # Expansion logic: moderate+ gets full expansion, reduced gets safety net to 2 bases
         # Skip expansions when under attack - focus resources on defense
-        if not bot._under_attack:
+        # Note: when banking_for_expansion, ExpansionController was already
+        # added at the top with prioritize=True, so we skip adding it again here.
+        if not banking_for_expansion and not bot._under_attack:
             if economy_state in ("moderate", "full"):
                 macro_plan.add(ExpansionController(to_count=expansion_count, max_pending=1))
-            elif len(bot.townhalls) < 2:
-                # Safety net: always allow natural expansion even in reduced economy
-                macro_plan.add(ExpansionController(to_count=2, max_pending=1))
+            elif wants_to_expand:
+                # Reduced economy but expansion_checker says we need more bases.
+                # This covers both the natural (early) and late-game expansions
+                # when existing bases are mining out.
+                macro_plan.add(ExpansionController(to_count=expansion_count, max_pending=1))
         
         if economy_state in ("moderate", "full"):
             # Moderate+: upgrades
