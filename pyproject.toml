@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ares-sc2-starter-bot"
-version = "0.10.1"
+version = "0.10.2"
 description = ""
 authors = []
 readme = "README.md"
