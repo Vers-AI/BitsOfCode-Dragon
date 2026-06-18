@@ -1414,6 +1414,13 @@ async def handle_macro(
     
     profile = get_active_profile(bot)
     worker_limit = _resolve(profile.worker_cap, bot)
+    # Cheese reaction caps probe production until the reaction transitions
+    # (keeps the build runner's ConstantWorkerProductionTill and post-build
+    #  BuildWorkers in sync — previously BuildWorkers would jump straight
+    #  to the standard profile cap, ignoring CategoryConfig.probe_cap)
+    cheese_probe_cap = bot.reaction_manager.category_config.probe_cap
+    if bot.reaction_manager.is_cheese_response and cheese_probe_cap is not None:
+        worker_limit = min(worker_limit, cheese_probe_cap)
     optimal_worker_count = min(calculate_optimal_worker_count(bot), worker_limit)
     
     economy_state = get_economy_state(bot)

@@ -223,8 +223,8 @@ Builds:
 
 
     Cheese_Reaction_Build:
-        # Chesese reaction Build order
-        ConstantWorkerProductionTill: 30
+        # Cheese reaction Build order
+        ConstantWorkerProductionTill: 20
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
             - 0 GATEWAY @ nat_wall

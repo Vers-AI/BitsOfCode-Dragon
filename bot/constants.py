@@ -703,6 +703,10 @@ CANNON_RUSH_SCOUT_WAYPOINTS: list[str] = [
 """Build runner scout waypoints for cannon rush response.
 Stays near our own bases — behind mineral lines where cannons go, then third/nat/ramp."""
 
+CHEESE_THREAT_CLEAR_GRACE: float = 30.0
+"""Seconds with no enemy combat units near our bases before cheese mode clears.
+Prevents oscillation from intermittent ling pokes during the transition window."""
+
 # ===== REACTION MANAGER =====
 
 @dataclass
@@ -730,7 +734,7 @@ class CategoryConfig:
 REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
     StrategyCategory.CHEESE: CategoryConfig(
         build="Cheese_Reaction_Build",
-        probe_cap=30,
+        probe_cap=20,
         army_comp={  # CHEESE_DEFENSE_ARMY
             UnitTypeId.ADEPT: {"proportion": 0.25, "priority": 2},
             UnitTypeId.STALKER: {"proportion": 0.15, "priority": 0},

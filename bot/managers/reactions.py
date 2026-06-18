@@ -50,6 +50,7 @@ from bot.constants import (
     STRATEGY_THREAT_MULTIPLIER,
     STRATEGY_THREAT_CLEAR_MULTIPLIER,
     REACTION_CATEGORY_CONFIGS,
+    CHEESE_THREAT_CLEAR_GRACE,
 )
 from bot.constants import StrategyCategory
 
@@ -77,6 +78,10 @@ class ReactionManager:
         self._active_strategy: Optional[str] = None
         self._reaction_start_time: float = -1.0
         self._transitioned: bool = False
+
+        # Tracks the last time an enemy combat unit was near our bases.
+        # Used by the cheese transition to detect a sustained threat-free window.
+        self._last_threat_near_base_time: float = -1.0
 
         # Handler registry: category → {level2_label → handler}
         # Handlers are set after module init to avoid circular imports.
@@ -248,6 +253,7 @@ class ReactionManager:
         self._active_strategy = None
         self._reaction_start_time = -1.0
         self._transitioned = False
+        self._last_threat_near_base_time = -1.0
         bot._under_attack = False
 
     # --- Internal routing ---
@@ -281,6 +287,7 @@ class ReactionManager:
         self._active_strategy = level2
         self._reaction_start_time = bot.time
         self._transitioned = False
+        self._last_threat_near_base_time = -1.0
 
         # Apply category config: build order switch
         config = self.category_config
@@ -327,8 +334,27 @@ class ReactionManager:
         # Category-default: cheese transitions to standard army (not full deactivation)
         # Transition = keep reaction active but switch army comp; deactivation = end reaction entirely
         if self._active_category == StrategyCategory.CHEESE and not self._transitioned:
-            economy_state = _get_economy_state(bot)
-            if bot.game_state >= 1 or (not bot._under_attack and economy_state in ("moderate", "full")):
+            # Track threat presence for the sustained-clear window
+            if _enemy_combat_near_bases(bot):
+                self._last_threat_near_base_time = bot.time
+
+            # Clear when any of:
+            # 1. Game reached mid-game (6:00 timer — unconditional safety net)
+            # 2. Sustained threat-free window (no enemy combat units near
+            #    our bases for CHEESE_THREAT_CLEAR_GRACE seconds) — means
+            #    the cheese attack is broken and we can safely transition
+            # 3. Army has commenced attacking (we pushed out — defensive
+            #    phase is over)
+            # The economy check was removed: it created a circular
+            # dependency where cheese mode kept workers low, which kept
+            # economy_state "reduced", which blocked the transition.
+            threat_clear = (
+                self._last_threat_near_base_time >= 0.0
+                and (bot.time - self._last_threat_near_base_time)
+                    >= CHEESE_THREAT_CLEAR_GRACE
+            )
+            attack_commenced = getattr(bot, '_commenced_attack', False)
+            if bot.game_state >= 1 or threat_clear or attack_commenced:
                 self._transitioned = True
 
     def _prediction_from_rules(self, bot: "PiG_Bot"):
@@ -479,11 +505,6 @@ class ReactionManager:
 
 # ===== HELPER FUNCTIONS =====
 
-def _get_economy_state(bot: "PiG_Bot") -> str:
-    """Get economy state string for transition checks. Avoids circular import."""
-    from bot.utilities.performance_monitor import get_economy_state
-    return get_economy_state(bot)
-
 
 def _should_deactivate_worker_rush(bot: "PiG_Bot") -> bool:
     """No enemy workers near our base → worker rush is over."""
@@ -510,6 +531,18 @@ def _should_deactivate_cannon_rush(bot: "PiG_Bot") -> bool:
     enemy_cannons = enemy_units.filter(lambda u: u.type_id == UnitTypeId.PHOTONCANNON)
     enemy_pylons = enemy_units.filter(lambda u: u.type_id == UnitTypeId.PYLON)
     return not bool(enemy_probes or enemy_cannons or enemy_pylons)
+
+
+def _enemy_combat_near_bases(bot: "PiG_Bot") -> bool:
+    """Any enemy combat unit in the ARES near-bases dict → threat is present.
+
+    Uses the same source as threat_detection() so the transition is
+    consistent with the _under_attack flag.  Workers and non-combat
+    units are excluded by EnemyToBaseManager's filtering.
+    """
+    ground = bot.mediator.get_ground_enemy_near_bases
+    flying = bot.mediator.get_flying_enemy_near_bases
+    return any(ground.values()) or any(flying.values())
 
 
 # ===== HANDLER FUNCTIONS =====
