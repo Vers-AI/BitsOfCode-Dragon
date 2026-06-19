@@ -1146,7 +1146,7 @@ These fields are available in the API but not yet consumed by `train_strategy_be
 
 3. ~~**Strategy label coverage**~~ — **Resolved.** API now has 200 matches with `strategy_category` populated (cheese:81, macro:62, all_in:31, timing:26). Training script normalizes `timing` → `timing_attack`.
 
-4. **`nat_start` and expansion scouting** — Currently hardcoded to -1 in the training script. These are critical features for distinguishing macro (fast expansion) from cheese (no expansion). Fix: add these to the match-level-full endpoint, or populate them from the per-match rush_detect events endpoint once it's fixed.
+4. **`nat_start` and expansion scouting** — Currently hardcoded to -1 in the training script. These are critical for distinguishing macro (fast expansion) from cheese (no expansion). ~~Fix: add these to the match-level-full endpoint~~ **DONE (2026-06-19)** — added to enriched endpoint. Remaining: bot only sends `nat_start` for Zerg/Random (gated by `if hasattr(bot, '_cheese_label')`). Bot-side fix needed to send for all races.
 
 ---
 
@@ -1274,15 +1274,15 @@ Implemented as two new API endpoints in `telemetry/pigbot/api.py`:
 - 294 false negatives (bot says macro, replay says cheese/all_in/timing) — largest category, suggests the BN is under-classifying aggression
 - Most common FP pattern: bot labels Terran mech as `cheese/cannon_rush` or `cheese/proxy_gateway` — same class of error as match 4829911
 
-### Step 5: Training Data Quality
+### ~~Step 5: Training Data Quality~~ — PARTIALLY DONE
 
-Several gaps in training data need closing:
+1. ~~**Missing telemetry files**~~ — Puller issue. Match 4829911 had no match log on AI Arena; the puller now falls back to the result object's `arenaclient_log` URL. Remaining gap: matches where AI Arena has no match log at all (telemetry permanently lost for those games).
 
-1. **Missing telemetry files**: Match 4829911 had no `games/4829911.jsonl` because AI Arena didn't have a match log. The replay was processed but the match doesn't appear in the enriched endpoint (which joins telemetry + replay). Fix: ensure the puller downloads match logs even when they're not in the standard participation endpoint — try the result object's `arenaclient_log` URL as fallback.
+2. ~~**`nat_start` and timing fields in enriched endpoint**~~ — DONE (2026-06-19). Added `nat_start`, `pool_start`, `gas_time`, `ling_seen`, `ling_contact`, `last_nat_scout_time`, `nat_present_on_last_scout`, `rush_time_seconds`, `used_cheese_response`, `commenced_attack`, `opponent_prior_applied`, `strategy_label`, `strategy_level2`, `strategy_source`, `strategy_p_*`, `idle_worker_time`, `idle_production_time` to the `match_base` CTE in `match-level-full` endpoint.
 
-2. **`nat_start` and `last_nat_scout_time`**: Hardcoded to -1 in training script. These are critical for distinguishing macro (fast expansion) from cheese (no expansion). Fix: add these to `match-level-full` endpoint as pre-aggregated columns from the match record.
+   **Known limitation**: `nat_start` is only populated for Zerg/Random matches (317/718). The bot's `emit_match_record()` gates these fields behind `if hasattr(bot, '_cheese_label')` which only exists for Zerg/Random. **Bot-side fix needed**: move `nat_start` (and other timing fields) outside the cheese detection block so they're sent for all races. This is a bot code change — stays in the bot plan.
 
-3. **`derive_strategy_label()` proxy_rax heuristic**: Currently flags ANY Terran with 1 barracks + 1 base + rax < 180s as cheese, without checking position. This is the training-side equivalent of the bug we found. Fix: add position check — if `rax_near_base` is available in the training data, only flag as cheese when `rax_near_base = yes`.
+3. **`derive_strategy_label()` proxy_rax heuristic** (bot-side): Currently flags ANY Terran with 1 barracks + 1 base + rax < 180s as cheese, without checking position. This is the training-side equivalent of the bug we found. Fix: add position check — if `rax_near_base` is available in the training data, only flag as cheese when `rax_near_base = yes`. **Bot-side change — stays in plan.**
 
 ### Implementation Order
 
@@ -1292,7 +1292,7 @@ Several gaps in training data need closing:
 | 1: Position features in BN | Medium (5 new vars, update evidence collection + training) | High — directly fixes 4829911 class of errors | 1 |
 | 2: Timing features in BN | Medium (4 new vars, new binning logic) | High — discriminates proxy timing from standard | 2 |
 | 3: sklearn upgrade | High (rewrite inference path) | Medium — better but bigger change | 3 |
-| 5: Training data quality | Medium (puller fix + endpoint update) | Medium — closes data gaps | 4 |
+| ~~5: Training data quality~~ | ~~Medium~~ | ~~Medium~~ | ~~PARTIALLY DONE (API side done, bot-side remains)~~ |
 
 Steps 1 and 2 can be done together in a single training cycle. Step 4 (mismatch detector) is independent and can be done in parallel.
 
