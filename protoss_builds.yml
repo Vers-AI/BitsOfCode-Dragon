@@ -154,7 +154,7 @@ Builds:
         # Build constant worker production till this supply
         ConstantWorkerProductionTill: 26
         # After 0 supply turn AutoSupply on
-        AutoSupplyAtSupply: 30
+        AutoSupplyAtSupply: 33
         OpeningBuildOrder:
             - 14 PYLON @ ramp
             - 16 GATEWAY 
@@ -171,11 +171,11 @@ Builds:
             - 22 CHRONO @ NEXUS 
             - 27 WARPGATERESEARCH
             - 28 EXPAND
-            - 33 SHIELDBATTERY @ nat_wall
-            - 34 ROBOTICSFACILITY
-            - 38 STALKER X2
+            - 34 STALKER X2
+            - 34 SHIELDBATTERY @ nat_wall
+            - 36 ROBOTICSFACILITY
             - 42 ROBOTICSBAY
-            - 44 TWILIGHTCOUNCIL 
+            - 44 IMMORTAL
        
 
             
