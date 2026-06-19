@@ -12,8 +12,9 @@ Architecture:
 
 Key Decisions: Handlers are pure functions. The manager owns activation,
   deactivation, cleanup, and state. No scattered bot._* flags.
-Limitations: ALL_IN and TIMING handlers are placeholders (None) until
-  implemented. The manager routes correctly but takes no action for them.
+Limitations: ALL_IN handlers are stand-ins mirroring cheese defense until
+  dedicated all-in logic is implemented. TIMING handlers are still
+  placeholders (None).
 """
 
 from __future__ import annotations
@@ -100,7 +101,7 @@ class ReactionManager:
                 "cannon_rush": defend_cannon_rush,
             },
             StrategyCategory.ALL_IN: {
-                # Placeholder — no ALL_IN handlers yet
+                # Placeholder — no specific all-in handlers yet
             },
             StrategyCategory.TIMING_ATTACK: {
                 # Placeholder — no TIMING handlers yet
@@ -111,7 +112,7 @@ class ReactionManager:
         }
         self._category_defaults = {
             StrategyCategory.CHEESE: cheese_reaction,
-            StrategyCategory.ALL_IN: None,       # Future: all_in_reaction
+            StrategyCategory.ALL_IN: all_in_reaction,  # Stand-in: mirrors cheese defense
             StrategyCategory.TIMING_ATTACK: None, # No-op for now
             StrategyCategory.MACRO: None,         # No-op
         }
@@ -244,8 +245,8 @@ class ReactionManager:
         for worker in defending_workers:
             bot.mediator.assign_role(tag=worker.tag, role=UnitRole.GATHERING)
 
-        # Complete cheese reaction build if active (any race variant)
-        if (_is_cheese_build(bot.build_order_runner.chosen_opening)
+        # Complete cheese/all-in reaction build if active (any race variant)
+        if (_is_reaction_build(bot.build_order_runner.chosen_opening)
                 and not bot.build_order_runner.build_completed):
             bot.build_order_runner.set_build_completed()
 
@@ -295,15 +296,20 @@ class ReactionManager:
         if config.build is not None:
             # Cheese build varies by enemy race (nat_wall / ramp / reaper_wall)
             is_cheese = self._active_category == StrategyCategory.CHEESE
-            build_name = (
-                _cheese_build_for_race(bot) if is_cheese else config.build
-            )
-            # PvT/PvP cheese builds use ramp/reaper_wall — different placement
+            # All-in build also varies by enemy race — same wall placement logic
+            is_all_in = self._active_category == StrategyCategory.ALL_IN
+            if is_cheese:
+                build_name = _cheese_build_for_race(bot)
+            elif is_all_in:
+                build_name = _all_in_build_for_race(bot)
+            else:
+                build_name = config.build
+            # PvT/PvP cheese/all-in builds use ramp/reaper_wall — different placement
             # from the standard build, so always strip already-completed steps
             # to avoid doubling up buildings at the wrong location. PvZ uses
             # the same nat_wall as the standard build, so keep the existing
             # Cyber Core check for that case.
-            if is_cheese and bot.enemy_race in (Race.Protoss, Race.Terran):
+            if (is_cheese or is_all_in) and bot.enemy_race in (Race.Protoss, Race.Terran):
                 remove_completed = True
             else:
                 remove_completed = bot.structures(UnitTypeId.CYBERNETICSCORE).exists
@@ -338,31 +344,38 @@ class ReactionManager:
                 self.deactivate(bot)
                 return
 
-        # Category-default: cheese transitions to standard army (not full deactivation)
-        # Transition = keep reaction active but switch army comp; deactivation = end reaction entirely
-        if self._active_category == StrategyCategory.CHEESE and not self._transitioned:
-            # Track threat presence for the sustained-clear window
-            if _enemy_combat_near_bases(bot):
-                self._last_threat_near_base_time = bot.time
+        # Category-default: cheese/all-in transitions to standard army, then
+        # fully deactivates once _under_attack clears (threat_detection's
+        # hysteresis confirms the attack is genuinely over).
+        # Transition = keep reaction active but switch army comp (hold_army off).
+        # Deactivation = end reaction entirely, return to standard play.
+        if self._active_category in (StrategyCategory.CHEESE, StrategyCategory.ALL_IN):
+            if not self._transitioned:
+                # Track threat presence for the sustained-clear window
+                if _enemy_combat_near_bases(bot):
+                    self._last_threat_near_base_time = bot.time
 
-            # Clear when any of:
-            # 1. Game reached mid-game (6:00 timer — unconditional safety net)
-            # 2. Sustained threat-free window (no enemy combat units near
-            #    our bases for CHEESE_THREAT_CLEAR_GRACE seconds) — means
-            #    the cheese attack is broken and we can safely transition
-            # 3. Army has commenced attacking (we pushed out — defensive
-            #    phase is over)
-            # The economy check was removed: it created a circular
-            # dependency where cheese mode kept workers low, which kept
-            # economy_state "reduced", which blocked the transition.
-            threat_clear = (
-                self._last_threat_near_base_time >= 0.0
-                and (bot.time - self._last_threat_near_base_time)
-                    >= CHEESE_THREAT_CLEAR_GRACE
-            )
-            attack_commenced = getattr(bot, '_commenced_attack', False)
-            if bot.game_state >= 1 or threat_clear or attack_commenced:
-                self._transitioned = True
+                # Transition when any of:
+                # 1. Game reached mid-game (6:00 timer — unconditional safety net)
+                # 2. Sustained threat-free window (no enemy combat units near
+                #    our bases for CHEESE_THREAT_CLEAR_GRACE seconds) — means
+                #    the cheese/all-in attack is broken and we can safely transition
+                # 3. Army has commenced attacking (we pushed out — defensive
+                #    phase is over)
+                threat_clear = (
+                    self._last_threat_near_base_time >= 0.0
+                    and (bot.time - self._last_threat_near_base_time)
+                        >= CHEESE_THREAT_CLEAR_GRACE
+                )
+                attack_commenced = getattr(bot, '_commenced_attack', False)
+                if bot.game_state >= 1 or threat_clear or attack_commenced:
+                    self._transitioned = True
+            else:
+                # Post-transition: once threat_detection confirms we're no
+                # longer under attack (hysteresis-cleared _under_attack flag),
+                # fully deactivate the reaction and return to standard play.
+                if not bot._under_attack:
+                    self.deactivate(bot)
 
     def _prediction_from_rules(self, bot: "PiG_Bot"):
         """Build a synthetic StrategyPrediction from rule-based detection labels.
@@ -514,6 +527,7 @@ class ReactionManager:
 
 
 CHEESE_BUILD_PREFIX = "Cheese_Reaction_Build"
+ALL_IN_BUILD_PREFIX = "AllIn_Reaction_Build"
 
 
 def _cheese_build_for_race(bot: "PiG_Bot") -> str:
@@ -528,9 +542,32 @@ def _cheese_build_for_race(bot: "PiG_Bot") -> str:
     return "Cheese_Reaction_Build"  # Zerg / Random
 
 
+def _all_in_build_for_race(bot: "PiG_Bot") -> str:
+    """Pick the all-in reaction build matching the enemy race's wall type.
+
+    Mirrors _cheese_build_for_race — same wall placement per race.
+    PvZ / Random → nat_wall, PvP → ramp, PvT → reaper_wall.
+    """
+    if bot.enemy_race == Race.Protoss:
+        return "AllIn_Reaction_Build_Protoss"
+    if bot.enemy_race == Race.Terran:
+        return "AllIn_Reaction_Build_Terran"
+    return "AllIn_Reaction_Build"  # Zerg / Random
+
+
 def _is_cheese_build(opening_name: str) -> bool:
     """True if the opening is any cheese reaction build variant."""
     return opening_name.startswith(CHEESE_BUILD_PREFIX)
+
+
+def _is_all_in_build(opening_name: str) -> bool:
+    """True if the opening is any all-in reaction build variant."""
+    return opening_name.startswith(ALL_IN_BUILD_PREFIX)
+
+
+def _is_reaction_build(opening_name: str) -> bool:
+    """True if the opening is any reaction build (cheese or all-in)."""
+    return _is_cheese_build(opening_name) or _is_all_in_build(opening_name)
 
 
 def _should_deactivate_worker_rush(bot: "PiG_Bot") -> bool:
@@ -737,6 +774,17 @@ def cheese_reaction(bot):
     speedling, proxy rax, etc.) is handled by the build order switch
     and CHEESE_DEFENSE_ARMY composition. Future: add specific micro
     for proxy defense, wall-off logic, etc.
+    """
+    pass
+
+
+def all_in_reaction(bot):
+    """Generic all-in defense handler.
+
+    Stand-in: mirrors cheese_reaction — the build order switch and
+    ALL_IN_DEFENSE_ARMY composition handle the defense for now. Per-frame
+    micro for all-in responses (force-field walls, immortal focus-fire,
+    etc.) will be added here once the dedicated all-in logic is designed.
     """
     pass
 

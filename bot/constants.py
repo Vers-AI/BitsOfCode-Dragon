@@ -742,9 +742,13 @@ REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
         stop_gas_below=21,
     ),
     StrategyCategory.ALL_IN: CategoryConfig(
-        build=None,  # Future: AllIn_Defense_Build
+        build="AllIn_Reaction_Build",
         probe_cap=44,
-        army_comp=None,  # Future: ALL_IN_DEFENSE_ARMY
+        army_comp={  # ALL_IN_DEFENSE_ARMY — stand-in, mirrors CHEESE_DEFENSE_ARMY
+            UnitTypeId.ADEPT: {"proportion": 0.25, "priority": 2},
+            UnitTypeId.STALKER: {"proportion": 0.15, "priority": 0},
+            UnitTypeId.ZEALOT: {"proportion": 0.6, "priority": 1},
+        },
         hold_army=True,
         stop_gas_below=0,
     ),
@@ -765,8 +769,8 @@ REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
 }
 """Category configs consumed by macro.py and combat.py.
 Each category determines build order, probe cap, army composition, and
-other macro-level decisions. ALL_IN and TIMING configs are placeholders
-for future implementation."""
+other macro-level decisions. ALL_IN is a stand-in mirroring CHEESE defense
+until dedicated all-in logic is implemented. TIMING is still a placeholder."""
 
 VOI_MIN_HUNT_TARGETS = 2
 """Minimum valid positions from Level-2 routing before falling back to STRATEGY_HUNT_TARGETS."""

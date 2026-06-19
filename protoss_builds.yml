@@ -173,9 +173,9 @@ Builds:
             - 28 EXPAND
             - 34 STALKER X2
             - 34 SHIELDBATTERY @ nat_wall
-            - 36 ROBOTICSFACILITY
-            - 42 ROBOTICSBAY
-            - 44 IMMORTAL
+            - 35 ROBOTICSFACILITY
+            - 36 STALKER X2
+            - 38 IMMORTAL
        
 
             
@@ -241,6 +241,52 @@ Builds:
 
     Cheese_Reaction_Build_Terran:
         # Cheese reaction Build order — PvT: reaper wall & main ramp
+        ConstantWorkerProductionTill: 20
+        AutoSupplyAtSupply: 0
+        OpeningBuildOrder:
+            - 0 GATEWAY @ reaper_wall
+            - 0 CYBERNETICSCORE @ reaper_wall
+            - 0 ZEALOT
+            - 0 PYLON @ ramp
+            - 0 CHRONO @ GATEWAY
+            - 0 SHIELDBATTERY @ ramp
+            - 0 ZEALOT
+
+    AllIn_Reaction_Build:
+        # All-in reaction Build order — PvZ / Random: wall at natural
+        # Stand-in: mirrors Cheese_Reaction_Build until dedicated all-in logic is added
+        ConstantWorkerProductionTill: 20
+        AutoSupplyAtSupply: 0
+        OpeningBuildOrder:
+            - 0 GATEWAY @ nat_wall
+            - 0 CYBERNETICSCORE @ nat_wall
+            - 0 ZEALOT
+            - 0 CHRONO @ GATEWAY
+            - 0 SHIELDBATTERY @ nat_wall
+            - 0 ZEALOT
+            - 0 CHRONO @ GATEWAY
+            - 0 PYLON @ nat_wall
+
+    AllIn_Reaction_Build_Protoss:
+        # All-in reaction Build order — PvP: wall at main ramp
+        # Stand-in: mirrors Cheese_Reaction_Build_Protoss until dedicated all-in logic is added
+        ConstantWorkerProductionTill: 20
+        AutoSupplyAtSupply: 0
+        OpeningBuildOrder:
+            - 0 GATEWAY @ ramp
+            - 0 CYBERNETICSCORE @ ramp
+            - 0 ZEALOT
+            - 0 CHRONO @ GATEWAY
+            - 0 SHIELDBATTERY @ ramp
+            - 0 ZEALOT
+            - 0 PYLON @ ramp
+            - 0 STALKER
+            - 0 CHRONO @ GATEWAY
+            - 0 SENTRY
+
+    AllIn_Reaction_Build_Terran:
+        # All-in reaction Build order — PvT: reaper wall & main ramp
+        # Stand-in: mirrors Cheese_Reaction_Build_Terran until dedicated all-in logic is added
         ConstantWorkerProductionTill: 20
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
