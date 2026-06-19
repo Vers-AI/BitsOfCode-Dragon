@@ -10,7 +10,7 @@ Organization:
 - Unit filtering sets (ignore lists, priority targets)
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Union
 
 from sc2.data import Race
@@ -1036,7 +1036,6 @@ PVT_STANDARD_2023_PROFILE = BuildProfile(
         UpgradeId.WARPGATERESEARCH,
         UpgradeId.EXTENDEDTHERMALLANCE,
         UpgradeId.CHARGE,
-        UpgradeId.BLINKTECH,
         UpgradeId.PROTOSSGROUNDWEAPONSLEVEL1,
         UpgradeId.PROTOSSGROUNDARMORSLEVEL1,
         UpgradeId.PROTOSSGROUNDWEAPONSLEVEL2,
@@ -1215,7 +1214,6 @@ PVZ_STANDARD_PROFILE = BuildProfile(
         UpgradeId.WARPGATERESEARCH,
         UpgradeId.EXTENDEDTHERMALLANCE,
         UpgradeId.CHARGE,
-        UpgradeId.BLINKTECH,
         UpgradeId.PROTOSSGROUNDWEAPONSLEVEL1,
         UpgradeId.PROTOSSGROUNDARMORSLEVEL1,
         UpgradeId.PROTOSSGROUNDWEAPONSLEVEL2,
@@ -1291,11 +1289,31 @@ def _resolve(value, bot):
     return value(bot) if callable(value) else value
 
 
+def _is_pvp_build(name: str) -> bool:
+    """Match PvP builds by name prefix so matchup-specific upgrade rules apply
+    even for builds not yet given an explicit BuildProfile."""
+    return "PVP_" in name
+
+
 def get_active_profile(bot) -> BuildProfile:
     """Look up the BuildProfile for the currently active build order.
 
     Falls back to PVT_STANDARD_2023_PROFILE for unknown build names,
     ensuring no regression for builds not yet in the profile dict.
+
+    For PvP builds without an explicit profile, the fallback profile is
+    returned with Blink injected after Warpgate (PvP convention).
     """
     name = bot.build_order_runner.chosen_opening
-    return BUILD_PROFILES.get(name, PVT_STANDARD_2023_PROFILE)
+    profile = BUILD_PROFILES.get(name, PVT_STANDARD_2023_PROFILE)
+
+    # PvP convention: Blink Tech is a core research priority.
+    # If the resolved profile lacks it, inject after Warpgate.
+    if _is_pvp_build(name) and UpgradeId.BLINKTECH not in profile.upgrade_order:
+        profile = replace(profile)  # shallow copy — upgrade_order is replaced below
+        order = list(profile.upgrade_order)
+        wg_idx = order.index(UpgradeId.WARPGATERESEARCH) if UpgradeId.WARPGATERESEARCH in order else 0
+        order.insert(wg_idx + 1, UpgradeId.BLINKTECH)
+        profile.upgrade_order = order
+
+    return profile

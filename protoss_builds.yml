@@ -67,10 +67,10 @@ Builds:
             - 33 CHRONO @ NEXUS
             - 34 PYLON
             - 34 OBSERVER
-            - 35 GAS x2
+            - 35 GAS X2
             - 40 IMMORTAL
             - 40 CHRONO @  ROBOTICSFACILITY
-            - 48 STALKER *3 
+            - 48 STALKER X3 
             - 48 EXPAND
             - 50 ROBOTICSBAY
             - 50 ROBOTICSFACILITY
@@ -102,7 +102,7 @@ Builds:
             - 36 BLINKTECH
             - 36 CHRONO @ TWILIGHTCOUNCIL
             - 36 SENTRY
-            - 36 GATEWAY x2
+            - 36 GATEWAY X2
             - 38 CHRONO @ TWILIGHTCOUNCIL
             - 40 FORGE
             - 0 STALKER
@@ -142,55 +142,42 @@ Builds:
             - 33 CHRONO @ NEXUS
             - 34 PYLON @ nat_wall
             - 34 OBSERVER
-            - 35 GAS x2
+            - 35 GAS X2
             - 36 IMMORTAL
             - 36 CHRONO @  ROBOTICSFACILITY
-            - 48 STALKER *3 @ NAT
+            - 48 STALKER X3 @ NAT
             - 48 EXPAND
             - 50 ROBOTICSBAY
             - 50 ROBOTICSFACILITY 
             
     B2GM_PVP_2-Gate_Expand:
         # Build constant worker production till this supply
-        ConstantWorkerProductionTill: 44
+        ConstantWorkerProductionTill: 26
         # After 0 supply turn AutoSupply on
-        AutoSupplyAtSupply: 21
+        AutoSupplyAtSupply: 30
         OpeningBuildOrder:
             - 14 PYLON @ ramp
             - 16 GATEWAY 
             - 16 CHRONO @ NEXUS
             - 16 WORKER_SCOUT:
-                [nat, spawn,enemy_spawn, enemy_nat,fourth,third, nat, spawn]
-            - 17 GAS
-            - 18 GAS
+                [nat, spawn,enemy_spawn, enemy_spawn,fourth,third, nat, spawn]
+            - 17 GAS X2
             - 19 GATEWAY @ ramp
             - 20 CORE @ ramp
-            - 20 SENTRY
-            - 20 STALKER
+            - 21 PYLON
+            - 23 STALKER X2
             - 21 PYLON @ nat_wall
-            - 22 WARPGATERESEARCH
-            - 22 STALKER x2
+            - 22 SENTRY X2
             - 22 CHRONO @ NEXUS 
-            - 26 EXPAND
-            - 26 SENTRY x2
-            - 32 ROBOTICSFACILITY
+            - 27 WARPGATERESEARCH
+            - 28 EXPAND
             - 33 SHIELDBATTERY @ nat_wall
-            - 34 SENTRY
-            - 36 OBSERVER
-            - 38 STALKER x2
+            - 34 ROBOTICSFACILITY
+            - 38 STALKER X2
             - 42 ROBOTICSBAY
             - 44 TWILIGHTCOUNCIL 
-            - 44 BLINKTECH
-            - 44 STALKER x2
-            - 46 GAS
-            - 46 GAS
-            - 48 STALKER x2
-            - 50 ROBOTICSFACILITY
-            - 50 TEMPLARARCHIVE #temporary until production controller is fixed
-            - 50 EXTENDEDTHERMALLANCE
-            - 50 EXPAND
-            - 50 GATEWAY
-            - 50 GATEWAY
+       
+
             
             
     
@@ -223,7 +210,7 @@ Builds:
 
 
     Cheese_Reaction_Build:
-        # Cheese reaction Build order
+        # Cheese reaction Build order — PvZ / Random: wall at natural
         ConstantWorkerProductionTill: 20
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
@@ -231,8 +218,36 @@ Builds:
             - 0 CYBERNETICSCORE @ nat_wall
             - 0 ZEALOT
             - 0 CHRONO @ GATEWAY
-            - 0 GATEWAY @ nat_wall
             - 0 SHIELDBATTERY @ nat_wall
             - 0 ZEALOT
+            - 0 CHRONO @ GATEWAY
             - 0 PYLON @ nat_wall
-        
+
+    Cheese_Reaction_Build_Protoss:
+        # Cheese reaction Build order — PvP: wall at main ramp
+        ConstantWorkerProductionTill: 20
+        AutoSupplyAtSupply: 0
+        OpeningBuildOrder:
+            - 0 GATEWAY @ ramp
+            - 0 CYBERNETICSCORE @ ramp
+            - 0 ZEALOT
+            - 0 CHRONO @ GATEWAY
+            - 0 SHIELDBATTERY @ ramp
+            - 0 ZEALOT
+            - 0 PYLON @ ramp
+            - 0 STALKER
+            - 0 CHRONO @ GATEWAY
+            - 0 SENTRY
+
+    Cheese_Reaction_Build_Terran:
+        # Cheese reaction Build order — PvT: reaper wall & main ramp
+        ConstantWorkerProductionTill: 20
+        AutoSupplyAtSupply: 0
+        OpeningBuildOrder:
+            - 0 GATEWAY @ reaper_wall
+            - 0 CYBERNETICSCORE @ reaper_wall
+            - 0 ZEALOT
+            - 0 PYLON @ ramp
+            - 0 CHRONO @ GATEWAY
+            - 0 SHIELDBATTERY @ ramp
+            - 0 ZEALOT
