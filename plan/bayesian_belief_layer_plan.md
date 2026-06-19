@@ -1144,9 +1144,9 @@ These fields are available in the API but not yet consumed by `train_strategy_be
 
 2. **`avg_12pool_prob` and `avg_speedling_prob` are NULL for 60% of games** — The rush detection ML model isn't running for all game versions. The `rush_detected` boolean is also NULL for many games. Fix: ensure rush detection runs for all games, or accept that these features are Zerg-only and handle NULLs in the BN.
 
-3. ~~**Strategy label coverage**~~ — **Resolved.** API now has 200 matches with `strategy_category` populated (cheese:81, macro:62, all_in:31, timing:26). Training script normalizes `timing` → `timing_attack`.
+3. ~~**Strategy label coverage**~~ — **Resolved.** API now has 500 matches with `strategy_category` populated (cheese:143, macro:195, all_in:99, timing_attack:63). Training script normalizes `timing` → `timing_attack`. All 500 labels come from the API (no heuristic fallback needed).
 
-4. **`nat_start` and expansion scouting** — Currently hardcoded to -1 in the training script. These are critical for distinguishing macro (fast expansion) from cheese (no expansion). ~~Fix: add these to the match-level-full endpoint~~ **DONE (2026-06-19)** — added to enriched endpoint. Remaining: bot only sends `nat_start` for Zerg/Random (gated by `if hasattr(bot, '_cheese_label')`). Bot-side fix needed to send for all races.
+4. ~~**`nat_start` and expansion scouting**~~ — **DONE (2026-06-19).** Added to enriched endpoint (API-side). Bot-side fix also done: timing fields (`pool_start`, `nat_start`, `gas_time`, `ling_seen`, `ling_contact`, `last_nat_scout_time`, `nat_present_on_last_scout`, `rush_distance_seconds`) moved outside the `if hasattr(bot, '_cheese_label')` block in `game_report.py` — now sent for ALL races.
 
 ---
 
@@ -1274,25 +1274,25 @@ Implemented as two new API endpoints in `telemetry/pigbot/api.py`:
 - 294 false negatives (bot says macro, replay says cheese/all_in/timing) — largest category, suggests the BN is under-classifying aggression
 - Most common FP pattern: bot labels Terran mech as `cheese/cannon_rush` or `cheese/proxy_gateway` — same class of error as match 4829911
 
-### ~~Step 5: Training Data Quality~~ — PARTIALLY DONE
+### ~~Step 5: Training Data Quality~~ — DONE ✅
 
 1. ~~**Missing telemetry files**~~ — Puller issue. Match 4829911 had no match log on AI Arena; the puller now falls back to the result object's `arenaclient_log` URL. Remaining gap: matches where AI Arena has no match log at all (telemetry permanently lost for those games).
 
 2. ~~**`nat_start` and timing fields in enriched endpoint**~~ — DONE (2026-06-19). Added `nat_start`, `pool_start`, `gas_time`, `ling_seen`, `ling_contact`, `last_nat_scout_time`, `nat_present_on_last_scout`, `rush_time_seconds`, `used_cheese_response`, `commenced_attack`, `opponent_prior_applied`, `strategy_label`, `strategy_level2`, `strategy_source`, `strategy_p_*`, `idle_worker_time`, `idle_production_time` to the `match_base` CTE in `match-level-full` endpoint.
 
-   **Known limitation**: `nat_start` is only populated for Zerg/Random matches (317/718). The bot's `emit_match_record()` gates these fields behind `if hasattr(bot, '_cheese_label')` which only exists for Zerg/Random. **Bot-side fix needed**: move `nat_start` (and other timing fields) outside the cheese detection block so they're sent for all races. This is a bot code change — stays in the bot plan.
+   ~~**Known limitation**: `nat_start` is only populated for Zerg/Random matches~~ **FIXED (2026-06-19)**: Bot-side fix done — timing fields moved outside the `if hasattr(bot, '_cheese_label')` block in `game_report.py`. Now sent for ALL races.
 
-3. **`derive_strategy_label()` proxy_rax heuristic** (bot-side): Currently flags ANY Terran with 1 barracks + 1 base + rax < 180s as cheese, without checking position. This is the training-side equivalent of the bug we found. Fix: add position check — if `rax_near_base` is available in the training data, only flag as cheese when `rax_near_base = yes`. **Bot-side change — stays in plan.**
+3. ~~**`derive_strategy_label()` proxy_rax heuristic**~~ — **FIXED (2026-06-19).** Tightened from `rax < 180s` to `rax < 45s` (or `rax_near_base == "yes"`). proxy_gateway tightened from `gw < 180s` to `gw < 30s` (or `gw_near_base == "yes"`). Prevents false positives like match 4829911 (standard 1-rax FE at 52s was being labeled cheese).
 
 ### Implementation Order
 
 | Step | Effort | Impact | Priority |
 |------|--------|--------|----------|
 | ~~4: Mismatch detector~~ | ~~Low~~ | ~~High~~ | ~~DONE~~ |
-| 1: Position features in BN | Medium (5 new vars, update evidence collection + training) | High — directly fixes 4829911 class of errors | 1 |
-| 2: Timing features in BN | Medium (4 new vars, new binning logic) | High — discriminates proxy timing from standard | 2 |
-| 3: sklearn upgrade | High (rewrite inference path) | Medium — better but bigger change | 3 |
-| ~~5: Training data quality~~ | ~~Medium~~ | ~~Medium~~ | ~~PARTIALLY DONE (API side done, bot-side remains)~~ |
+| ~~1: Position features in BN~~ | ~~Medium~~ | ~~High~~ | ~~DONE — code complete, model retrained~~ |
+| ~~2: Timing features in BN~~ | ~~Medium~~ | ~~High~~ | ~~DONE — code complete, model retrained~~ |
+| 3: sklearn upgrade | High (rewrite inference path) | Medium — better but bigger change | Next |
+| ~~5: Training data quality~~ | ~~Medium~~ | ~~Medium~~ | ~~DONE~~ |
 
 Steps 1 and 2 can be done together in a single training cycle. Step 4 (mismatch detector) is independent and can be done in parallel.
 
@@ -1300,7 +1300,7 @@ Steps 1 and 2 can be done together in a single training cycle. Step 4 (mismatch 
 
 - **AI Arena container**: scikit-learn 1.8.0, numpy 2.0.2, scipy 1.17.0, torch 2.10.0 CPU all available. No new dependencies needed for Steps 1-4. Step 3 (sklearn upgrade) uses existing sklearn.
 - **Runtime performance**: BN lookup stays sub-ms even with 15 parent variables (numpy fancy indexing). sklearn predict() on a RandomForest with 100 trees is ~0.1ms. Both well within the 0.5ms frame budget.
-- **Training data volume**: Current API has ~200 games with strategy_category labels. Position features (rax_near_base etc.) need to be added to the training data extraction — they exist in the bot's telemetry events but may not be in the enriched endpoint yet. Need to add them to the event extraction in `build_training_data()`.
+- **Training data volume**: API now has 500 games with strategy_category labels (up from 200). Position features (rax_near_base etc.) are in the training code but default to "unknown" — the API doesn't expose position data yet. When the API starts providing position data, retrain to activate those features.
 - **Competition safety**: All changes feature-gated. BN model falls back to existing 7-variable model if new model file is missing. Auto-TRUE guards remain available as fallback (even though currently disabled by config).
 
 ### Success Metrics
@@ -1322,3 +1322,28 @@ The auto-TRUE guards are currently disabled by config (`config.yml`). The intent
 3. **If BN plateaus <85%**: Re-enable guards for the specific scenarios where BN fails. Guards become targeted overrides, not blanket fallbacks.
 
 The end state: BN as the sole strategy classifier, no deterministic guards needed. Whether that's achievable depends on data volume and feature quality. Steps 1-3 are the path to finding out.
+
+#### Implementation Status
+
+**Done (Steps 1 + 2 — code complete, model retrained):**
+- ✅ Step 1: Position features — 4 new BN parent variables (`rax_near_base`, `gw_near_base`, `cannon_near_base`, `bunker_near_base`) added to `_build_evidence()` in `strategy_belief.py`, `discretize_features()` in training script, and BN structure. Runtime reads from existing `_barracks_near_our_base` etc. booleans.
+- ✅ Step 2: Timing features — 4 new BN parent variables (`rax_timing`, `pool_timing`, `gw_timing`, `nat_timing`) with fine-grained bins (very_early/early/standard/late/none). Runtime reads from existing `_barracks_seen_time` etc. timing attributes.
+- ✅ `BNInference` rewritten to be fully dynamic — no hardcoded CPD shapes or expected state lists. Reads parent variable order, state names, and CPD shape from the model file. Handles the case where pgmpy only creates states for values present in training data (e.g., position features only have "unknown" state until API exposes position data).
+- ✅ `export_bn_model.py` updated — auto-detects schema from parent count, no hardcoded shape validation.
+- ✅ Model retrained on 500 matches (up from 351). All 500 labels from API `strategy_category` (no heuristic fallback). Schema v2, 15 parent variables.
+- ✅ Model exported to `bot/models/strategy_belief_model.npz` (3.5MB).
+- ✅ Backward compatible — schema v1 `.npz` models still load and work. `BNInference` auto-detects which schema is loaded.
+- ✅ Step 5 (training data quality): Timing fields (`pool_start`, `nat_start`, `gas_time`, `ling_seen`, `ling_contact`, `last_nat_scout_time`, `nat_present_on_last_scout`, `rush_distance_seconds`) moved outside the `if hasattr(bot, '_cheese_label')` block in `game_report.py` — now sent for ALL races, not just Zerg/Random.
+- ✅ Step 5: `derive_strategy_label()` proxy_rax heuristic tightened from `rax < 180s` to `rax < 45s` (or `rax_near_base == "yes"`). proxy_gateway tightened from `gw < 180s` to `gw < 30s` (or `gw_near_base == "yes"`). Prevents false positives like match 4829911 (standard 1-rax FE at 52s was being labeled cheese).
+- ✅ Bot version bumped to 0.11.0.
+
+**Current model state:**
+- Position features have only 1 state each (`"unknown"`) — the API doesn't expose position data yet. The model can't use these features until the API provides position data and the model is retrained.
+- Timing features have partial states: `nat_timing` has 4 states, `gw_timing`/`pool_timing`/`rax_timing` have 2 each. These will improve as more games accumulate timing data.
+- The 7 original variables work fully and are the primary discriminators.
+- When the bot passes `rax_near_base="yes"` at runtime but the model only has `"unknown"`, `BNInference` falls back to index 0 — effectively ignoring that feature. No crash, no wrong prediction, just a missed opportunity.
+
+**Not yet done:**
+- ❌ Step 3: sklearn upgrade — recommended as the next step. The naive Bayes independence assumption double-counts correlated evidence (e.g., `rax_near_base=yes` and `rax_timing=very_early` are the same signal). sklearn (RandomForest/GradientBoosting) handles feature interactions natively and is available in the AI Arena container (scikit-learn 1.8.0). See the discussion above for the full rationale.
+- ❌ API-side: Position data (`rax_near_base` etc.) not yet in `match-level-full` endpoint. When added, retrain to activate the position features.
+- ❌ Mismatch measurement: Need to run games with the new model and compare bot predictions vs replay labels via `/api/mismatches` to measure improvement.

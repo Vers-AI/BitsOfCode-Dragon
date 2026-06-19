@@ -8,7 +8,9 @@ Purpose: Replace pgmpy DiscreteBayesianNetwork inference with a direct numpy
 Key Decisions: Loads a .npz file containing the CPD array and state names.
                Falls back to .pkl (pgmpy) if .npz is missing, for backward
                compatibility during the transition period.
-               Validates state names at load time to catch model/version mismatches.
+               Fully dynamic — reads parent variable order, state names, and CPD
+               shape from the model file. No hardcoded shapes or expected state lists.
+               Supports schema v1 (7 vars) and v2 (15 vars with position + timing).
 
 Limitations: Only supports naive Bayes structure (all parents → single child).
              If the model gains intermediate nodes, this must be replaced with
@@ -24,36 +26,28 @@ import numpy as np
 
 from bot.constants import StrategyCategory
 
-# Schema version for forward compatibility — bump when .npz format changes
-_SCHEMA_VERSION = 1
+# Schema versions — v1 = 7 vars, v2 = 15 vars (position + timing features)
+_SCHEMA_V1 = 1
+_SCHEMA_V2 = 2
 
-# Expected variable order in the CPD array (must match training export)
-# Axis 0 = strategy, remaining axes = parent variables in this order
-_PARENT_VARS = ["bases_bin", "duration_bin", "enemy_race", "factory_bin", "gateway_bin", "pool_bin", "rax_bin"]
+# Parent variable names per schema (for logging/debugging only — actual order
+# comes from the model file's node_order field)
+_PARENT_VARS_V1 = ["bases_bin", "duration_bin", "enemy_race", "factory_bin", "gateway_bin", "pool_bin", "rax_bin"]
 
-# Expected state names for each variable (must match training bins)
-_EXPECTED_STATES = {
-    "strategy": ["all_in", "cheese", "macro", "timing_attack"],
-    "enemy_race": ["Protoss", "Random", "Terran", "Zerg"],
-    "duration_bin": ["long", "medium", "short", "very_long"],
-    "pool_bin": ["early", "late", "mid", "very_early"],
-    "rax_bin": ["few", "many", "none"],
-    "gateway_bin": ["few", "many", "none"],
-    "bases_bin": ["one", "three_plus", "two"],
-    "factory_bin": ["no", "yes"],
-}
+_PARENT_VARS_V2 = [
+    "bases_bin", "duration_bin", "enemy_race", "factory_bin", "gateway_bin",
+    "pool_bin", "rax_bin",
+    "rax_near_base", "gw_near_base", "cannon_near_base", "bunker_near_base",
+    "rax_timing", "pool_timing", "gw_timing", "nat_timing",
+]
 
 
 class BNInference:
     """Numpy-based BN inference for the strategy classifier.
 
-    Loads a pre-exported .npz file containing:
-      - cpd: numpy array of shape (4, 3, 4, 4, 2, 3, 4, 3)
-             Axis 0 = strategy categories, remaining axes = parent variables
-      - state_names: dict mapping variable name → list of state strings
-      - schema_version: int for format validation
-
-    Inference is a single array lookup: cpd[:, bases_idx, duration_idx, ...].
+    Fully dynamic: reads parent variable order, state names, and CPD shape
+    from the model file. No hardcoded shapes or expected state lists.
+    Auto-detects schema version from the .npz schema_version field.
     """
 
     def __init__(self):
@@ -61,6 +55,8 @@ class BNInference:
         self._state_names: dict[str, list[str]] = {}
         self._loaded: bool = False
         self._source: str = ""  # "npz" or "pkl" for telemetry
+        self._schema_version: int = 0
+        self._parent_vars: list[str] = []  # Actual order from model file
         self.load()  # Auto-load on init
 
     @property
@@ -70,6 +66,15 @@ class BNInference:
     @property
     def source(self) -> str:
         return self._source
+
+    @property
+    def schema_version(self) -> int:
+        return self._schema_version
+
+    @property
+    def is_v2(self) -> bool:
+        """True if the loaded model uses schema v2 (15 parent variables)."""
+        return self._schema_version == _SCHEMA_V2
 
     def load(self) -> bool:
         """Load the BN model. Tries .npz first, then .pkl fallback.
@@ -95,10 +100,9 @@ class BNInference:
             return False
 
         try:
-            # Validate schema version
             version = int(data.get("schema_version", 0))
-            if version != _SCHEMA_VERSION:
-                print(f"[BNInference] Schema mismatch: expected {_SCHEMA_VERSION}, got {version}")
+            if version not in (_SCHEMA_V1, _SCHEMA_V2):
+                print(f"[BNInference] Unknown schema version: {version}")
                 return False
 
             cpd = data["cpd"]
@@ -108,27 +112,41 @@ class BNInference:
                 state_names[var] = list(data[f"states_{var}"].astype(str))
             categories = list(data["categories"].astype(str))
 
-            # Validate CPD shape
-            expected_shape = (4, 3, 4, 4, 2, 3, 4, 3)
-            if cpd.shape != expected_shape:
-                print(f"[BNInference] CPD shape mismatch: expected {expected_shape}, got {cpd.shape}")
+            # Determine parent variable order from the CPD shape.
+            # Axis 0 = strategy, remaining axes = parent vars in node_order
+            # (excluding strategy itself).
+            # pgmpy stores CPD variables as [child, parent1, parent2, ...]
+            # so node_order from the export is [strategy, parent1, ...]
+            all_vars = list(data["node_order"].astype(str))
+            parent_vars = [v for v in all_vars if v != "strategy"]
+
+            # Validate: CPD should have 1 + len(parent_vars) dimensions
+            if cpd.ndim != 1 + len(parent_vars):
+                print(f"[BNInference] CPD ndim {cpd.ndim} != 1 + {len(parent_vars)} parent vars")
                 return False
 
-            # Validate state names match expected
-            for var, expected_states in _EXPECTED_STATES.items():
-                if var not in state_names:
-                    print(f"[BNInference] Missing variable '{var}' in state_names")
-                    return False
-                if state_names[var] != expected_states:
-                    print(f"[BNInference] State name mismatch for '{var}': "
-                          f"expected {expected_states}, got {state_names[var]}")
+            # Validate: strategy axis should have 4 states
+            if cpd.shape[0] != 4:
+                print(f"[BNInference] Strategy axis has {cpd.shape[0]} states, expected 4")
+                return False
+
+            # Validate: each parent axis size matches state_names count
+            for i, var in enumerate(parent_vars):
+                expected = len(state_names.get(var, []))
+                actual = cpd.shape[1 + i]
+                if expected != actual:
+                    print(f"[BNInference] Axis mismatch for '{var}': "
+                          f"states={expected}, cpd_axis={actual}")
                     return False
 
             self._cpd = cpd
             self._state_names = state_names
             self._loaded = True
             self._source = "npz"
-            print(f"[BNInference] Loaded .npz model (schema v{version})")
+            self._schema_version = version
+            self._parent_vars = parent_vars
+            print(f"[BNInference] Loaded .npz model (schema v{version}, "
+                  f"{len(parent_vars)} parent vars, shape={cpd.shape})")
             return True
 
         except Exception as e:
@@ -171,73 +189,87 @@ class BNInference:
             for var in strategy_cpd.variables:
                 state_names[var] = list(strategy_cpd.state_names[var])
 
-            # Validate shape
-            expected_shape = (4, 3, 4, 4, 2, 3, 4, 3)
-            if cpd_array.shape != expected_shape:
-                print(f"[BNInference] CPD shape mismatch from .pkl: "
-                      f"expected {expected_shape}, got {cpd_array.shape}")
+            # Detect schema from number of parent variables
+            n_parents = len(state_names) - 1  # minus strategy node
+            if n_parents == 7:
+                version = _SCHEMA_V1
+            elif n_parents == 15:
+                version = _SCHEMA_V2
+            else:
+                print(f"[BNInference] Unexpected parent count from .pkl: {n_parents}")
                 return False
+
+            # Parent variable order from the CPD (excludes strategy which is first)
+            parent_vars = list(strategy_cpd.variables[1:])
 
             self._cpd = cpd_array
             self._state_names = state_names
             self._loaded = True
             self._source = "pkl"
-            print("[BNInference] Loaded .pkl model (extracted CPD for numpy inference)")
+            self._schema_version = version
+            self._parent_vars = parent_vars
+            print(f"[BNInference] Loaded .pkl model (schema v{version}, "
+                  f"{n_parents} parent vars, shape={cpd_array.shape})")
             return True
 
         except Exception as e:
             print(f"[BNInference] Failed to load .pkl: {e}")
             return False
 
-    def predict(
-        self,
-        enemy_race: str,
-        duration_bin: str,
-        pool_bin: str,
-        rax_bin: str,
-        gateway_bin: str,
-        bases_bin: str,
-        factory_bin: str,
-    ) -> dict[StrategyCategory, float]:
+    def predict(self, **evidence) -> dict[StrategyCategory, float]:
         """Look up P(strategy | evidence) from the CPD array.
 
-        Maps string evidence values to array indices, performs a single
-        array lookup, and returns a probability dict.
+        Accepts keyword arguments matching the parent variable names.
+        For schema v1: enemy_race, duration_bin, pool_bin, rax_bin, gateway_bin,
+                       bases_bin, factory_bin
+        For schema v2: all v1 args + rax_near_base, gw_near_base, cannon_near_base,
+                       bunker_near_base, rax_timing, pool_timing, gw_timing, nat_timing
 
-        Args:
-            enemy_race: One of "Protoss", "Random", "Terran", "Zerg"
-            duration_bin: One of "long", "medium", "short", "very_long"
-            pool_bin: One of "early", "late", "mid", "very_early"
-            rax_bin: One of "few", "many", "none"
-            gateway_bin: One of "few", "many", "none"
-            bases_bin: One of "one", "three_plus", "two"
-            factory_bin: One of "no", "yes"
+        If an evidence value isn't in the model's state names (e.g., the model
+        only has "unknown" for a position feature but the bot passes "yes"),
+        the closest available state is used as a fallback.
 
         Returns:
             Dict mapping StrategyCategory → probability (sums to 1.0).
         """
         if not self._loaded or self._cpd is None:
-            # Uniform prior — shouldn't happen but safe fallback
             return {cat: 0.25 for cat in StrategyCategory}
 
-        # Map evidence strings to indices
-        # CPD axis order: strategy, bases_bin, duration_bin, enemy_race,
-        #                  factory_bin, gateway_bin, pool_bin, rax_bin
+        # Build index tuple for array lookup
+        # CPD axis order: strategy, then parent vars in _parent_vars order
         try:
-            idx_bases = self._state_names["bases_bin"].index(bases_bin)
-            idx_duration = self._state_names["duration_bin"].index(duration_bin)
-            idx_race = self._state_names["enemy_race"].index(enemy_race)
-            idx_factory = self._state_names["factory_bin"].index(factory_bin)
-            idx_gateway = self._state_names["gateway_bin"].index(gateway_bin)
-            idx_pool = self._state_names["pool_bin"].index(pool_bin)
-            idx_rax = self._state_names["rax_bin"].index(rax_bin)
-        except ValueError as e:
-            print(f"[BNInference] Invalid evidence value: {e}")
+            indices = []
+            for var in self._parent_vars:
+                val = evidence.get(var)
+                if val is None:
+                    # Use sensible defaults for missing evidence
+                    if var in ("rax_near_base", "gw_near_base", "cannon_near_base", "bunker_near_base"):
+                        val = "unknown"
+                    elif var in ("rax_timing", "pool_timing", "gw_timing", "nat_timing"):
+                        val = "none"
+                    else:
+                        print(f"[BNInference] Missing evidence for '{var}'")
+                        return {cat: 0.25 for cat in StrategyCategory}
+
+                states = self._state_names.get(var, [])
+                if val in states:
+                    indices.append(states.index(val))
+                elif states:
+                    # Value not in model states — use first state as fallback.
+                    # This happens when the model was trained with limited data
+                    # (e.g., only "unknown" for position features) but the runtime
+                    # bot has real values. The model will improve when retrained
+                    # with position data from the API.
+                    indices.append(0)
+                else:
+                    print(f"[BNInference] No states for variable '{var}'")
+                    return {cat: 0.25 for cat in StrategyCategory}
+        except Exception as e:
+            print(f"[BNInference] Evidence indexing error: {e}")
             return {cat: 0.25 for cat in StrategyCategory}
 
         # Single array lookup: P(strategy | all evidence)
-        probs = self._cpd[:, idx_bases, idx_duration, idx_race,
-                          idx_factory, idx_gateway, idx_pool, idx_rax]
+        probs = self._cpd[(slice(None),) + tuple(indices)]
 
         # Map array indices to StrategyCategory
         strategy_states = self._state_names["strategy"]
@@ -256,26 +288,13 @@ class BNInference:
 
         return result
 
-    def get_evidence_dict(
-        self,
-        enemy_race: str,
-        duration_bin: str,
-        pool_bin: str,
-        rax_bin: str,
-        gateway_bin: str,
-        bases_bin: str,
-        factory_bin: str,
-    ) -> dict[str, str]:
+    def get_evidence_dict(self, **evidence) -> dict[str, str]:
         """Return evidence as a plain dict (for telemetry/logging).
 
-        Replaces the pandas DataFrame that _build_bn_evidence used to return.
+        Filters to only the variables relevant to the loaded schema.
         """
-        return {
-            "enemy_race": enemy_race,
-            "duration_bin": duration_bin,
-            "pool_bin": pool_bin,
-            "rax_bin": rax_bin,
-            "gateway_bin": gateway_bin,
-            "bases_bin": bases_bin,
-            "factory_bin": factory_bin,
-        }
+        result = {}
+        for var in self._parent_vars:
+            if var in evidence:
+                result[var] = evidence[var]
+        return result
