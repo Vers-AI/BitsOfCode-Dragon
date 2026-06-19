@@ -158,16 +158,18 @@ STANDARD_ARMY_1 = {
 }
 
 PVP_ARMY_0 = {
+    UnitTypeId.STALKER: {"proportion": 0.3, "priority": 0},
     UnitTypeId.DISRUPTOR: {"proportion": 0.2, "priority": 1},
     UnitTypeId.COLOSSUS: {"proportion": 0.15, "priority": 3},
-    UnitTypeId.HIGHTEMPLAR: {"proportion": 0.5, "priority": 0},
+    UnitTypeId.HIGHTEMPLAR: {"proportion": 0.2, "priority": 2},
     UnitTypeId.IMMORTAL: {"proportion": 0.15, "priority": 2},
 }
 
 PVP_ARMY_1 = {
-    UnitTypeId.DISRUPTOR: {"proportion": 0.25, "priority": 0},
+    UnitTypeId.STALKER: {"proportion": 0.3, "priority": 0},
+    UnitTypeId.DISRUPTOR: {"proportion": 0.25, "priority": 1},
     UnitTypeId.COLOSSUS: {"proportion": 0.15, "priority": 2},
-    UnitTypeId.IMMORTAL: {"proportion": 0.6, "priority": 1},
+    UnitTypeId.IMMORTAL: {"proportion": 0.3, "priority": 3},
 }
 
 CHEESE_DEFENSE_ARMY = {
