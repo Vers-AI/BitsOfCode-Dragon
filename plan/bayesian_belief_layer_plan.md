@@ -1147,3 +1147,176 @@ These fields are available in the API but not yet consumed by `train_strategy_be
 3. ~~**Strategy label coverage**~~ — **Resolved.** API now has 200 matches with `strategy_category` populated (cheese:81, macro:62, all_in:31, timing:26). Training script normalizes `timing` → `timing_attack`.
 
 4. **`nat_start` and expansion scouting** — Currently hardcoded to -1 in the training script. These are critical features for distinguishing macro (fast expansion) from cheese (no expansion). Fix: add these to the match-level-full endpoint, or populate them from the per-match rush_detect events endpoint once it's fixed.
+
+---
+
+## Phase 5: BN Model Improvements — Position & Timing Features
+
+**What**: Add position-aware and timing-resolution features to the BN model to improve classification accuracy. The current naive Bayes model with 7 coarse variables cannot distinguish proxy production from standard play when the bot only observes "1 barracks, 1 base" — it needs to know WHERE the barracks is and HOW EARLY relative to standard timings.
+
+**Problem**: Match 4829911 (PiG_Bot vs Hestia) exposed the core weakness. Hestia played standard mech Terran — barracks at 52s at their own base. The BN saw `Terran + rax=few + bases=one + factory=no + duration=medium` and classified `cheese/proxy_rax`. This is a reasonable guess with that information — 1 rax on 1 base IS what proxy rax looks like from limited intel. The BN simply doesn't have the features to tell the difference.
+
+**Root cause**: The BN's 7 parent variables are all coarse existence/quantity features. No position data. No fine-grained timing. The model has ~3,456 CPD entries — tiny, but also unable to discriminate between superficially similar situations.
+
+### Available Container Dependencies
+
+Checked inside `aiarena/arenaclient-bot:v0.8.0` (the AI Arena bot container):
+
+| Library | Version | Available? |
+|---------|---------|------------|
+| numpy | 2.0.2 | ✅ |
+| scipy | 1.17.0 | ✅ |
+| scikit-learn | 1.8.0 | ✅ |
+| pandas | 2.3.3 | ✅ |
+| torch (CPU) | 2.10.0+cpu | ✅ |
+| tensorflow | 2.18.0 | ✅ |
+| joblib | 1.5.3 | ✅ |
+| pgmpy | — | ❌ NOT installed |
+| xgboost | — | ❌ NOT installed |
+| lightgbm | — | ❌ NOT installed |
+| onnxruntime | — | ❌ NOT installed |
+
+**Key insight**: scikit-learn 1.8.0 is available in the container. This means we can use any sklearn classifier (RandomForest, GradientBoosting, LogisticRegression, MLPClassifier) at runtime with zero new dependencies. pgmpy is NOT in the container, but we already solved that — runtime uses numpy .npz lookup, pgmpy is dev-only for training.
+
+### Step 1: Add Position-Aware Features to BN
+
+The bot already tracks proxy detection booleans in `strategy_detect.py`:
+- `_barracks_near_our_base` (Terran)
+- `_gateway_near_our_base` (Protoss)
+- `_forge_near_our_base` / cannon near base (Protoss cannon rush)
+- `_bunker_near_base` (Terran bunker rush)
+
+These are set by `enemy_timings.py` but NOT fed into the BN as evidence variables. They need to flow from observation → BN evidence.
+
+**New BN parent variables** (added to the 7 existing):
+
+| Variable | States | Source | Why |
+|---------|--------|--------|-----|
+| `rax_near_base` | `yes / no / unknown` | `_barracks_near_our_base` | Proxy rax vs standard rax — THE missing feature for 4829911 |
+| `gw_near_base` | `yes / no / unknown` | `_gateway_near_our_base` | Proxy gateway vs standard |
+| `cannon_near_base` | `yes / no / unknown` | cannon rush detection | Cannon rush vs standard forge |
+| `bunker_near_base` | `yes / no / unknown` | `_bunker_near_base` | Bunker rush vs standard |
+
+These 4 variables would expand the CPD from ~3,456 to ~3,456 × 3^4 = ~279,936 entries. This is still small enough for numpy lookup. Training data needs to be sufficient — with 200+ games, each cell gets ~0-5 observations. Smoothing (Dirichlet alpha=1) handles sparse cells.
+
+**Files to modify**:
+- `bot/belief/strategy_belief.py` — Add 4 new evidence variables to `_collect_evidence()`
+- `bot/belief/bn_inference.py` — Add 4 new parent variables to `_PARENT_VARS` and `_EXPECTED_STATES`
+- `bot/intel/enemy_timings.py` — Ensure proxy booleans are set (most already are; verify cannon/bunker tracking)
+- `scripts/train_strategy_belief.py` — Add 4 new features to `build_training_data()` and `discretize_features()`
+- `scripts/export_bn_model.py` — Update export for new CPD shape
+
+### Step 2: Add Timing-Resolution Features
+
+The current BN bins timing into coarse categories. `rax_bin` is `none/few/many` (quantity, not timing). A barracks at 20s (proxy) and 52s (standard) both produce `rax_bin=few`. Adding timing bins discriminates these.
+
+**New BN parent variables**:
+
+| Variable | States | Source | Thresholds |
+|---------|--------|--------|------------|
+| `rax_timing` | `very_early / early / standard / late / none` | `_barracks_seen_time` | <25s=very_early (proxy), 25-45s=early (cheese), 45-90s=standard, >90s=late |
+| `pool_timing` | `very_early / early / standard / late / none` | `_pool_seen_time` | <25s=very_early (12-pool), 25-40s=early (speedling), 40-80s=standard, >80s=late |
+| `gw_timing` | `very_early / early / standard / late / none` | `_gateway_seen_time` | <20s=very_early (proxy), 20-40s=early, 40-80s=standard, >80s=late |
+| `nat_timing` | `very_early / early / standard / late / none` | `_enemy_nat_started_at` | <60s=very_early (greedy), 60-120s=early (standard macro), 120-240s=late (all-in), >240s=none (all-in) |
+
+**Threshold rationale**: Derived from Spawning Tool data and community build order analysis. A Terran barracks at 20s requires cutting workers — only viable as proxy. At 52s it's a standard 1-rax FE. The timing IS the signal.
+
+With 4 position + 4 timing features added to the existing 7, the CPD grows to ~4 × 3^4 × 5^4 × (existing) — approximately 4M entries. This is large for numpy but still feasible (4M floats × 8 bytes = 32MB). If memory is a concern, we can:
+- Use float32 instead of float64 (halves memory)
+- Drop low-value variables (e.g., `bunker_near_base` only matters for Terran, could be conditional)
+- Use a sparse representation
+
+**Alternative**: If the CPD gets too large for naive Bayes, switch to a sklearn classifier (see Step 3).
+
+### Step 3: Consider Upgrading from Naive Bayes
+
+Naive Bayes assumes all features are independent given the class. This is wrong for SC2 — `rax_near_base` and `rax_timing` are correlated (proxy rax is both near AND very early). Naive Bayes double-counts this evidence.
+
+**Option A: Keep naive Bayes with more features** (current architecture, just bigger)
+- Pro: No code changes to inference path, just bigger CPD
+- Pro: Still numpy lookup, no dependencies
+- Con: Double-counts correlated evidence, may over/under-confidence
+- Verdict: Good enough if we accept some miscalibration
+
+**Option B: Switch to sklearn classifier** (scikit-learn 1.8.0 already in container)
+- RandomForestClassifier or GradientBoostingClassifier
+- Handles feature interactions natively
+- Export as joblib pickle (joblib 1.5.3 in container)
+- Replace `BNInference` class with `SklearnInference`
+- Pro: Better accuracy, handles correlations, no independence assumption
+- Pro: Feature importance scores for debugging
+- Con: Different model architecture — need to rewrite inference path
+- Con: No interpretability (RF is a black box vs BN's transparent CPDs)
+- Verdict: Better long-term, but bigger change
+
+**Option C: Small neural network** (torch 2.10.0 CPU in container)
+- 7+8 input features → 16 hidden → 4 output (strategy categories)
+- Train with PyTorch, export to TorchScript
+- Pro: Captures any interaction pattern
+- Pro: TorchScript is fast at runtime
+- Con: Overkill for 4-class problem with <1000 training samples
+- Con: More complex training pipeline, hyperparameter tuning
+- Verdict: Only if data grows to 2000+ games and simpler models plateau
+
+**Recommendation**: Start with Option A (more features in naive Bayes) for immediate improvement. If accuracy plateaus or double-counting causes issues, move to Option B (sklearn). Option C is future work.
+
+### ~~Step 4: Mismatch Detector~~ — DONE (Implemented in telemetry API)
+
+Implemented as two new API endpoints in `telemetry/pigbot/api.py`:
+- `GET /api/mismatches` — returns matches where `bot_strategy_category != strategy_category`, with `mismatch_type` classification (`false_positive`, `false_negative`, `other_mismatch`), filterable by `false_positive_only` and `false_negative_only` query params
+- `GET /api/mismatches/summary` — aggregated counts by `(bot_label, replay_label, enemy_race)`
+
+**Key findings from initial data**:
+- 526 total mismatches across ~700 matches with both labels populated
+- 127 false positives (bot says cheese/all_in, replay says macro/timing) — dominated by `cannon_rush` and `proxy_gateway` false positives vs Terran mech
+- 294 false negatives (bot says macro, replay says cheese/all_in/timing) — largest category, suggests the BN is under-classifying aggression
+- Most common FP pattern: bot labels Terran mech as `cheese/cannon_rush` or `cheese/proxy_gateway` — same class of error as match 4829911
+
+### Step 5: Training Data Quality
+
+Several gaps in training data need closing:
+
+1. **Missing telemetry files**: Match 4829911 had no `games/4829911.jsonl` because AI Arena didn't have a match log. The replay was processed but the match doesn't appear in the enriched endpoint (which joins telemetry + replay). Fix: ensure the puller downloads match logs even when they're not in the standard participation endpoint — try the result object's `arenaclient_log` URL as fallback.
+
+2. **`nat_start` and `last_nat_scout_time`**: Hardcoded to -1 in training script. These are critical for distinguishing macro (fast expansion) from cheese (no expansion). Fix: add these to `match-level-full` endpoint as pre-aggregated columns from the match record.
+
+3. **`derive_strategy_label()` proxy_rax heuristic**: Currently flags ANY Terran with 1 barracks + 1 base + rax < 180s as cheese, without checking position. This is the training-side equivalent of the bug we found. Fix: add position check — if `rax_near_base` is available in the training data, only flag as cheese when `rax_near_base = yes`.
+
+### Implementation Order
+
+| Step | Effort | Impact | Priority |
+|------|--------|--------|----------|
+| ~~4: Mismatch detector~~ | ~~Low~~ | ~~High~~ | ~~DONE~~ |
+| 1: Position features in BN | Medium (4 new vars, update evidence collection + training) | High — directly fixes 4829911 class of errors | 1 |
+| 2: Timing features in BN | Medium (4 new vars, new binning logic) | High — discriminates proxy timing from standard | 2 |
+| 3: sklearn upgrade | High (rewrite inference path) | Medium — better but bigger change | 3 |
+| 5: Training data quality | Medium (puller fix + endpoint update) | Medium — closes data gaps | 4 |
+
+Steps 1 and 2 can be done together in a single training cycle. Step 4 (mismatch detector) is independent and can be done in parallel.
+
+### Constraints
+
+- **AI Arena container**: scikit-learn 1.8.0, numpy 2.0.2, scipy 1.17.0, torch 2.10.0 CPU all available. No new dependencies needed for Steps 1-4. Step 3 (sklearn upgrade) uses existing sklearn.
+- **Runtime performance**: BN lookup stays sub-ms even with 15 parent variables (numpy fancy indexing). sklearn predict() on a RandomForest with 100 trees is ~0.1ms. Both well within the 0.5ms frame budget.
+- **Training data volume**: Current API has ~200 games with strategy_category labels. Position features (rax_near_base etc.) need to be added to the training data extraction — they exist in the bot's telemetry events but may not be in the enriched endpoint yet. Need to add them to the event extraction in `build_training_data()`.
+- **Competition safety**: All changes feature-gated. BN model falls back to existing 7-variable model if new model file is missing. Auto-TRUE guards remain available as fallback (even though currently disabled by config).
+
+### Success Metrics
+
+| Metric | Current | Target |
+|--------|---------|--------|
+| Level-1 accuracy (bot vs replay) | Unknown — need mismatch detector | ≥85% after Step 1+2 |
+| Cheese false positive rate (macro games tagged cheese) | Unknown — 4829911 is one known case | <10% after Step 1+2 |
+| Cheese false negative rate (cheese games tagged macro) | Unknown | <15% after Step 1+2 |
+| Mismatch count per 100 games | Unknown | <15 after Step 1+2, <8 after Step 3 |
+| BN confidence on correct predictions | Unknown | >0.7 average |
+
+### Connection to Auto-TRUE Guards
+
+The auto-TRUE guards are currently disabled by config (`config.yml`). The intent is to train the BN to be the sole arbiter. The path to re-enabling guards (or not) depends on BN accuracy:
+
+1. **After Steps 1+2**: Measure BN accuracy with position+timing features. If >90% on cheese detection, guards are redundant for cheese. Keep disabled.
+2. **After Step 3 (if needed)**: If sklearn model hits >92% overall, guards can be permanently removed from the codebase.
+3. **If BN plateaus <85%**: Re-enable guards for the specific scenarios where BN fails. Guards become targeted overrides, not blanket fallbacks.
+
+The end state: BN as the sole strategy classifier, no deterministic guards needed. Whether that's achievable depends on data volume and feature quality. Steps 1-3 are the path to finding out.
