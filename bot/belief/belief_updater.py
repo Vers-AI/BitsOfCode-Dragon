@@ -17,6 +17,8 @@ from bot.belief.composition_belief import CompositionBelief
 from bot.belief.belief_state import BeliefState
 from bot.belief.strategy_belief import StrategyBelief
 from bot.belief.opponent_belief import OpponentBelief
+from bot.belief.map_prior import MapPrior
+from bot.constants import StrategyCategory
 
 if TYPE_CHECKING:
     from bot.bot import PiG_Bot
@@ -41,10 +43,14 @@ class BeliefUpdater:
         self._destroyed_tags: set[int] = set()
         self._strategy: StrategyBelief | None = None
         self._opponent: OpponentBelief | None = None
+        self._map_prior: MapPrior | None = None
         if enable_strategy:
             self._strategy = StrategyBelief()
         if enable_opponent:
             self._opponent = OpponentBelief()
+        # Map prior is always loaded (no feature flag — it's lightweight
+        # and provides value even for unknown opponents on known maps)
+        self._map_prior = MapPrior()
 
     def is_known_enemy_tag(self, tag: int) -> bool:
         """Check if a tag belongs to a known enemy unit (tracked or already destroyed).
@@ -92,14 +98,37 @@ class BeliefUpdater:
         # Strategy belief update (if enabled)
         strategy_snapshot = None
         if self._strategy is not None:
-            # Get opponent prior for this game (None if opponent belief disabled)
+            # Combine opponent prior and map prior into a single prior.
+            # Both are Dirichlet alpha params; we multiply them together
+            # (equivalent to combining two independent Dirichlet sources).
+            # Map prior applies even for unknown opponents (uses map name only).
+            # Opponent prior applies only for known opponents (uses opponent_id).
+            map_prior = None
+            if self._map_prior is not None:
+                game_info = getattr(bot, 'game_info', None)
+                map_name = game_info.map_name if game_info else None
+                map_prior = self._map_prior.get_prior(map_name)
+
             opponent_prior = None
             if self._opponent is not None:
                 opponent_id = getattr(bot, 'opponent_id', None)
                 enemy_race = bot.enemy_race.name if hasattr(bot, 'enemy_race') else "Unknown"
                 opponent_prior = self._opponent.get_prior(opponent_id, enemy_race)
 
-            prediction = self._strategy.update(bot, game_time, opponent_prior=opponent_prior)
+            # Combine: multiply alphas (independent Dirichlet sources)
+            # If only one is available, use it; if both are flat, pass None
+            combined_prior = None
+            if map_prior is not None and opponent_prior is not None:
+                combined_prior = {
+                    cat: map_prior.get(cat, 1.0) * opponent_prior.get(cat, 1.0)
+                    for cat in StrategyCategory
+                }
+            elif map_prior is not None:
+                combined_prior = map_prior
+            elif opponent_prior is not None:
+                combined_prior = opponent_prior
+
+            prediction = self._strategy.update(bot, game_time, opponent_prior=combined_prior)
             strategy_snapshot = self._strategy.snapshot()
 
         # Snapshot so each BeliefState is an independent copy.
@@ -112,9 +141,11 @@ class BeliefUpdater:
         )
 
     def load_opponent(self) -> None:
-        """Load opponent profiles from disk. Call once at game start."""
+        """Load opponent profiles and map priors from disk. Call once at game start."""
         if self._opponent is not None:
             self._opponent.load()
+        if self._map_prior is not None:
+            self._map_prior.load()
 
     def save_opponent(self, opponent_id: str | None, enemy_race: str,
                       predicted_category) -> None:
