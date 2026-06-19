@@ -69,15 +69,6 @@ def get_freeflow_mode(bot) -> bool:
     minerals = bot.minerals
     vespene = bot.vespene
     
-    # --- Early game pressure ---
-    if len(bot.townhalls) == 1 and minerals >= 280 and vespene >= 105:
-        return True
-    
-    if (bot.enemy_race == Race.Protoss
-        and len(bot.townhalls) <= 1
-        and cy_unit_pending(bot, UnitTypeId.IMMORTAL)):
-        return True
-    
     # --- Bank-imbalance checks (always active, catches resource skew) ---
     # Both resources high — just spend
     if minerals > 500 and vespene > 500:
@@ -1541,11 +1532,11 @@ async def handle_macro(
         spawn_target = warp_prism[0].position if warp_prism else spawn_location
         # Freeflow prevents SpawnController from breaking on unaffordable high-priority
         # units. Use it when: cheese defense active, get_freeflow_mode says yes,
-        # or we have a significant mineral bank (can't afford to stall production).
+        # or economy is not reduced (moderate/full can spend freely).
         spawn_freeflow = (
             bot.reaction_manager.is_cheese_response
             or freeflow
-            or bot.minerals > 500  # High bank → always freeflow to avoid stall
+            or economy_state != "reduced"
         )
         
         # When banking for expansion, SpawnController is skipped entirely
