@@ -2115,6 +2115,7 @@ def select_defensive_anchor(bot, main_army: Units) -> Point2:
     """
     ANCHOR_CHANGE_COOLDOWN = 15.0  # Seconds between anchor changes
     NATURAL_STRUCTURE_RADIUS = 400.0  # 20 units radius for structure check
+    NATURAL_BATTERY_RADIUS_SQ = 400.0  # 20 units radius for battery-natural check
     
     # Check if we're still in cooldown (prevent rapid switching)
     if bot._current_defensive_anchor is not None:
@@ -2124,14 +2125,25 @@ def select_defensive_anchor(bot, main_army: Units) -> Point2:
     # Determine new anchor position
     new_anchor = None
     
+    # A Shield Battery at the natural with no Nexus there is still a defensive
+    # anchor worth rallying to (e.g. cheese response holding the natural).
+    battery_at_natural = bot.structures(UnitTypeId.SHIELDBATTERY).ready.filter(
+        lambda b: cy_distance_to_squared(b.position, bot.natural_expansion) < NATURAL_BATTERY_RADIUS_SQ
+    )
+    nat_has_townhall = bot.townhalls.closer_than(10, bot.natural_expansion).amount > 0
+    
     # PHASE 1: Mid/late game OR successful early expansion (>= 2 ready townhalls)
     if bot.game_state >= 1 or len(bot.townhalls.ready) >= 2:
-        # Multi-base coverage mode: position at base closest to enemy
+        # If we hold the natural with a townhall, rally to the base closest to enemy
         if bot.townhalls.ready:
             enemy_start = bot.enemy_start_locations[0]
-            closest_base = bot.townhalls.ready.closest_to(enemy_start)
-            # Offset 3 units towards enemy start for forward positioning
-            new_anchor = closest_base.position.towards(enemy_start, 3)
+            # Battery at natural with no Nexus there -> rally to the battery instead
+            if battery_at_natural and not nat_has_townhall:
+                new_anchor = battery_at_natural.closest_to(bot.natural_expansion).position.towards(enemy_start, 3)
+            else:
+                closest_base = bot.townhalls.ready.closest_to(enemy_start)
+                # Offset 3 units towards enemy start for forward positioning
+                new_anchor = closest_base.position.towards(enemy_start, 3)
     
     # PHASE 2: Early game single-base positioning
     else:
