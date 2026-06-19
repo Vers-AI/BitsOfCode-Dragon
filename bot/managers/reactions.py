@@ -315,6 +315,16 @@ class ReactionManager:
                 remove_completed = bot.structures(UnitTypeId.CYBERNETICSCORE).exists
             bot.build_order_runner.switch_opening(build_name, remove_completed=remove_completed)
 
+            # Cancel fast-expanding Nexus if category says to.
+            # No time guard: the cheese reaction only fires when a real cheese
+            # is detected, and pending_townhalls == 1 ensures we only cancel a
+            # fast-expand, not a late-game expansion.
+            if config.cancel_nexus:
+                pending_townhalls = cy_structure_pending_ares(bot, UnitTypeId.NEXUS)
+                if pending_townhalls == 1:
+                    for pt in bot.townhalls.not_ready:
+                        bot.mediator.cancel_structure(structure=pt)
+
         # Set under_attack flag for threat detection
         bot._under_attack = True
 
