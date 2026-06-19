@@ -1183,7 +1183,8 @@ Checked inside `aiarena/arenaclient-bot:v0.8.0` (the AI Arena bot container):
 The bot already tracks proxy detection booleans in `strategy_detect.py`:
 - `_barracks_near_our_base` (Terran)
 - `_gateway_near_our_base` (Protoss)
-- `_forge_near_our_base` / cannon near base (Protoss cannon rush)
+- `_pylon_near_our_base` (Protoss cannon rush — pylons come before cannons, earlier signal)
+- `_cannon_near_our_base` (Protoss cannon rush — confirmed cannons, late signal)
 - `_bunker_near_base` (Terran bunker rush)
 
 These are set by `enemy_timings.py` but NOT fed into the BN as evidence variables. They need to flow from observation → BN evidence.
@@ -1194,13 +1195,14 @@ These are set by `enemy_timings.py` but NOT fed into the BN as evidence variable
 |---------|--------|--------|-----|
 | `rax_near_base` | `yes / no / unknown` | `_barracks_near_our_base` | Proxy rax vs standard rax — THE missing feature for 4829911 |
 | `gw_near_base` | `yes / no / unknown` | `_gateway_near_our_base` | Proxy gateway vs standard |
-| `cannon_near_base` | `yes / no / unknown` | cannon rush detection | Cannon rush vs standard forge |
+| `pylon_near_base` | `yes / no / unknown` | `_pylon_near_our_base` | Pylon near our base = cannon rush incoming (early signal — pylons come before cannons) |
+| `cannon_near_base` | `yes / no / unknown` | `_cannon_near_our_base` | Confirmed cannons near our base (late signal — giveaway but means it's already happening) |
 | `bunker_near_base` | `yes / no / unknown` | `_bunker_near_base` | Bunker rush vs standard |
 
-These 4 variables would expand the CPD from ~3,456 to ~3,456 × 3^4 = ~279,936 entries. This is still small enough for numpy lookup. Training data needs to be sufficient — with 200+ games, each cell gets ~0-5 observations. Smoothing (Dirichlet alpha=1) handles sparse cells.
+These 5 variables would expand the CPD from ~3,456 to ~3,456 × 3^5 = ~839,808 entries. This is still small enough for numpy lookup. Training data needs to be sufficient — with 200+ games, each cell gets ~0-3 observations. Smoothing (Dirichlet alpha=1) handles sparse cells.
 
 **Files to modify**:
-- `bot/belief/strategy_belief.py` — Add 4 new evidence variables to `_collect_evidence()`
+- `bot/belief/strategy_belief.py` — Add 5 new evidence variables to `_collect_evidence()`
 - `bot/belief/bn_inference.py` — Add 4 new parent variables to `_PARENT_VARS` and `_EXPECTED_STATES`
 - `bot/intel/enemy_timings.py` — Ensure proxy booleans are set (most already are; verify cannon/bunker tracking)
 - `scripts/train_strategy_belief.py` — Add 4 new features to `build_training_data()` and `discretize_features()`
@@ -1221,7 +1223,7 @@ The current BN bins timing into coarse categories. `rax_bin` is `none/few/many` 
 
 **Threshold rationale**: Derived from Spawning Tool data and community build order analysis. A Terran barracks at 20s requires cutting workers — only viable as proxy. At 52s it's a standard 1-rax FE. The timing IS the signal.
 
-With 4 position + 4 timing features added to the existing 7, the CPD grows to ~4 × 3^4 × 5^4 × (existing) — approximately 4M entries. This is large for numpy but still feasible (4M floats × 8 bytes = 32MB). If memory is a concern, we can:
+With 5 position + 4 timing features added to the existing 7, the CPD grows to ~4 × 3^5 × 5^4 × (existing) — approximately 12.6M entries. This is large for numpy but still feasible (12.6M floats × 8 bytes = ~100MB, or float32 = ~50MB). If memory is a concern, we can:
 - Use float32 instead of float64 (halves memory)
 - Drop low-value variables (e.g., `bunker_near_base` only matters for Terran, could be conditional)
 - Use a sparse representation
@@ -1287,7 +1289,7 @@ Several gaps in training data need closing:
 | Step | Effort | Impact | Priority |
 |------|--------|--------|----------|
 | ~~4: Mismatch detector~~ | ~~Low~~ | ~~High~~ | ~~DONE~~ |
-| 1: Position features in BN | Medium (4 new vars, update evidence collection + training) | High — directly fixes 4829911 class of errors | 1 |
+| 1: Position features in BN | Medium (5 new vars, update evidence collection + training) | High — directly fixes 4829911 class of errors | 1 |
 | 2: Timing features in BN | Medium (4 new vars, new binning logic) | High — discriminates proxy timing from standard | 2 |
 | 3: sklearn upgrade | High (rewrite inference path) | Medium — better but bigger change | 3 |
 | 5: Training data quality | Medium (puller fix + endpoint update) | Medium — closes data gaps | 4 |
