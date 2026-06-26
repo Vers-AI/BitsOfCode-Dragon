@@ -101,7 +101,7 @@ bot/
     unit_micro.py           # Per-unit micro: ranged, melee, disruptor, HT, sentry
     formation.py            # Formation geometry helpers
     target_scoring.py       # Priority target selection
-    force_field_split.py    # Sentry force field logic
+    force_field.py          # Sentry force field logic
     group_chase.py          # Group chase behavior
     group_snipe.py          # Group snipe behavior
   managers/

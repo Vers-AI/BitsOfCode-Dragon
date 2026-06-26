@@ -8,7 +8,7 @@ A phased plan to connect choke detection to Force Field placement, with an upstr
 
 ### Current State
 
-**Force Fields** (`bot/combat/force_field_split.py`) only target two ramps:
+**Force Fields** (`bot/combat/force_field.py`) only target two ramps:
 - `bot.main_base_ramp` — our main ramp
 - `bot.mediator.get_enemy_ramp` — enemy main ramp
 
@@ -191,7 +191,7 @@ RAYCAST_BINARY_SEARCH_DEPTH = 4 # log2(15) ≈ 4 calls per ray via binary search
 
 #### 1b. Add `compute_ff_choke_block` to Force Field System
 
-New function in `bot/combat/force_field_split.py` — places FFs at detected chokes using the refined position + orientation from 1a.
+New function in `bot/combat/force_field.py` — places FFs at detected chokes using the refined position + orientation from 1a.
 
 **Priority chain in `combat.py`:**
 ```
@@ -208,7 +208,7 @@ New function in `bot/combat/force_field_split.py` — places FFs at detected cho
 5. Same energy pooling + greedy assignment as existing `compute_ff_split`
 
 **Files to modify:**
-- `bot/combat/force_field_split.py` — add `compute_ff_choke_block()` function
+- `bot/combat/force_field.py` — add `compute_ff_choke_block()` function
 - `bot/combat/combat.py` — add choke block to the FF priority chain (between ramp block and army split)
 - `bot/constants.py` — add `FF_CHOKE_BLOCK_RADIUS`, `FF_CHOKE_BLOCK_MIN_VALUE`, `FF_CHOKE_MIN_WIDTH`
 
@@ -385,7 +385,7 @@ every frame (cheap):
 |---|---|---|
 | `bot/constants.py` | 1a, 1b | Raycast constants, FF choke block constants |
 | `bot/utilities/choke_grid.py` | 1a, 1c | `refine_choke_with_raycast()`, `detect_dynamic_choke()` |
-| `bot/combat/force_field_split.py` | 1b | `compute_ff_choke_block()` |
+| `bot/combat/force_field.py` | 1b | `compute_ff_choke_block()` |
 | `bot/combat/combat.py` | 1b, 1c, 1d | FF priority chain, dynamic choke detection, FF-aware engagement policy |
 | `bot/utilities/natural_wall_manager.py` | 1 (wall-offs) | Replace PCA/bounding-box with batched raycasting |
 

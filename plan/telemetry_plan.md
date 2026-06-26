@@ -220,7 +220,7 @@ The following subsystems will emit events but their action/field vocabularies ar
 | `"target_scoring"`   | `bot/combat/target_scoring.py`         | Weighted target selection, counter-table hits        |
 | `"group_snipe"`      | `bot/combat/group_snipe.py`            | Blink snipe commit/execute, focus fire               |
 | `"group_chase"`      | `bot/combat/group_chase.py`            | Chase commit/execute, retreat detection              |
-| `"force_field"`      | `bot/combat/force_field_split.py`       | FF split/ramp block decisions                        |
+| `"force_field"`      | `bot/combat/force_field.py`             | FF split/ramp/choke block decisions                  |
 | `"macro"`            | `bot/managers/macro.py`                | Production decisions, worker caps, gas adjustments  |
 | `"scouting"`         | `bot/managers/scouting.py`             | Observer assignments, worker/hallucination scouts    |
 | `"structure_manager"`| `bot/managers/structure_manager.py`    | Chrono boost, recharge, mass recall                  |
