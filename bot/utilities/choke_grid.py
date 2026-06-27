@@ -316,3 +316,186 @@ def refine_all_chokes(bot: "PiG_Bot") -> None:
             continue
         refined = refine_choke_with_raycast(grid, center_tile, passage_dir)
         cache[center_tile] = refined
+
+
+def _mark_buildings_unpathable(
+    grid: np.ndarray, bot: "PiG_Bot", scan_center: Point2, scan_radius: float,
+) -> np.ndarray:
+    """Return a copy of the terrain grid with all obstacles marked unpathable.
+
+    Includes:
+    - Own structures (wall-offs, pylons, etc.)
+    - Enemy structures (wall-offs, cannons, etc.)
+    - Mineral patches (neutral, block pathing)
+    - Vespene gas geysers (neutral, block pathing)
+
+    Destructible rocks are already in the terrain pyastar grid (include_destructables=True),
+    so they don't need to be re-marked here.
+    """
+    grid_copy = grid.copy()
+
+    # Combine all path-blocking objects into a single iteration:
+    # own structures, enemy structures, mineral patches, and gas geysers
+    all_obstacles = list(bot.structures) + list(bot.enemy_structures)
+
+    # Mineral patches and geysers are neutral units
+    if hasattr(bot, "mineral_field"):
+        all_obstacles += list(bot.mineral_field)
+    if hasattr(bot, "vespene_geyser"):
+        all_obstacles += list(bot.vespene_geyser)
+
+    for structure in all_obstacles:
+        # Skip structures outside the scan area
+        if cy_distance_to(structure.position, scan_center) > scan_radius + 5.0:
+            continue
+        # footprint_radius is None for some structures (flying, rich geysers)
+        fp = structure.footprint_radius
+        if fp is None:
+            # Mineral patches and geysers may not have footprint_radius;
+            # use radius as a fallback (minerals ~0.5, geysers ~1.0)
+            fp = structure.radius
+            if fp is None or fp < 0.5:
+                continue
+
+        cx, cy = int(structure.position.x), int(structure.position.y)
+        # Mark all tiles within the footprint radius as unpathable
+        radius_int = int(math.ceil(fp))
+        for dx in range(-radius_int, radius_int + 1):
+            for dy in range(-radius_int, radius_int + 1):
+                ix, iy = cx + dx, cy + dy
+                # Check if this tile is within the circular footprint
+                if dx * dx + dy * dy <= fp * fp:
+                    if 0 <= ix < grid_copy.shape[0] and 0 <= iy < grid_copy.shape[1]:
+                        grid_copy[ix, iy] = np.inf
+
+    return grid_copy
+
+
+def detect_dynamic_choke(
+    bot: "PiG_Bot",
+    squad_position: Point2,
+    enemy_center: Point2 | None = None,
+) -> RefinedChoke | None:
+    """Detect a dynamic choke created by buildings/resources around the squad.
+
+    Builds a local grid that combines terrain with all building footprints
+    (own + enemy + minerals + geysers), then scans in multiple directions from
+    the squad position to find narrow passages that don't exist on the static
+    terrain grid alone.
+
+    This catches enemy wall-offs, cannon-rush gaps, bunker fortification gaps,
+    and even chokes created by our own buildings or mineral lines — anything
+    map_analyzer is blind to since it only sees static terrain.
+
+    Scan strategy:
+    - If enemy_center is provided: scan along the squad→enemy axis (primary)
+      plus 4 perpendicular/radial directions around the squad.
+    - If enemy_center is None: scan 8 radial directions around the squad.
+
+    A dynamic choke is reported when the dynamic grid (terrain + buildings) is
+    narrower than the clean terrain grid at the same point — i.e., buildings
+    created a passage that doesn't exist on raw terrain.
+
+    Perf note: O(B + S * R) where B = buildings in scan radius (typically <30),
+    S = scan sample points (~10 per direction × 5 directions = ~50), and
+    R = raycast steps per sample (≤30 for 2 dirs × 15 steps). Total: ~1,500
+    cy_in_pathing_grid_ma calls. The grid copy is a numpy array copy — cheap.
+    Called every DYNAMIC_CHOKE_SCAN_INTERVAL frames per squad, not every frame.
+
+    Args:
+        bot: Bot instance with structures, enemy_structures, mineral_field,
+             vespene_geyser, and mediator for grid access.
+        squad_position: Current squad center.
+        enemy_center: Enemy army center of mass, or None if no enemies nearby.
+
+    Returns:
+        RefinedChoke if a dynamic choke is found near the squad, or None.
+    """
+    from bot.constants import (
+        DYNAMIC_CHOKE_SCAN_RADIUS,
+        DYNAMIC_CHOKE_MIN_WIDTH,
+        DYNAMIC_CHOKE_MAX_WIDTH,
+    )
+
+    # Quick exit: no buildings of any kind nearby means no dynamic choke
+    has_nearby_obstacles = (
+        bot.enemy_structures.closer_than(DYNAMIC_CHOKE_SCAN_RADIUS, squad_position)
+        or bot.structures.closer_than(DYNAMIC_CHOKE_SCAN_RADIUS, squad_position)
+        or (hasattr(bot, "mineral_field") and bot.mineral_field.closer_than(DYNAMIC_CHOKE_SCAN_RADIUS, squad_position))
+        or (hasattr(bot, "vespene_geyser") and bot.vespene_geyser.closer_than(DYNAMIC_CHOKE_SCAN_RADIUS, squad_position))
+    )
+    if not has_nearby_obstacles:
+        return None
+
+    # Build grids: clean terrain vs terrain + all building footprints
+    terrain_grid = bot.mediator.get_map_data_object.get_pyastar_grid()
+    dynamic_grid = _mark_buildings_unpathable(
+        terrain_grid, bot, squad_position, DYNAMIC_CHOKE_SCAN_RADIUS
+    )
+
+    # Build scan directions:
+    # - If we have an enemy center, prioritize the squad→enemy axis
+    # - Always add radial directions so we catch chokes from any angle
+    scan_directions: list[Point2] = []
+    if enemy_center is not None:
+        enemy_dir = _normalize(enemy_center - squad_position)
+        scan_directions.append(enemy_dir)
+        # Also scan perpendicular to the engagement axis (flank chokes)
+        scan_directions.append(Point2((-enemy_dir.y, enemy_dir.x)))
+        scan_directions.append(Point2((enemy_dir.y, -enemy_dir.x)))
+
+    # Add 4-8 radial directions covering all angles
+    for i in range(8):
+        angle = i * (math.pi / 4)  # 0, 45, 90, 135, 180, 225, 270, 315 degrees
+        d = Point2((math.cos(angle), math.sin(angle)))
+        # Skip directions already covered by enemy-axis scan
+        if enemy_center is not None:
+            is_dup = any(
+                abs(d.x - sd.x) < 0.1 and abs(d.y - sd.y) < 0.1
+                for sd in scan_directions
+            )
+            if is_dup:
+                continue
+        scan_directions.append(d)
+
+    best: RefinedChoke | None = None
+
+    for direction in scan_directions:
+        perp = Point2((-direction.y, direction.x))
+
+        # March along this direction from the squad, sampling at each tile
+        max_march = int(DYNAMIC_CHOKE_SCAN_RADIUS)
+        for step in range(1, max_march + 1):
+            sample = Point2((
+                squad_position.x + direction.x * RAYCAST_STEP_SIZE * step,
+                squad_position.y + direction.y * RAYCAST_STEP_SIZE * step,
+            ))
+            sample_int = Point2((int(sample.x), int(sample.y)))
+
+            # Skip if the sample tile is unpathable on terrain (inside a wall/cliff)
+            if not cy_in_pathing_grid_ma(terrain_grid, sample_int):
+                break  # Hit a wall — stop marching this direction
+
+            # Skip if the sample tile is unpathable on the dynamic grid
+            # (we're inside a building footprint — not a useful choke point)
+            if not cy_in_pathing_grid_ma(dynamic_grid, sample_int):
+                break
+
+            # Measure width on both grids at this sample point
+            terrain_width, _ = _measure_choke_width(terrain_grid, sample_int, perp)
+            dynamic_width, dynamic_center = _measure_choke_width(dynamic_grid, sample_int, perp)
+
+            # Dynamic choke: buildings narrowed the passage compared to terrain
+            if dynamic_width < terrain_width and DYNAMIC_CHOKE_MIN_WIDTH <= dynamic_width <= DYNAMIC_CHOKE_MAX_WIDTH:
+                if best is None or dynamic_width < best.width:
+                    best = RefinedChoke(
+                        center=dynamic_center,
+                        width=dynamic_width,
+                        axis=direction,
+                        perp=perp,
+                    )
+                # Found a narrow point in this direction — stop marching further
+                # (the choke is between squad and the obstacle, not behind it)
+                break
+
+    return best

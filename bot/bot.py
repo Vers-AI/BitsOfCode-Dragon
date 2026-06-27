@@ -208,6 +208,9 @@ class PiG_Bot(AresBot):
         # Pre-refine all narrow chokes at on_start so they're visible immediately
         # when the squad approaches one (not just during active combat)
         refine_all_chokes(self)
+        # Dynamic choke cache: squad_id → (frame, RefinedChoke | None).
+        # Scanned every DYNAMIC_CHOKE_SCAN_INTERVAL frames per squad.
+        self.dynamic_choke_cache: dict[int, tuple[int, object]] = {}
 
         self.current_base_target = self.enemy_start_locations[0]
 

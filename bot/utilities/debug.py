@@ -1454,6 +1454,8 @@ def render_ff_split_debug(
             label = "RAMP BLOCK"
         elif ff_mode == "CHOKE":
             label = f"CHOKE BLOCK ffs:{total_ffs}"
+        elif ff_mode == "DCHOKE":
+            label = f"DYN CHOKE ffs:{total_ffs}"
         else:
             label = "RAMP BLOCK" if total_ffs == 1 else f"FF SPLIT ffs:{total_ffs}"
         bot.client.debug_text_world(

@@ -82,7 +82,7 @@ from bot.combat.unit_micro import (
 from bot.combat.formation import execute_fan_out, clear_formation_state
 from bot.combat.target_scoring import select_target, update_upgrades
 from bot.combat.force_field import compute_ff_split, compute_ff_main_ramp_block, compute_ff_choke_block
-from bot.utilities.choke_grid import get_or_refine_choke
+from bot.utilities.choke_grid import get_or_refine_choke, detect_dynamic_choke
 from bot.combat.group_snipe import try_commit_snipe, execute_snipe_a, execute_snipe_b, execute_focus
 from bot.combat.group_chase import try_commit_chase, execute_chase
 from ares.dicts.unit_data import UNIT_DATA
@@ -1048,7 +1048,7 @@ def control_main_army(bot, main_army: Units, target: Point2, squads: list[UnitSq
                         for sentry_unit, pos in ramp_result.assignments:
                             ff_assignments.setdefault(sentry_unit.tag, []).append(pos)
                     elif choke_tile is not None and enemy_center_chk is not None:
-                        # No ramp block — try choke block using raycast-refined position
+                        # No ramp block — try static choke block using raycast-refined position
                         passage_dir = enemy_center_chk - squad_position
                         refined = get_or_refine_choke(bot, choke_tile, passage_dir)
                         if refined is not None:
@@ -1068,7 +1068,37 @@ def control_main_army(bot, main_army: Units, target: Point2, squads: list[UnitSq
                                 for sentry_unit, pos in choke_result.assignments:
                                     ff_assignments.setdefault(sentry_unit.tag, []).append(pos)
                     if ff_assignments is None:
-                        # No ramp or choke block — try army split
+                        # No ramp or static choke block — try dynamic choke detection.
+                        # Scans for building/resource-created chokes around the squad
+                        # (own + enemy buildings, minerals, geysers). Runs every
+                        # DYNAMIC_CHOKE_SCAN_INTERVAL frames per squad, cached per squad.
+                        from bot.constants import DYNAMIC_CHOKE_SCAN_INTERVAL
+                        squad_id = squad.squad_id
+                        current_frame = bot.state.game_loop
+                        cached = bot.dynamic_choke_cache.get(squad_id)
+                        if cached is None or current_frame - cached[0] >= DYNAMIC_CHOKE_SCAN_INTERVAL:
+                            dynamic_refined = detect_dynamic_choke(
+                                bot, squad_position, enemy_center_chk
+                            )
+                            bot.dynamic_choke_cache[squad_id] = (current_frame, dynamic_refined)
+                        else:
+                            dynamic_refined = cached[1]
+                        if dynamic_refined is not None:
+                            ff_debug_refined = dynamic_refined
+                            ff_debug_center = enemy_center_chk if enemy_center_chk is not None else squad_position
+                            choke_result = compute_ff_choke_block(
+                                enemies=list(all_close),
+                                sentries=sentries,
+                                refined=dynamic_refined,
+                                active_ffs=bot.mediator.get_forcefield_positions,
+                            )
+                            if choke_result is not None and choke_result.assignments:
+                                ff_debug_mode = "DCHOKE"
+                                ff_assignments = {}
+                                for sentry_unit, pos in choke_result.assignments:
+                                    ff_assignments.setdefault(sentry_unit.tag, []).append(pos)
+                    if ff_assignments is None:
+                        # No ramp, choke, or dynamic choke block — try army split
                         ff_result = compute_ff_split(
                             enemies=list(all_close),
                             sentries=sentries,
