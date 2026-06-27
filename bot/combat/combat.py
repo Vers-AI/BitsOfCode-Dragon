@@ -119,44 +119,56 @@ from cython_extensions.general_utils import cy_in_pathing_grid_ma
 from cython_extensions.numpy_helper import cy_point_below_value
 
 
+def _circular_mask(center: Point2, radius: float, shape: tuple) -> np.ndarray:
+    """Boolean mask of cells within `radius` of `center`, shaped to `shape`.
+
+    Mirrors the NovaManager.get_exclusion_mask pattern (nova_manager.py:335).
+    Used to zero out shielded areas on the GS density grid.
+    Grid is indexed [x, y] (ARES convention), so ogrid axis 0 = x, axis 1 = y.
+    """
+    x_idx, y_idx = np.ogrid[:shape[0], :shape[1]]
+    return ((x_idx - center.x) ** 2 + (y_idx - center.y) ** 2) <= radius ** 2
+
+
 def _compute_guardian_shield_assignments(
     sentries: list[Unit],
     squad_units: list[Unit],
     enemies: Units,
-) -> set[int]:
-    """Determine the minimum set of sentries that should cast Guardian Shield.
+    bot,
+) -> tuple[set[int], dict[int, Point2]]:
+    """Determine which Sentries should cast Guardian Shield and where each should go.
 
-    Greedy coverage: add sentries until every squad unit is within
-    GUARDIAN_SHIELD_RADIUS of an active (or just-approved) shield.
-    Sentries already holding the buff count as free coverage sources.
+    Builds a per-squad friendly-density influence grid (each squad unit paints
+    its army_value in a GS_INFLUENCE_RADIUS circle), then greedily assigns
+    Sentries to the densest *uncovered* pocket. Each assigned Sentry zeros out
+    its coverage area, so the next Sentry seeks a different pocket — the direct
+    analog of the Disruptor Nova exclusion-mask pattern.
 
-    This ensures the squad gets full shield coverage with some natural
-    overlap at the edges, without every sentry wasting 75 energy.
+    Deployment rules:
+      1. Range is the trigger — no ranged enemy, no cast.
+      2. No redundant deployment — a Sentry deploys only if an uncovered
+         pocket exists. When the grid is fully zeroed (full coverage), the
+         loop stops and no further Sentries cast.
 
     Returns:
-        Set of sentry tags approved to cast Guardian Shield this frame.
+        (approved_tags, peaks) where peaks maps each approved sentry tag to
+        the position it should path to (the densest uncovered pocket it covers).
     """
     from bot.constants import (
         GUARDIAN_SHIELD_ENERGY_COST,
         GUARDIAN_SHIELD_RADIUS,
+        GS_INFLUENCE_RADIUS,
+        GS_IGNORE_TYPES,
         MELEE_RANGE_THRESHOLD,
     )
     from sc2.ids.buff_id import BuffId
 
-    # No ranged enemies → no point casting
+    # Rule 1: Range is the trigger. No ranged enemy → no GS.
     has_ranged_enemies = any(
         u.ground_range > MELEE_RANGE_THRESHOLD for u in enemies
     )
     if not has_ranged_enemies:
-        return set()
-
-    # Positions of shields that are (or will be) active this frame
-    shield_positions: list[Point2] = []
-
-    # Already-shielded sentries provide free coverage
-    for s in sentries:
-        if s.has_buff(BuffId.GUARDIANSHIELD):
-            shield_positions.append(s.position)
+        return set(), {}
 
     # Candidates: sentries that can cast (enough energy, not already shielded)
     candidates = [
@@ -165,35 +177,70 @@ def _compute_guardian_shield_assignments(
         and not s.has_buff(BuffId.GUARDIANSHIELD)
     ]
 
+    # Already-shielded sentries provide free coverage — they count toward
+    # full coverage but don't need to be in the candidate pool.
+    already_shielded = [s for s in sentries if s.has_buff(BuffId.GUARDIANSHIELD)]
+
+    # If no candidates can cast, nothing to assign (existing shields persist).
+    if not candidates:
+        return set(), {}
+
+    # Build the friendly-density grid on a zero baseline so that:
+    #   - unpainted cells = 0.0 (no friendly value there)
+    #   - painted cells  = army_value (the unit's worth)
+    #   - zeroed cells   = 0.0 (already covered by an active shield)
+    # This makes density.max() > 0 a correct "uncovered pocket exists" check.
+    # safe=False because we're not pathing on this grid (only argmax + masking),
+    # so the <1.0 clamp meant for PyAStar would corrupt our zero baseline.
+    map_data = bot.mediator.get_map_data_object
+    base = map_data.get_pyastar_grid()
+    density = np.zeros_like(base)
+
+    for u in squad_units:
+        if u.type_id in GS_IGNORE_TYPES or u.is_hallucination or u.is_flying:
+            continue
+        value = UNIT_DATA.get(u.type_id, {}).get("army_value", 1.0)
+        density = map_data.add_cost(
+            position=u.position,
+            radius=GS_INFLUENCE_RADIUS,
+            grid=density,
+            weight=value,
+            safe=False,
+        )
+
+    # Zero out areas already covered by active shields (free coverage sources).
+    # This is the exclusion-mask step: covered pockets drop to zero so the next
+    # Sentry seeks a different uncovered pocket.
+    for s in already_shielded:
+        mask = _circular_mask(s.position, GUARDIAN_SHIELD_RADIUS, density.shape)
+        density[mask] = 0.0
+
     approved: set[int] = set()
+    peaks: dict[int, Point2] = {}
 
-    # Greedy: keep adding sentries until every squad unit is within
-    # GUARDIAN_SHIELD_RADIUS of at least one active shield.
-    # This naturally produces overlap at shield boundaries — units
-    # near the edge of one shield are also near the center of the next.
-    while candidates:
-        # Check which squad units are NOT covered by any current shield
-        uncovered = [
-            u for u in squad_units
-            if not any(
-                cy_distance_to(u.position, sp) <= GUARDIAN_SHIELD_RADIUS
-                for sp in shield_positions
-            )
-        ]
-        if not uncovered:
-            break  # Full coverage achieved
+    # Rule 2: Sentry deploys only if an uncovered pocket exists.
+    # Loop terminates when no candidates remain OR density is fully zeroed
+    # (full coverage achieved — no Sentry deploys into an already-covered area).
+    while candidates and density.max() > 0:
+        # Densest uncovered pocket
+        flat_idx = int(np.argmax(density))
+        peak_x, peak_y = flat_idx % density.shape[1], flat_idx // density.shape[1]
+        peak_pos = Point2((peak_x, peak_y))
 
-        # Pick the candidate closest to the center of uncovered units
-        uc_center, _ = cy_find_units_center_mass(uncovered, 10.0)
+        # Closest capable Sentry to this pocket
         best = min(
             candidates,
-            key=lambda s: cy_distance_to_squared(s.position, uc_center),
+            key=lambda s: cy_distance_to_squared(s.position, peak_pos),
         )
         approved.add(best.tag)
-        shield_positions.append(best.position)
+        peaks[best.tag] = peak_pos
+
+        # Zero out the area this Sentry will cover
+        mask = _circular_mask(peak_pos, GUARDIAN_SHIELD_RADIUS, density.shape)
+        density[mask] = 0.0
         candidates.remove(best)
 
-    return approved
+    return approved, peaks
 
 
 def get_attackable_enemies(unit: Unit, enemies: list, grid: np.ndarray) -> list:
@@ -957,14 +1004,18 @@ def control_main_army(bot, main_army: Units, target: Point2, squads: list[UnitSq
                 sentries = [c for c in other_casters if c.type_id == UnitTypeId.SENTRY]
 
                 # Compute Guardian Shield assignments once per squad:
-                # only the minimum sentries needed to cover the squad cast,
-                # preventing all sentries from casting simultaneously.
+                # an influence map of friendly density picks the densest
+                # uncovered pocket for each Sentry. Already-shielded areas
+                # are zeroed (exclusion-mask pattern, like Disruptor Nova),
+                # so Sentries spread to different pockets instead of stacking.
                 gs_approved_tags: set[int] = set()
+                gs_peaks: dict[int, Point2] = {}
                 if sentries:
-                    gs_approved_tags = _compute_guardian_shield_assignments(
+                    gs_approved_tags, gs_peaks = _compute_guardian_shield_assignments(
                         sentries=sentries,
                         squad_units=units,
                         enemies=all_close,
+                        bot=bot,
                     )
 
                 # Compute FF assignments once per squad (pools energy across all sentries)
@@ -1061,6 +1112,7 @@ def control_main_army(bot, main_army: Units, target: Point2, squads: list[UnitSq
                         ranged_center=ranged_center,
                         ff_assignments=ff_assignments,
                         gs_approved=sentry.tag in gs_approved_tags,
+                        gs_target=gs_peaks.get(sentry.tag),
                     )
                 
                 # Handle other spellcasters (Observers, etc.) - stay with army, stay safe

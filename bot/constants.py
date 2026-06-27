@@ -199,6 +199,23 @@ GUARDIAN_SHIELD_OVERLAP_DISTANCE = 8.0
 """If another shielded sentry is within this range, skip casting (avoid overlap).
 Roughly 2x radius — so shields cover different areas instead of stacking."""
 
+GS_INFLUENCE_RADIUS = 4.5
+"""Radius each friendly unit paints on the GS density grid.
+Matches GUARDIAN_SHIELD_RADIUS — a pocket is dense at the scale GS covers."""
+
+GS_IGNORE_TYPES = {
+    UnitTypeId.PROBE,
+    UnitTypeId.OBSERVER,
+    UnitTypeId.OBSERVERSIEGEMODE,
+    UnitTypeId.SENTRY,
+    UnitTypeId.ADEPTPHASESHIFT,
+    UnitTypeId.DISRUPTORPHASED,
+}
+"""Unit types excluded from the GS density grid — workers, scouts, casters,
+Adept Shades, and Disruptor balls don't benefit from GS. Air units are filtered
+at runtime by is_flying (GS is ground-only). Hallucinations (shared type ids)
+are filtered by is_hallucination."""
+
 HALLUCINATION_ENERGY_COST = 75
 """Energy cost of Hallucination ability"""
 

@@ -907,6 +907,7 @@ def micro_sentry(
     ranged_center: Optional[Point2] = None,
     ff_assignments: Optional[dict[int, list[Point2]]] = None,
     gs_approved: bool = False,
+    gs_target: Optional[Point2] = None,
 ) -> bool:
     """Handle Sentry abilities and safe army-following.
 
@@ -920,19 +921,27 @@ def micro_sentry(
     casts. This ensures coordinated FF placement that a single sentry
     couldn't achieve alone.
 
-    Guardian Shield assignment is also computed once per squad (in
-    combat.py) via _compute_guardian_shield_assignments(). Only the
-    minimum sentries needed to cover the squad are approved to cast,
-    preventing all sentries from casting simultaneously.
+    Guardian Shield assignment is computed once per squad (in combat.py) via
+    _compute_guardian_shield_assignments(), which builds a friendly-density
+    influence map and greedily assigns each Sentry to the densest uncovered
+    pocket. Already-shielded areas are zeroed (exclusion-mask pattern, like
+    Disruptor Nova), so Sentries spread to different pockets instead of
+    stacking. A Sentry deploys only if an uncovered pocket exists — no
+    redundant deployment into already-covered areas.
+
+    When gs_target is set (this Sentry was approved and assigned a peak),
+    it paths to that peak instead of ranged_center, so it reaches the
+    pocket it's responsible for covering. KeepUnitSafe layers stay first
+    in the maneuver chain — safety always overrides placement.
 
     Uses two KeepUnitSafe layers like ranged/melee units:
       1. avoid_grid — dodge immediate danger (biles, disruptor shots, etc.)
       2. grid (ground influence) — kite away from enemy influence zones
 
-    During combat, follows ranged_center (center of ranged units) so the
-    sentry mirrors the ranged line's movement instead of the full squad center
-    (which includes melee units at the front). Falls back to squad_position
-    when no ranged center is available (e.g. early game, no-enemy movement).
+    During combat, non-casting Sentries follow ranged_center (center of
+    ranged units) so they mirror the ranged line's movement instead of the
+    full squad center (which includes melee units at the front). Falls back
+    to squad_position when no ranged center is available.
 
     Args:
         sentry: The Sentry unit
@@ -942,11 +951,15 @@ def micro_sentry(
         grid: Ground grid with enemy influence (for kiting away from enemy zones)
         bot: Bot instance
         squad_position: Center of the full squad (fallback when no ranged_center)
-        ranged_center: Center of ranged units during combat (preferred follow target)
+        ranged_center: Center of ranged units during combat (preferred follow target
+            for non-casting Sentries)
         ff_assignments: Dict mapping sentry tag → list of FF positions to cast.
             Pre-computed by compute_ff_split() in combat.py. None = no split.
         gs_approved: Whether this sentry was approved by the squad-level
             Guardian Shield assignment to cast. If False, skip casting.
+        gs_target: The densest uncovered pocket this Sentry was assigned to
+            cover (from the influence map). When set, the Sentry paths here
+            instead of ranged_center. None = not approved or no peak assigned.
 
     Returns:
         True if behavior registered
@@ -954,6 +967,7 @@ def micro_sentry(
     from bot.constants import (
         SENTRY_SQUAD_FOLLOW_DISTANCE,
         SENTRY_SQUAD_TARGET_DISTANCE,
+        GUARDIAN_SHIELD_RADIUS,
     )
     from sc2.ids.buff_id import BuffId
 
@@ -986,15 +1000,22 @@ def micro_sentry(
     # Layer 2: Kite away from enemy influence zones (same pattern as ranged/melee units)
     maneuver.add(KeepUnitSafe(sentry, grid))
 
-    # Follow the ranged center during combat, squad center otherwise
-    follow_target = ranged_center if ranged_center is not None else squad_position
+    # Follow target: if this Sentry was assigned a GS peak, path there so it
+    # reaches the pocket it's responsible for covering. Otherwise follow the
+    # ranged line during combat, or the squad center as fallback.
+    follow_target = gs_target if gs_target is not None else (
+        ranged_center if ranged_center is not None else squad_position
+    )
+    # Approved Sentries stop at GS radius (in coverage range); others use
+    # the standard squad follow distance.
+    success_dist = GUARDIAN_SHIELD_RADIUS if gs_target is not None else SENTRY_SQUAD_TARGET_DISTANCE
     distance_to_follow = cy_distance_to(sentry.position, follow_target)
     if distance_to_follow > SENTRY_SQUAD_FOLLOW_DISTANCE:
         maneuver.add(PathUnitToTarget(
             unit=sentry,
             grid=bot.mediator.get_ground_grid,
             target=follow_target,
-            success_at_distance=SENTRY_SQUAD_TARGET_DISTANCE,
+            success_at_distance=success_dist,
         ))
 
     bot.register_behavior(maneuver)
