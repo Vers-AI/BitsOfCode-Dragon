@@ -1,0 +1,2 @@
+- using influence map to place sentries at the optimum place for guardian shields
+- re-use scoring for army value 
