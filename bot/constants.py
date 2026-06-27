@@ -870,6 +870,24 @@ passage orientation. The detected axis approximates the passage but may be off
 on angled chokes; trying axis ± this value and picking the narrowest result
 corrects ~4% width measurement error."""
 
+# ===== DYNAMIC CHOKE DETECTION =====
+DYNAMIC_CHOKE_SCAN_INTERVAL = 44
+"""Frames between dynamic choke scans per squad (~2 seconds at 22fps).
+Buildings are constructed/destroyed over seconds, not frames — scanning
+every frame would waste CPU for no new information."""
+
+DYNAMIC_CHOKE_SCAN_RADIUS = 15.0
+"""Tiles from squad position to scan for dynamic building chokes.
+Enemy wall-offs and cannon-rush gaps are local to where the army is fighting."""
+
+DYNAMIC_CHOKE_MIN_WIDTH = 2.0
+"""Minimum width for a dynamic choke to be reported. Below this, the gap is
+too narrow for units to pass through at all — not a useful choke, just a wall."""
+
+DYNAMIC_CHOKE_MAX_WIDTH = 8.0
+"""Maximum width for a dynamic choke. Wider gaps don't bottleneck enough
+to justify FF placement. Matches FF_CHOKE_BLOCK_MAX_WIDTH."""
+
 # ===== CONCAVE FORMATION =====
 CONCAVE_TRIGGER_RANGE = 25.0
 """Distance to enemy center at which squads begin fan-out spread"""
@@ -1304,6 +1322,45 @@ PVZ_STANDARD_PROFILE = BuildProfile(
     conditional_structures=[],  # No reactive structures needed — Robo is in core path
 )
 
+# --- PvZ Sentry (Robo-Centric + Sentry ramp) ---
+# Same robo path as PVZ_STANDARD but army comps include SENTRY for FF defense.
+# Economy-gated one-way switch ramps Sentry proportion 0.10 → 0.05 at moderate economy
+# (mirrors the Stalker build's HT ramp pattern). Otherwise identical infrastructure.
+PVZ_SENTRY_PROFILE = BuildProfile(
+    army_composition_0={},  # Set at runtime from macro.py PVZ_SENTRY_ARMY_0
+    army_composition_1={},  # Set at runtime from macro.py PVZ_SENTRY_ARMY_1
+    archon_switch_threshold=0.15,
+    upgrade_order=[
+        UpgradeId.WARPGATERESEARCH,
+        UpgradeId.EXTENDEDTHERMALLANCE,
+        UpgradeId.CHARGE,
+        UpgradeId.PROTOSSGROUNDWEAPONSLEVEL1,
+        UpgradeId.PROTOSSGROUNDARMORSLEVEL1,
+        UpgradeId.PROTOSSGROUNDWEAPONSLEVEL2,
+        UpgradeId.PROTOSSGROUNDARMORSLEVEL2,
+        UpgradeId.PROTOSSGROUNDWEAPONSLEVEL3,
+        UpgradeId.PROTOSSGROUNDARMORSLEVEL3,
+    ],
+    conditional_upgrades=[],  # Populated after import in macro.py
+    gas_target=lambda bot: len(bot.townhalls) * 2,
+    worker_cap=lambda bot: 90 if bot.game_state >= 1 else 66,
+    observer_target=3,
+    warp_prism_target=0,  # No Warp Prism in PvZ Sentry
+    gateway_thresholds=[(1, 3), (3, 5), (5, 8)],
+    forge_count=lambda bot: 2 if len(bot.townhalls.ready) >= 4 else (1 if len(bot.townhalls.ready) >= 2 else 0),
+    chrono_priority=[
+        UnitTypeId.ROBOTICSBAY,
+        UnitTypeId.FORGE,
+        UnitTypeId.TWILIGHTCOUNCIL,
+        UnitTypeId.CYBERNETICSCORE,
+        UnitTypeId.ROBOTICSFACILITY,
+        UnitTypeId.GATEWAY,
+        UnitTypeId.NEXUS,
+    ],
+    conditional_structures=[],  # No reactive structures needed — Robo is in core path
+    economy_switch_threshold="moderate",  # One-way ramp: Sentry 0.10 → 0.05
+)
+
 # --- PvP 2-Gate Expand ---
 # Blink-first upgrade order, PVP_ARMY_0/1 compositions, higher archon threshold.
 PVP_2GATE_PROFILE = BuildProfile(
@@ -1344,6 +1401,7 @@ PVP_2GATE_PROFILE = BuildProfile(
 # Add all profiles to the lookup dict
 BUILD_PROFILES.update({
     "B2GM_PVZ_Standard_Build": PVZ_STANDARD_PROFILE,
+    "B2GM_PVZ_Standard_Build_Sentry": PVZ_SENTRY_PROFILE,
     "B2GM_PVP_2-Gate_Expand": PVP_2GATE_PROFILE,
 })
 
