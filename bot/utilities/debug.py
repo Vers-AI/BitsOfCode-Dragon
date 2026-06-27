@@ -1346,9 +1346,11 @@ def render_narrow_choke_points(bot) -> None:
             size=12,
         )
         
-        # Draw a subset of tiles as small spheres (skip every other to reduce draw calls)
-        # For large chokes this keeps it readable
-        step = max(1, len(tiles) // 30)  # Cap at ~30 spheres per choke
+        # Draw tiles as small spheres, capped to avoid crashing the SC2 debug renderer.
+        # Large chokes can have 100+ tiles; rendering all of them every frame
+        # exceeds the client's draw call budget and crashes the game.
+        max_spheres = 40
+        step = max(1, len(tiles) // max_spheres)
         for i in range(0, len(tiles), step):
             tile = tiles[i]
             tz = bot.get_terrain_z_height(tile)
@@ -1364,20 +1366,23 @@ def render_ff_split_debug(
     ff_assignments: dict[int, list[Point2]] | None,
     sentries: list,
     enemy_center: Point2 | None = None,
+    ff_mode: str = "",
 ) -> None:
-    """Render Force Field split debug visualization.
+    """Render Force Field debug visualization.
 
     Shows:
     - Cyan spheres at each planned FF position
-    - Cyan line connecting FF positions (the split line)
+    - Cyan line connecting FF positions (the placement line)
     - Sentry energy labels showing who's casting
     - Red 'NO SPLIT' label if split was attempted but failed
+    - Mode label (RAMP BLOCK / CHOKE BLOCK / FF SPLIT) at enemy center
 
     Args:
         bot: Bot instance
         ff_assignments: Dict mapping sentry tag → list of FF positions, or None
         sentries: List of sentry units in the squad
         enemy_center: Enemy army center (for label placement)
+        ff_mode: Which FF mode fired — "RAMP", "CHOKE", "SPLIT", or "" (unknown/none)
     """
     if not bot.debug:
         return
@@ -1440,16 +1445,197 @@ def render_ff_split_debug(
                 color=Point3((0, 255, 255)),
             )
 
-    # Label at enemy center showing split info
+    # Label at enemy center showing placement info
     if enemy_center is not None:
         z = bot.get_terrain_z_height(enemy_center)
         total_ffs = sum(len(pos_list) for pos_list in ff_assignments.values())
         total_energy = sum(s.energy for s in sentries)
-        label = "RAMP BLOCK" if total_ffs == 1 else f"FF SPLIT ffs:{total_ffs}"
+        if ff_mode == "RAMP":
+            label = "RAMP BLOCK"
+        elif ff_mode == "CHOKE":
+            label = f"CHOKE BLOCK ffs:{total_ffs}"
+        elif ff_mode == "DCHOKE":
+            label = f"DYN CHOKE ffs:{total_ffs}"
+        else:
+            label = "RAMP BLOCK" if total_ffs == 1 else f"FF SPLIT ffs:{total_ffs}"
         bot.client.debug_text_world(
             f"{label} pool:{total_energy:.0f}",
             Point3((enemy_center.x, enemy_center.y, z + 3.0)),
             color=(0, 255, 255),
+            size=12,
+        )
+
+
+def render_refined_choke_debug(
+    bot,
+    refined,
+    enemy_center: Point2 | None = None,
+) -> None:
+    """Render debug for a raycast-refined choke when a choke block is active.
+
+    Shows:
+    - Green sphere at the refined choke center
+    - Green line across the passage (perpendicular direction, spanning the measured width)
+    - Green arrow along the passage axis showing orientation
+    - Width label at the choke center
+
+    Args:
+        bot: Bot instance
+        refined: RefinedChoke dataclass (center, width, axis, perp)
+        enemy_center: Enemy center if available, for a line from choke to enemy
+    """
+    if not bot.debug or refined is None:
+        return
+
+    center = refined.center
+    z = bot.get_terrain_z_height(center)
+
+    # Green sphere at the refined center
+    bot.client.debug_sphere_out(
+        Point3((center.x, center.y, z + 0.3)),
+        0.8,
+        Point3((0, 255, 0)),  # Green
+    )
+
+    # Green line across the passage (perpendicular, spanning width)
+    half_w = refined.width / 2.0
+    p1 = Point2((
+        center.x + refined.perp.x * half_w,
+        center.y + refined.perp.y * half_w,
+    ))
+    p2 = Point2((
+        center.x - refined.perp.x * half_w,
+        center.y - refined.perp.y * half_w,
+    ))
+    z1 = bot.get_terrain_z_height(p1)
+    z2 = bot.get_terrain_z_height(p2)
+    bot.client.debug_line_out(
+        Point3((p1.x, p1.y, z1 + 0.3)),
+        Point3((p2.x, p2.y, z2 + 0.3)),
+        color=Point3((0, 255, 0)),
+    )
+
+    # Green arrow along the passage axis (short, for orientation)
+    arrow_end = Point2((
+        center.x + refined.axis.x * 3.0,
+        center.y + refined.axis.y * 3.0,
+    ))
+    za = bot.get_terrain_z_height(arrow_end)
+    bot.client.debug_line_out(
+        Point3((center.x, center.y, z + 0.3)),
+        Point3((arrow_end.x, arrow_end.y, za + 0.3)),
+        color=Point3((0, 180, 0)),
+    )
+
+    # Width label at the choke center
+    bot.client.debug_text_world(
+        f"CHOKE w={refined.width:.1f}",
+        Point3((center.x, center.y, z + 1.5)),
+        color=(0, 255, 0),
+        size=12,
+    )
+
+    # Dashed-style line from choke center to enemy center if provided
+    if enemy_center is not None:
+        ez = bot.get_terrain_z_height(enemy_center)
+        bot.client.debug_line_out(
+            Point3((center.x, center.y, z + 0.3)),
+            Point3((enemy_center.x, enemy_center.y, ez + 0.3)),
+            color=Point3((0, 100, 0)),
+        )
+
+
+def render_refined_choke_points(bot) -> None:
+    """Render raycast-refined choke points near any squad.
+
+    Only draws chokes within REFINED_CHOKE_RENDER_RADIUS of a squad position,
+    to avoid exceeding the SC2 debug draw call budget (rendering all 20-30
+    refined chokes every frame crashes the client).
+
+    Draws for each nearby refined choke:
+    - Green sphere at the refined center
+    - Green line spanning the measured width (perpendicular to passage)
+    - Dark green arrow along the passage axis
+    - Green width label
+    """
+    if not bot.debug:
+        return
+
+    cache = getattr(bot, 'refined_choke_points', None)
+    if not cache:
+        return
+
+    # Collect squad positions to filter chokes by proximity.
+    # Rendering all refined chokes every frame crashes the SC2 debug renderer.
+    from ares.consts import UnitRole
+    from bot.constants import ATTACKING_SQUAD_RADIUS, DEFENDER_SQUAD_RADIUS
+    squad_positions: list[Point2] = []
+    for role, radius in (
+        (UnitRole.ATTACKING, ATTACKING_SQUAD_RADIUS),
+        (UnitRole.DEFENDING, ATTACKING_SQUAD_RADIUS),
+        (UnitRole.BASE_DEFENDER, DEFENDER_SQUAD_RADIUS),
+    ):
+        for squad in bot.mediator.get_squads(role=role, squad_radius=radius):
+            squad_positions.append(Point2(squad.squad_position))
+
+    if not squad_positions:
+        return
+
+    render_radius = 20.0  # Only show chokes within 20 tiles of a squad
+
+    for choke_tile, refined in cache.items():
+        if refined is None:
+            continue
+
+        center = refined.center
+        # Skip chokes far from any squad
+        if not any(cy_distance_to(center, sp) <= render_radius for sp in squad_positions):
+            continue
+
+        z = bot.get_terrain_z_height(center)
+
+        # Green sphere at the refined center
+        bot.client.debug_sphere_out(
+            Point3((center.x, center.y, z + 0.3)),
+            0.8,
+            Point3((0, 255, 0)),  # Green
+        )
+
+        # Green line across the passage (perpendicular, spanning width)
+        half_w = refined.width / 2.0
+        p1 = Point2((
+            center.x + refined.perp.x * half_w,
+            center.y + refined.perp.y * half_w,
+        ))
+        p2 = Point2((
+            center.x - refined.perp.x * half_w,
+            center.y - refined.perp.y * half_w,
+        ))
+        z1 = bot.get_terrain_z_height(p1)
+        z2 = bot.get_terrain_z_height(p2)
+        bot.client.debug_line_out(
+            Point3((p1.x, p1.y, z1 + 0.3)),
+            Point3((p2.x, p2.y, z2 + 0.3)),
+            color=Point3((0, 255, 0)),
+        )
+
+        # Dark green arrow along the passage axis (short, for orientation)
+        arrow_end = Point2((
+            center.x + refined.axis.x * 3.0,
+            center.y + refined.axis.y * 3.0,
+        ))
+        za = bot.get_terrain_z_height(arrow_end)
+        bot.client.debug_line_out(
+            Point3((center.x, center.y, z + 0.3)),
+            Point3((arrow_end.x, arrow_end.y, za + 0.3)),
+            color=Point3((0, 180, 0)),
+        )
+
+        # Width label at the refined center
+        bot.client.debug_text_world(
+            f"RC w={refined.width:.1f}",
+            Point3((center.x, center.y, z + 1.5)),
+            color=(0, 255, 0),
             size=12,
         )
 

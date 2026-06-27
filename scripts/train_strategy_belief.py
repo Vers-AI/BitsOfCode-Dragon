@@ -242,16 +242,30 @@ def derive_strategy_label(row: dict) -> str:
     if sc("forge") > 0 and sc("cannon") > 0 and sc("cyber_core") == 0:
         return "cheese"
 
-    # proxy_rax: barracks seen early + near our base
-    # (Training data: barracks present + 1 base + early observation)
+    # proxy_rax: barracks seen very early + 1 base
+    # Standard 1-rax FE hits at ~52s; proxy rax is typically <30s (worker cut).
+    # Use 45s as the threshold — anything later is likely standard play.
+    # When position data is available (rax_near_base), only flag as cheese
+    # when rax_near_base == "yes". Until then, use the tighter timing threshold.
     rax_time = sf("barracks")
-    if enemy_race == "Terran" and sc("barracks") >= 1 and base_count() == 1 and rax_time is not None and rax_time < 180:
-        return "cheese"
+    rax_near = row.get("rax_near_base", "unknown")
+    if enemy_race == "Terran" and sc("barracks") >= 1 and base_count() == 1:
+        if rax_near == "yes":
+            return "cheese"
+        if rax_near == "unknown" and rax_time is not None and rax_time < 45:
+            return "cheese"
+        # rax_near == "no" or rax_time >= 45 → not proxy, fall through
 
-    # proxy_gateway: gateway seen early + near our base
+    # proxy_gateway: gateway seen very early + 1 base
+    # Standard gateway is ~16 supply (~65s). Proxy gateway is <20s.
     gw_time = sf("gateway")
-    if enemy_race == "Protoss" and sc("gateway") >= 1 and sc("nexus") <= 1 and gw_time is not None and gw_time < 180:
-        return "cheese"
+    gw_near = row.get("gw_near_base", "unknown")
+    if enemy_race == "Protoss" and sc("gateway") >= 1 and sc("nexus") <= 1:
+        if gw_near == "yes":
+            return "cheese"
+        if gw_near == "unknown" and gw_time is not None and gw_time < 30:
+            return "cheese"
+        # gw_near == "no" or gw_time >= 30 → not proxy, fall through
 
     # ── ALL-IN ──────────────────────────────────────────────────────
 
@@ -425,7 +439,10 @@ def _extract_timing_from_events(events: list[dict]) -> dict:
         # Structure counts: merge (take max across events)
         raw_structs = _parse_dict_field(event.get("scouted_enemy_structures"))
         if raw_structs:
-            event_time = (event.get("game_steps") or 0) / 16.0
+            # Use 'ts' (per-event game time in seconds), NOT game_steps (match total)
+            event_time = event.get("ts")
+            if not isinstance(event_time, (int, float)):
+                event_time = 0.0
             for raw_name, count in raw_structs.items():
                 norm = STRUCT_ALIASES.get(raw_name, raw_name.lower())
                 struct_counts[norm] = max(struct_counts.get(norm, 0), count)
@@ -436,7 +453,9 @@ def _extract_timing_from_events(events: list[dict]) -> dict:
         # Unit counts: merge (take max across events)
         raw_units = _parse_dict_field(event.get("scouted_enemy_units"))
         if raw_units:
-            event_time = (event.get("game_steps") or 0) / 16.0
+            event_time = event.get("ts")
+            if not isinstance(event_time, (int, float)):
+                event_time = 0.0
             for raw_name, count in raw_units.items():
                 norm = UNIT_ALIASES.get(raw_name, raw_name.lower())
                 unit_counts[norm] = max(unit_counts.get(norm, 0), count)
@@ -446,7 +465,9 @@ def _extract_timing_from_events(events: list[dict]) -> dict:
         # Boolean flags
         if event.get("under_attack"):
             under_attack_count += 1
-            event_time = (event.get("game_steps") or 0) / 16.0
+            event_time = event.get("ts")
+            if not isinstance(event_time, (int, float)):
+                event_time = 0.0
             if first_under_attack_time is None and event_time > 0:
                 first_under_attack_time = event_time
         if event.get("used_cheese_response"):
@@ -488,6 +509,7 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
             "opponent_id": match.get("opponent_id", "") or "",
             "enemy_race": match.get("enemy_race", "Unknown"),
             "enemy_race_int": RACE_MAP.get(match.get("enemy_race", "Unknown"), 3),
+            "map": match.get("map", "") or "",
             "game_time": game_time,
             "cheese_type": match.get("cheese_type", "none") or "none",
             "strategy_category_api": match.get("strategy_category", ""),
@@ -589,6 +611,36 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
         row["siege_tank_seen"] = 1 if units.get("siege_tank", 0) > 0 else 0
         row["widow_mine_seen"] = 1 if units.get("widow_mine", 0) > 0 else 0
         row["ravager_seen"] = 1 if units.get("ravager", 0) > 0 else 0
+
+        # === Schema v2 features (Step 1: position) ===
+        # Position booleans aren't directly in the API — derive from struct counts.
+        # If we saw the structure but it wasn't near our base, it's "no".
+        # If we never saw it, it's "unknown". This is a training-side approximation;
+        # the runtime bot has the actual _barracks_near_our_base booleans.
+        struct_first = row.get("struct_first_seen", {}) or {}
+        row["rax_near_base"] = "unknown"  # API doesn't expose position data yet
+        row["gw_near_base"] = "unknown"
+        row["cannon_near_base"] = "unknown"
+        row["bunker_near_base"] = "unknown"
+
+        # === Schema v2 features (Step 2: timing) ===
+        # Use match-level timing fields directly — the event-based struct_first_seen
+        # is unreliable (API often returns only the last batch of events at ~714s).
+        # pool_start and nat_start are populated at match level from rush_detect
+        # telemetry and are far more accurate for early-game timing.
+        pool_time = row.get("pool_start", -1)
+        row["pool_timing_raw"] = pool_time if pool_time and pool_time > 0 else -1
+
+        # rax/gw timing: fall back to struct_first_seen (no match-level equivalent)
+        rax_time = struct_first.get("barracks")
+        row["rax_timing_raw"] = rax_time if rax_time is not None else -1
+
+        gw_time = struct_first.get("gateway")
+        row["gw_timing_raw"] = gw_time if gw_time is not None else -1
+
+        # nat_timing: use nat_start from match level (populated for ~78% of matches)
+        nat_time = row.get("nat_start", -1)
+        row["nat_timing_raw"] = nat_time if nat_time and nat_time > 0 else -1
 
         rows.append(row)
 
@@ -702,6 +754,35 @@ def discretize_features(df: pd.DataFrame) -> pd.DataFrame:
         lambda x: "yes" if x > 0 else "no"
     )
 
+    # === Schema v2: Position features (Step 1) ===
+    # These are "unknown" in training data (API doesn't expose position data yet).
+    # When the API starts providing position data, update build_training_data()
+    # to extract it and replace these defaults.
+    for col in ["rax_near_base", "gw_near_base", "cannon_near_base", "bunker_near_base"]:
+        if col not in df.columns:
+            df[col] = "unknown"
+
+    # === Schema v2: Timing features (Step 2) ===
+    # rax_timing: <25=very_early (proxy), 25-45=early, 45-90=standard, >90=late, none
+    df["rax_timing"] = df["rax_timing_raw"].fillna(-1).apply(
+        lambda t: "none" if t < 0 else ("very_early" if t < 25 else ("early" if t < 45 else ("standard" if t < 90 else "late")))
+    )
+
+    # pool_timing: <25=very_early (12-pool), 25-40=early, 40-80=standard, >80=late, none
+    df["pool_timing"] = df["pool_timing_raw"].fillna(-1).apply(
+        lambda t: "none" if t < 0 else ("very_early" if t < 25 else ("early" if t < 40 else ("standard" if t < 80 else "late")))
+    )
+
+    # gw_timing: <20=very_early (proxy), 20-40=early, 40-80=standard, >80=late, none
+    df["gw_timing"] = df["gw_timing_raw"].fillna(-1).apply(
+        lambda t: "none" if t < 0 else ("very_early" if t < 20 else ("early" if t < 40 else ("standard" if t < 80 else "late")))
+    )
+
+    # nat_timing: <60=very_early (greedy), 60-120=early (macro), 120-240=late (all-in), >240=none, none=-1
+    df["nat_timing"] = df["nat_timing_raw"].fillna(-1).apply(
+        lambda t: "none" if t < 0 else ("very_early" if t < 60 else ("early" if t < 120 else ("late" if t < 240 else "standard")))
+    )
+
     return df
 
 
@@ -739,7 +820,7 @@ def train_bn(df: pd.DataFrame) -> dict:
     print(f"Race distribution:\n{df_disc['enemy_race'].value_counts()}")
 
     # Define network structure (domain knowledge)
-    # Expanded from 3→7 parent nodes for better discrimination:
+    # Schema v2: 15 parent nodes for better discrimination:
     #   enemy_race: 100% coverage — race determines available strategies
     #   duration_bin: 100% coverage — cheese/all_in end early
     #   pool_bin: Zerg signal — very_early = cheese, early = all_in
@@ -747,6 +828,14 @@ def train_bn(df: pd.DataFrame) -> dict:
     #   gateway_bin: Protoss signal — many+one_base = four_gate
     #   bases_bin: economy signal — one = cheese/all_in, three_plus = macro
     #   factory_bin: Terran tech signal — yes = timing or mech
+    #   rax_near_base: proxy rax vs standard (Step 1)
+    #   gw_near_base: proxy gateway vs standard (Step 1)
+    #   cannon_near_base: cannon rush vs standard forge (Step 1)
+    #   bunker_near_base: bunker rush vs standard (Step 1)
+    #   rax_timing: fine-grained barracks timing (Step 2)
+    #   pool_timing: fine-grained pool timing (Step 2)
+    #   gw_timing: fine-grained gateway timing (Step 2)
+    #   nat_timing: natural expansion timing (Step 2)
     model = DiscreteBayesianNetwork([
         ("enemy_race", "strategy"),
         ("duration_bin", "strategy"),
@@ -755,11 +844,24 @@ def train_bn(df: pd.DataFrame) -> dict:
         ("gateway_bin", "strategy"),
         ("bases_bin", "strategy"),
         ("factory_bin", "strategy"),
+        # Step 1: position features
+        ("rax_near_base", "strategy"),
+        ("gw_near_base", "strategy"),
+        ("cannon_near_base", "strategy"),
+        ("bunker_near_base", "strategy"),
+        # Step 2: timing features
+        ("rax_timing", "strategy"),
+        ("pool_timing", "strategy"),
+        ("gw_timing", "strategy"),
+        ("nat_timing", "strategy"),
     ])
 
     # Fit parameters with MLE estimator
     train_cols = ["enemy_race", "duration_bin", "pool_bin",
-                  "rax_bin", "gateway_bin", "bases_bin", "factory_bin", "strategy"]
+                  "rax_bin", "gateway_bin", "bases_bin", "factory_bin",
+                  "rax_near_base", "gw_near_base", "cannon_near_base", "bunker_near_base",
+                  "rax_timing", "pool_timing", "gw_timing", "nat_timing",
+                  "strategy"]
     try:
         estimator = DiscreteMLE()
         model.fit(df_disc[train_cols], estimator=estimator)
@@ -785,6 +887,7 @@ def train_bn(df: pd.DataFrame) -> dict:
         "feature_cols": FEATURE_COLS,
         "discretization": "bins_defined_in_code",
         "n_samples": len(df_disc),
+        "schema_version": 2,  # Schema v2 = 15 parent variables
     }
 
 
@@ -847,10 +950,12 @@ def build_opponent_priors(df: pd.DataFrame, output_path: str = str(OPPONENT_PRIO
         return {}
 
     # Build output structure
+    # NOTE: key must be "profiles" to match OpponentBelief._load_file() which
+    # reads data.get("profiles", {})
     data = {
         "schema_version": 1,
         "categories": categories,
-        "priors": priors,
+        "profiles": priors,
     }
 
     # Write to file
@@ -869,6 +974,75 @@ def build_opponent_priors(df: pd.DataFrame, output_path: str = str(OPPONENT_PRIO
         alphas = priors[key]
         alpha_str = ", ".join(f"{cat}={a:.0f}" for cat, a in zip(categories, alphas))
         print(f"  {key}: {count} games -> {alpha_str}")
+
+    return data
+
+
+MAP_PRIORS_FILE = Path("bot/models/map_priors.json")
+MIN_GAMES_PER_MAP = 3
+
+
+def build_map_priors(df: pd.DataFrame, output_path: str = str(MAP_PRIORS_FILE)) -> dict:
+    """Build per-map Dirichlet alpha parameters from match data.
+
+    Groups matches by map name, counts strategy_label outcomes, and computes
+    alpha parameters (baseline [1,1,1,1] + observed counts). This captures
+    patterns like "I get rushed more on Pylon AIE than on other maps."
+
+    Only includes maps with >= MIN_GAMES_PER_MAP games.
+    """
+    import json
+
+    categories = STRATEGY_CATEGORY_VALUES
+
+    if "map" not in df.columns or "strategy_label" not in df.columns:
+        print("[MapPriors] Missing required columns (map, strategy_label). Skipping.")
+        return {}
+
+    valid = df.dropna(subset=["map", "strategy_label"])
+    valid = valid[valid["map"].astype(str) != "None"]
+    valid = valid[valid["map"].astype(str) != ""]
+
+    if len(valid) == 0:
+        print("[MapPriors] No valid map data. Skipping.")
+        return {}
+
+    priors = {}
+    map_counts = {}
+
+    for map_name, group in valid.groupby("map"):
+        if len(group) < MIN_GAMES_PER_MAP:
+            continue
+
+        counts = {cat: 0 for cat in categories}
+        for label in group["strategy_label"]:
+            if label in counts:
+                counts[label] += 1
+
+        alphas = [1.0 + counts[cat] for cat in categories]
+        priors[str(map_name)] = alphas
+        map_counts[str(map_name)] = len(group)
+
+    if not priors:
+        print(f"[MapPriors] No maps with >= {MIN_GAMES_PER_MAP} games. Skipping.")
+        return {}
+
+    data = {
+        "schema_version": 1,
+        "categories": categories,
+        "maps": priors,
+    }
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+    print(f"\n=== Map priors saved to {output_path} ===")
+    print(f"Maps with >= {MIN_GAMES_PER_MAP} games: {len(priors)}")
+    for map_name, count in sorted(map_counts.items(), key=lambda x: x[1], reverse=True):
+        alphas = priors[map_name]
+        alpha_str = ", ".join(f"{cat}={a:.0f}" for cat, a in zip(categories, alphas))
+        print(f"  {map_name}: {count} games -> {alpha_str}")
 
     return data
 
@@ -936,8 +1110,10 @@ def main():
     if not args.skip_priors:
         print("\n=== Building Opponent Priors ===")
         build_opponent_priors(df, output_path=args.priors_output)
+        print("\n=== Building Map Priors ===")
+        build_map_priors(df)
     else:
-        print("\n=== Skipping opponent priors (--skip-priors) ===")
+        print("\n=== Skipping priors (--skip-priors) ===")
 
 
 if __name__ == "__main__":

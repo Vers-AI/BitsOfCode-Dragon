@@ -718,21 +718,27 @@ def emit_match_record(bot, game_result, game_time: float,
     if reaction_start >= 0 and bot.reaction_manager.active_reaction_name == "worker_rush":
         match_fields["worker_rush_detected_at"] = round(reaction_start, 1)
 
-    # Cheese detection timing features (present when vs Zerg/Random)
+    # Timing features — sent for ALL races (not just Zerg).
+    # enemy_timings.py tracks these for every matchup; the API needs them
+    # for BN training across all races, not just Zerg cheese detection.
+    match_fields.update({
+        "pool_start": _get_rush_timing('_pool_seen_time', bot),
+        "nat_start": _get_rush_timing('_enemy_nat_started_at', bot),
+        "last_nat_scout_time": _get_rush_timing('_last_nat_scout_time', bot),
+        "nat_present_on_last_scout": (1 if getattr(bot, '_nat_present_on_last_scout', None)
+                                      else (0 if getattr(bot, '_nat_present_on_last_scout', None) is False
+                                            else -1)),
+        "gas_time": _get_rush_timing('_extractor_seen_time', bot),
+        "ling_seen": _get_rush_timing('_first_ling_seen_time', bot),
+        "ling_contact": _get_rush_timing('_first_ling_contact_nat_time', bot),
+        "rush_distance_seconds": round(getattr(bot, '_rush_time_seconds', 0.0), 1),
+    })
+
+    # Zerg-specific cheese detection fields (only set for Zerg/Random)
     if hasattr(bot, '_cheese_label'):
         match_fields.update({
             "cheese_label": getattr(bot, '_cheese_label', 'none'),
-            "rush_distance_seconds": round(getattr(bot, '_rush_time_seconds', 0.0), 1),
-            "pool_start": _get_rush_timing('_pool_seen_time', bot),
-            "nat_start": _get_rush_timing('_enemy_nat_started_at', bot),
-            "last_nat_scout_time": _get_rush_timing('_last_nat_scout_time', bot),
-            "nat_present_on_last_scout": (1 if getattr(bot, '_nat_present_on_last_scout', None)
-                                          else (0 if getattr(bot, '_nat_present_on_last_scout', None) is False
-                                                else -1)),
-            "gas_time": _get_rush_timing('_extractor_seen_time', bot),
             "queen_time": _get_rush_timing('_queen_started_time', bot),
-            "ling_seen": _get_rush_timing('_first_ling_seen_time', bot),
-            "ling_contact": _get_rush_timing('_first_ling_contact_nat_time', bot),
             "speed_start": _get_rush_timing('_speed_research_time', bot),
             "ling_has_speed": 1 if getattr(bot, '_ling_has_speed', False) else 0,
             "gas_workers": getattr(bot, '_gas_workers_count', 0),

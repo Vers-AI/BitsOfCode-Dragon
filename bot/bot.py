@@ -40,9 +40,9 @@ from bot.combat import (
     manage_defensive_unit_roles
 )
 from bot.intel import update_enemy_intel_tracking
-from bot.utilities.choke_grid import create_choke_grid, create_narrow_choke_points
+from bot.utilities.choke_grid import create_choke_grid, create_narrow_choke_points, refine_all_chokes
 from cython_extensions import cy_distance_to
-from bot.utilities.debug import render_narrow_choke_points
+from bot.utilities.debug import render_narrow_choke_points, render_refined_choke_points
 from ares.behaviors.macro import Mining
 #debugs
 from bot.utilities.use_disruptor_nova import UseDisruptorNova
@@ -202,6 +202,15 @@ class PiG_Bot(AresBot):
         self.choke_grid = create_choke_grid(self)
         # Pre-filtered set of choke tiles from narrow passages only (width < CHOKE_MAX_WIDTH)
         self.narrow_choke_points: dict[Point2, float] = create_narrow_choke_points(self)
+        # Lazily-populated cache of raycast-refined chokes (RefinedChoke per choke tile).
+        # Static terrain never changes, so no TTL — each choke refined at most once per game.
+        self.refined_choke_points: dict[Point2, object] = {}
+        # Pre-refine all narrow chokes at on_start so they're visible immediately
+        # when the squad approaches one (not just during active combat)
+        refine_all_chokes(self)
+        # Dynamic choke cache: squad_id → (frame, RefinedChoke | None).
+        # Scanned every DYNAMIC_CHOKE_SCAN_INTERVAL frames per squad.
+        self.dynamic_choke_cache: dict[int, tuple[int, object]] = {}
 
         self.current_base_target = self.enemy_start_locations[0]
 
@@ -311,8 +320,9 @@ class PiG_Bot(AresBot):
         """
         await super(PiG_Bot, self).on_step(iteration)
         
-        # Render narrow choke points on map (debug only, no-op when debug=False)
+        # Render choke points on map (debug only, no-op when debug=False)
         render_narrow_choke_points(self)
+        render_refined_choke_points(self)
         
         # Print periodic intel report (every 30 game seconds)
         print_periodic_intel_report(self, iteration)

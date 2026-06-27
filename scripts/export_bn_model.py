@@ -28,7 +28,7 @@ import numpy as np
 PKL_PATH = Path("bot/models/strategy_belief_model.pkl")
 NPZ_PATH = Path("bot/models/strategy_belief_model.npz")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v2 = 15 parent variables (position + timing features)
 
 
 def export_model(pkl_path: Path = PKL_PATH, npz_path: Path = NPZ_PATH) -> bool:
@@ -83,11 +83,20 @@ def export_model(pkl_path: Path = PKL_PATH, npz_path: Path = NPZ_PATH) -> bool:
         print(f"[export] Variables: {list(state_names.keys())}")
         print(f"[export] Categories: {categories}")
 
-        # Validate shape
-        expected_shape = (4, 3, 4, 4, 2, 3, 4, 3)
-        if cpd_array.shape != expected_shape:
-            print(f"[export] WARNING: CPD shape {cpd_array.shape} != expected {expected_shape}")
-            print("[export] Exporting anyway — BNInference will validate at load time")
+        # Detect schema from number of parent variables
+        n_parents = len(state_names) - 1  # minus strategy node
+        if n_parents == 7:
+            schema_ver = 1
+        elif n_parents == 15:
+            schema_ver = 2
+        else:
+            print(f"[export] Unexpected parent count: {n_parents}")
+            return False
+
+        # No hardcoded shape validation — pgmpy only creates states for values
+        # present in training data, so the CPD shape varies. BNInference reads
+        # the actual shape from the file at load time.
+        print(f"[export] Schema v{schema_ver}, {n_parents} parent vars, CPD shape: {cpd_array.shape}")
 
         # Verify CPD sums to 1.0 along strategy axis
         sums = cpd_array.sum(axis=0)
@@ -101,7 +110,7 @@ def export_model(pkl_path: Path = PKL_PATH, npz_path: Path = NPZ_PATH) -> bool:
         save_dict = {
             "cpd": cpd_array,
             "categories": np.array(categories, dtype="U20"),
-            "schema_version": np.array(SCHEMA_VERSION, dtype=np.int32),
+            "schema_version": np.array(schema_ver, dtype=np.int32),
         }
         # Store state_names as individual arrays keyed by variable name
         for var, states in state_names.items():
@@ -140,8 +149,9 @@ def verify_export(
 
     try:
         version = int(data["schema_version"])
-        if version != SCHEMA_VERSION:
-            print(f"[verify] Schema version mismatch: expected {SCHEMA_VERSION}, got {version}")
+        # Accept either schema version — the export detects which one from the model
+        if version not in (1, 2):
+            print(f"[verify] Unknown schema version: {version}")
             return False
 
         loaded_cpd = data["cpd"]

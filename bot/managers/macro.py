@@ -39,6 +39,7 @@ from bot.constants import (
     PVT_STANDARD_2023_PROFILE,
     PVT_STALKER_2021_PROFILE,
     PVZ_STANDARD_PROFILE,
+    PVZ_SENTRY_PROFILE,
     PVP_2GATE_PROFILE,
     _resolve,
     get_active_profile,
@@ -157,6 +158,29 @@ STANDARD_ARMY_1 = {
     UnitTypeId.ZEALOT: {"proportion": 0.35, "priority": 0},
 }
 
+# PvZ Sentry build: robo-centric like STANDARD_ARMY but with SENTRY for FF defense.
+# Early (army_0): heavier Sentry share (0.10) for nat-wall FF coverage; HT trimmed to 0.30.
+# Rationale: FF is most valuable early at the nat wall vs Zerg run-bys/harass.
+PVZ_SENTRY_ARMY_0 = {
+    UnitTypeId.IMMORTAL: {"proportion": 0.15, "priority": 1},
+    UnitTypeId.COLOSSUS: {"proportion": 0.10, "priority": 4},
+    UnitTypeId.HIGHTEMPLAR: {"proportion": 0.30, "priority": 0},
+    UnitTypeId.DISRUPTOR: {"proportion": 0.10, "priority": 5},
+    UnitTypeId.STALKER: {"proportion": 0.0, "priority": 2},
+    UnitTypeId.ZEALOT: {"proportion": 0.25, "priority": 3},
+    UnitTypeId.SENTRY: {"proportion": 0.10, "priority": 6},
+}
+# Mid-game (army_1): Sentry proportion shrinks to 0.05 as Robo units scale.
+# Mirrors how HT drops out of STANDARD_ARMY_1 — Sentry share naturally falls as army grows.
+PVZ_SENTRY_ARMY_1 = {
+    UnitTypeId.IMMORTAL: {"proportion": 0.30, "priority": 1},
+    UnitTypeId.COLOSSUS: {"proportion": 0.20, "priority": 4},
+    UnitTypeId.DISRUPTOR: {"proportion": 0.10, "priority": 3},
+    UnitTypeId.STALKER: {"proportion": 0.0, "priority": 2},
+    UnitTypeId.ZEALOT: {"proportion": 0.35, "priority": 0},
+    UnitTypeId.SENTRY: {"proportion": 0.05, "priority": 6},
+}
+
 PVP_ARMY_0 = {
     UnitTypeId.STALKER: {"proportion": 0.3, "priority": 0},
     UnitTypeId.IMMORTAL: {"proportion": 0.15, "priority": 1},
@@ -215,6 +239,8 @@ PVT_STALKER_2021_PROFILE.army_composition_1 = PVT_STALKER_2021_ARMY_MODERATE  # 
 PVT_STALKER_2021_PROFILE.army_composition_2 = PVT_STALKER_2021_ARMY_FULL  # Archon switch at 15%
 PVZ_STANDARD_PROFILE.army_composition_0 = STANDARD_ARMY_0  # Same robo-centric comp as PvT
 PVZ_STANDARD_PROFILE.army_composition_1 = STANDARD_ARMY_1
+PVZ_SENTRY_PROFILE.army_composition_0 = PVZ_SENTRY_ARMY_0  # Sentry ramp: 0.10 early → 0.05 mid
+PVZ_SENTRY_PROFILE.army_composition_1 = PVZ_SENTRY_ARMY_1
 PVP_2GATE_PROFILE.army_composition_0 = PVP_ARMY_0
 PVP_2GATE_PROFILE.army_composition_1 = PVP_ARMY_1
 
@@ -236,6 +262,10 @@ PVT_STANDARD_2023_PROFILE.conditional_upgrades = [
     (UpgradeId.PSISTORMTECH, _storm_predicate),
 ]
 PVZ_STANDARD_PROFILE.conditional_upgrades = [
+    (UpgradeId.EXTENDEDTHERMALLANCE, _thermal_lance_predicate),
+    (UpgradeId.PSISTORMTECH, _storm_predicate),
+]
+PVZ_SENTRY_PROFILE.conditional_upgrades = [
     (UpgradeId.EXTENDEDTHERMALLANCE, _thermal_lance_predicate),
     (UpgradeId.PSISTORMTECH, _storm_predicate),
 ]

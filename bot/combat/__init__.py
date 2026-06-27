@@ -47,10 +47,11 @@ from bot.combat.formation import (
     clear_formation_state,
 )
 
-from bot.combat.force_field_split import (
+from bot.combat.force_field import (
     compute_ff_split,
-    compute_ff_ramp_block,
-    FFSplitResult,
+    compute_ff_main_ramp_block,
+    compute_ff_choke_block,
+    FFResult,
 )
 
 from bot.combat.group_snipe import (
@@ -105,9 +106,11 @@ __all__ = [
     # Formation
     "execute_fan_out",
     "clear_formation_state",
-    # Force Field split
+    # Force Field
     "compute_ff_split",
-    "FFSplitResult",
+    "compute_ff_main_ramp_block",
+    "compute_ff_choke_block",
+    "FFResult",
     # Group snipe
     "effective_value",
     "damage_per_volley",

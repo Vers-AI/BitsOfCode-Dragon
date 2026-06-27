@@ -199,6 +199,23 @@ GUARDIAN_SHIELD_OVERLAP_DISTANCE = 8.0
 """If another shielded sentry is within this range, skip casting (avoid overlap).
 Roughly 2x radius — so shields cover different areas instead of stacking."""
 
+GS_INFLUENCE_RADIUS = 4.5
+"""Radius each friendly unit paints on the GS density grid.
+Matches GUARDIAN_SHIELD_RADIUS — a pocket is dense at the scale GS covers."""
+
+GS_IGNORE_TYPES = {
+    UnitTypeId.PROBE,
+    UnitTypeId.OBSERVER,
+    UnitTypeId.OBSERVERSIEGEMODE,
+    UnitTypeId.SENTRY,
+    UnitTypeId.ADEPTPHASESHIFT,
+    UnitTypeId.DISRUPTORPHASED,
+}
+"""Unit types excluded from the GS density grid — workers, scouts, casters,
+Adept Shades, and Disruptor balls don't benefit from GS. Air units are filtered
+at runtime by is_flying (GS is ground-only). Hallucinations (shared type ids)
+are filtered by is_hallucination."""
+
 HALLUCINATION_ENERGY_COST = 75
 """Energy cost of Hallucination ability"""
 
@@ -723,6 +740,8 @@ class CategoryConfig:
     """Max probes during this reaction. None = use standard cap."""
     army_comp: dict[UnitTypeId, dict] | None
     """Army composition override. None = use standard composition."""
+    cancel_nexus: bool
+    """Whether to cancel a fast-expanding Nexus if detected early."""
     hold_army: bool
     """Whether combat should hold the army back (early defensive mode)."""
     stop_gas_below: int
@@ -738,6 +757,7 @@ REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
             UnitTypeId.STALKER: {"proportion": 0.15, "priority": 0},
             UnitTypeId.ZEALOT: {"proportion": 0.6, "priority": 1},
         },
+        cancel_nexus=True,
         hold_army=True,
         stop_gas_below=21,
     ),
@@ -749,6 +769,7 @@ REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
             UnitTypeId.STALKER: {"proportion": 0.15, "priority": 0},
             UnitTypeId.ZEALOT: {"proportion": 0.6, "priority": 1},
         },
+        cancel_nexus=False,
         hold_army=True,
         stop_gas_below=0,
     ),
@@ -756,6 +777,7 @@ REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
         build=None,  # Use standard build
         probe_cap=None,  # Use standard
         army_comp=None,  # Use standard + nudge
+        cancel_nexus=False,
         hold_army=False,
         stop_gas_below=0,
     ),
@@ -763,6 +785,7 @@ REACTION_CATEGORY_CONFIGS: dict[StrategyCategory, CategoryConfig] = {
         build=None,
         probe_cap=None,
         army_comp=None,
+        cancel_nexus=False,
         hold_army=False,
         stop_gas_below=0,
     ),
@@ -832,6 +855,38 @@ Anchored to the specific choke tile (not squad position) so the bot retreats
 to a stable fixed point rather than continuing through multiple choke points.
 Ramp retreat uses 4.0 per-unit; group retreat uses a smaller distance since
 the anchor is the choke edge, not the current squad position."""
+
+# ===== RAYCAST CHOKE REFINEMENT =====
+RAYCAST_MAX_WIDTH = 15.0
+"""Max tiles to march per perpendicular ray from the choke center.
+Covers chokes up to ~30 tiles wide (15 each side) — generous for any real passage."""
+
+RAYCAST_STEP_SIZE = 1.0
+"""Tile step size for ray marching (integer tiles match the pathing grid resolution)."""
+
+RAYCAST_ANGLE_SEARCH = 0.26
+"""Radians (~15°) to search either side of the squad→enemy axis for the true
+passage orientation. The detected axis approximates the passage but may be off
+on angled chokes; trying axis ± this value and picking the narrowest result
+corrects ~4% width measurement error."""
+
+# ===== DYNAMIC CHOKE DETECTION =====
+DYNAMIC_CHOKE_SCAN_INTERVAL = 44
+"""Frames between dynamic choke scans per squad (~2 seconds at 22fps).
+Buildings are constructed/destroyed over seconds, not frames — scanning
+every frame would waste CPU for no new information."""
+
+DYNAMIC_CHOKE_SCAN_RADIUS = 15.0
+"""Tiles from squad position to scan for dynamic building chokes.
+Enemy wall-offs and cannon-rush gaps are local to where the army is fighting."""
+
+DYNAMIC_CHOKE_MIN_WIDTH = 2.0
+"""Minimum width for a dynamic choke to be reported. Below this, the gap is
+too narrow for units to pass through at all — not a useful choke, just a wall."""
+
+DYNAMIC_CHOKE_MAX_WIDTH = 8.0
+"""Maximum width for a dynamic choke. Wider gaps don't bottleneck enough
+to justify FF placement. Matches FF_CHOKE_BLOCK_MAX_WIDTH."""
 
 # ===== CONCAVE FORMATION =====
 CONCAVE_TRIGGER_RANGE = 25.0
@@ -913,14 +968,37 @@ FF_OVERLAP = 0.5
 FF_SPLIT_MIN_ENEMIES = 8
 """Minimum total ground combat enemies to attempt a force field split"""
 
-FF_RAMP_BLOCK_RADIUS = 5.0
-"""Max distance from enemy center to ramp top/bottom center to trigger a ramp block.
-A single FF at the ramp center when the enemy is crossing through it."""
+FF_SPLIT_FRONT_FRACTION = 0.5
+"""Fraction of enemy front-line extent to shift the FF split line toward our army.
+0.0 = through enemy center (old behavior, splits army in half).
+0.5 = halfway between center and front edge (traps front line against our army,
+backline reinforcements can't reach). Higher = more enemy units trapped on our side."""
 
-FF_RAMP_BLOCK_MIN_VALUE = 6.0
-"""Minimum enemy army_value near a ramp to justify a ramp block FF.
+FF_MAIN_RAMP_BLOCK_RADIUS = 5.0
+"""Max distance from enemy center to a main ramp center to trigger a main ramp block.
+A single FF at the ramp center when the enemy is crossing through it.
+Only applies to the two main-base ramps — all other ramps go through the choke-block path."""
+
+FF_MAIN_RAMP_BLOCK_MIN_VALUE = 6.0
+"""Minimum enemy army_value near a main ramp to justify a main ramp block FF.
 Roughly 2 stalkers or 6 zerglings worth — below this, 50 energy isn't worth spending.
 Uses the same UNIT_DATA army_value as ENGAGEMENT_ARMY_VALUE_THRESHOLD."""
+
+FF_CHOKE_BLOCK_RADIUS = 5.0
+"""Max distance from enemy center to the refined choke center to trigger a choke block.
+Mirrors FF_MAIN_RAMP_BLOCK_RADIUS — the enemy must be actively crossing the choke, not just nearby."""
+
+FF_CHOKE_BLOCK_MIN_VALUE = 6.0
+"""Minimum enemy army_value to justify a choke block FF. Matches FF_MAIN_RAMP_BLOCK_MIN_VALUE
+so choke and main ramp blocks have the same investment threshold."""
+
+FF_CHOKE_BLOCK_MAX_WIDTH = 8.0
+"""Only block chokes narrower than this (tiles). Wider chokes need too many FFs to seal.
+A 3-FF chain (150 energy) covers ~6 tiles; 8 tiles is the practical ceiling for a single engagement."""
+
+FF_CHOKE_SINGLE_FF_WIDTH = 3.0
+"""Chokes narrower than this (tiles) need only a single FF at the center.
+Wider chokes require a chain of overlapping FFs to seal the full passage."""
 
 # ===== BLINK SNIPE / CHASE =====
 SNIPE_MIN_HEALTH = 0.75
@@ -1244,6 +1322,45 @@ PVZ_STANDARD_PROFILE = BuildProfile(
     conditional_structures=[],  # No reactive structures needed — Robo is in core path
 )
 
+# --- PvZ Sentry (Robo-Centric + Sentry ramp) ---
+# Same robo path as PVZ_STANDARD but army comps include SENTRY for FF defense.
+# Economy-gated one-way switch ramps Sentry proportion 0.10 → 0.05 at moderate economy
+# (mirrors the Stalker build's HT ramp pattern). Otherwise identical infrastructure.
+PVZ_SENTRY_PROFILE = BuildProfile(
+    army_composition_0={},  # Set at runtime from macro.py PVZ_SENTRY_ARMY_0
+    army_composition_1={},  # Set at runtime from macro.py PVZ_SENTRY_ARMY_1
+    archon_switch_threshold=0.15,
+    upgrade_order=[
+        UpgradeId.WARPGATERESEARCH,
+        UpgradeId.EXTENDEDTHERMALLANCE,
+        UpgradeId.CHARGE,
+        UpgradeId.PROTOSSGROUNDWEAPONSLEVEL1,
+        UpgradeId.PROTOSSGROUNDARMORSLEVEL1,
+        UpgradeId.PROTOSSGROUNDWEAPONSLEVEL2,
+        UpgradeId.PROTOSSGROUNDARMORSLEVEL2,
+        UpgradeId.PROTOSSGROUNDWEAPONSLEVEL3,
+        UpgradeId.PROTOSSGROUNDARMORSLEVEL3,
+    ],
+    conditional_upgrades=[],  # Populated after import in macro.py
+    gas_target=lambda bot: len(bot.townhalls) * 2,
+    worker_cap=lambda bot: 90 if bot.game_state >= 1 else 66,
+    observer_target=3,
+    warp_prism_target=0,  # No Warp Prism in PvZ Sentry
+    gateway_thresholds=[(1, 3), (3, 5), (5, 8)],
+    forge_count=lambda bot: 2 if len(bot.townhalls.ready) >= 4 else (1 if len(bot.townhalls.ready) >= 2 else 0),
+    chrono_priority=[
+        UnitTypeId.ROBOTICSBAY,
+        UnitTypeId.FORGE,
+        UnitTypeId.TWILIGHTCOUNCIL,
+        UnitTypeId.CYBERNETICSCORE,
+        UnitTypeId.ROBOTICSFACILITY,
+        UnitTypeId.GATEWAY,
+        UnitTypeId.NEXUS,
+    ],
+    conditional_structures=[],  # No reactive structures needed — Robo is in core path
+    economy_switch_threshold="moderate",  # One-way ramp: Sentry 0.10 → 0.05
+)
+
 # --- PvP 2-Gate Expand ---
 # Blink-first upgrade order, PVP_ARMY_0/1 compositions, higher archon threshold.
 PVP_2GATE_PROFILE = BuildProfile(
@@ -1284,6 +1401,7 @@ PVP_2GATE_PROFILE = BuildProfile(
 # Add all profiles to the lookup dict
 BUILD_PROFILES.update({
     "B2GM_PVZ_Standard_Build": PVZ_STANDARD_PROFILE,
+    "B2GM_PVZ_Standard_Build_Sentry": PVZ_SENTRY_PROFILE,
     "B2GM_PVP_2-Gate_Expand": PVP_2GATE_PROFILE,
 })
 
