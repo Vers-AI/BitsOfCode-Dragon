@@ -202,6 +202,9 @@ class PiG_Bot(AresBot):
         self.choke_grid = create_choke_grid(self)
         # Pre-filtered set of choke tiles from narrow passages only (width < CHOKE_MAX_WIDTH)
         self.narrow_choke_points: dict[Point2, float] = create_narrow_choke_points(self)
+        # Lazily-populated cache of raycast-refined chokes (RefinedChoke per choke tile).
+        # Static terrain never changes, so no TTL — each choke refined at most once per game.
+        self.refined_choke_points: dict[Point2, object] = {}
 
         self.current_base_target = self.enemy_start_locations[0]
 

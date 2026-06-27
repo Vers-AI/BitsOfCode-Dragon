@@ -839,6 +839,20 @@ to a stable fixed point rather than continuing through multiple choke points.
 Ramp retreat uses 4.0 per-unit; group retreat uses a smaller distance since
 the anchor is the choke edge, not the current squad position."""
 
+# ===== RAYCAST CHOKE REFINEMENT =====
+RAYCAST_MAX_WIDTH = 15.0
+"""Max tiles to march per perpendicular ray from the choke center.
+Covers chokes up to ~30 tiles wide (15 each side) — generous for any real passage."""
+
+RAYCAST_STEP_SIZE = 1.0
+"""Tile step size for ray marching (integer tiles match the pathing grid resolution)."""
+
+RAYCAST_ANGLE_SEARCH = 0.26
+"""Radians (~15°) to search either side of the squad→enemy axis for the true
+passage orientation. The detected axis approximates the passage but may be off
+on angled chokes; trying axis ± this value and picking the narrowest result
+corrects ~4% width measurement error."""
+
 # ===== CONCAVE FORMATION =====
 CONCAVE_TRIGGER_RANGE = 25.0
 """Distance to enemy center at which squads begin fan-out spread"""
@@ -919,14 +933,37 @@ FF_OVERLAP = 0.5
 FF_SPLIT_MIN_ENEMIES = 8
 """Minimum total ground combat enemies to attempt a force field split"""
 
-FF_RAMP_BLOCK_RADIUS = 5.0
-"""Max distance from enemy center to ramp top/bottom center to trigger a ramp block.
-A single FF at the ramp center when the enemy is crossing through it."""
+FF_SPLIT_FRONT_FRACTION = 0.5
+"""Fraction of enemy front-line extent to shift the FF split line toward our army.
+0.0 = through enemy center (old behavior, splits army in half).
+0.5 = halfway between center and front edge (traps front line against our army,
+backline reinforcements can't reach). Higher = more enemy units trapped on our side."""
 
-FF_RAMP_BLOCK_MIN_VALUE = 6.0
-"""Minimum enemy army_value near a ramp to justify a ramp block FF.
+FF_MAIN_RAMP_BLOCK_RADIUS = 5.0
+"""Max distance from enemy center to a main ramp center to trigger a main ramp block.
+A single FF at the ramp center when the enemy is crossing through it.
+Only applies to the two main-base ramps — all other ramps go through the choke-block path."""
+
+FF_MAIN_RAMP_BLOCK_MIN_VALUE = 6.0
+"""Minimum enemy army_value near a main ramp to justify a main ramp block FF.
 Roughly 2 stalkers or 6 zerglings worth — below this, 50 energy isn't worth spending.
 Uses the same UNIT_DATA army_value as ENGAGEMENT_ARMY_VALUE_THRESHOLD."""
+
+FF_CHOKE_BLOCK_RADIUS = 5.0
+"""Max distance from enemy center to the refined choke center to trigger a choke block.
+Mirrors FF_MAIN_RAMP_BLOCK_RADIUS — the enemy must be actively crossing the choke, not just nearby."""
+
+FF_CHOKE_BLOCK_MIN_VALUE = 6.0
+"""Minimum enemy army_value to justify a choke block FF. Matches FF_MAIN_RAMP_BLOCK_MIN_VALUE
+so choke and main ramp blocks have the same investment threshold."""
+
+FF_CHOKE_BLOCK_MAX_WIDTH = 8.0
+"""Only block chokes narrower than this (tiles). Wider chokes need too many FFs to seal.
+A 3-FF chain (150 energy) covers ~6 tiles; 8 tiles is the practical ceiling for a single engagement."""
+
+FF_CHOKE_SINGLE_FF_WIDTH = 3.0
+"""Chokes narrower than this (tiles) need only a single FF at the center.
+Wider chokes require a chain of overlapping FFs to seal the full passage."""
 
 # ===== BLINK SNIPE / CHASE =====
 SNIPE_MIN_HEALTH = 0.75

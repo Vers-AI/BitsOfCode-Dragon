@@ -81,7 +81,8 @@ from bot.combat.unit_micro import (
 )
 from bot.combat.formation import execute_fan_out, clear_formation_state
 from bot.combat.target_scoring import select_target, update_upgrades
-from bot.combat.force_field_split import compute_ff_split, compute_ff_ramp_block
+from bot.combat.force_field import compute_ff_split, compute_ff_main_ramp_block, compute_ff_choke_block
+from bot.utilities.choke_grid import get_or_refine_choke
 from bot.combat.group_snipe import try_commit_snipe, execute_snipe_a, execute_snipe_b, execute_focus
 from bot.combat.group_chase import try_commit_chase, execute_chase
 from ares.dicts.unit_data import UNIT_DATA
@@ -101,6 +102,7 @@ from bot.utilities.debug import (
     render_choke_policy_debug,
     render_choke_decision_debug,
     render_ff_split_debug,
+    render_refined_choke_debug,
     render_snipe_debug,
     render_chase_debug,
     render_focus_debug,
@@ -966,16 +968,22 @@ def control_main_army(bot, main_army: Units, target: Point2, squads: list[UnitSq
                     )
 
                 # Compute FF assignments once per squad (pools energy across all sentries)
-                # Priority: ramp block > army split (1 FF at a choke is more impactful)
+                # Priority: ramp block > choke block > army split
+                # A single FF at a real bottleneck (ramp or narrow choke) is
+                # more impactful than a generic split through the enemy center.
                 ff_assignments: dict[int, list[Point2]] | None = None
                 ff_debug_center: Point2 | None = None
+                ff_debug_mode: str = ""
+                ff_debug_refined = None
                 if sentries and all_close:
-                    # Only consider our ramp and enemy ramp for blocking
+                    # Main ramp block: specialized single-FF for the two main-base ramps only.
+                    # All other ramps are handled by the general choke-block path below
+                    # (they're in map_chokes as MDRamp instances → create_narrow_choke_points).
                     own_ramp = bot.main_base_ramp
                     enemy_ramp = bot.mediator.get_enemy_ramp
 
-                    # Try ramp block first: single FF at ramp center if enemy is crossing
-                    ramp_result = compute_ff_ramp_block(
+                    # Try main ramp block first: single FF at ramp center if enemy is crossing
+                    ramp_result = compute_ff_main_ramp_block(
                         enemies=list(all_close),
                         sentries=sentries,
                         own_ramp=own_ramp,
@@ -984,11 +992,30 @@ def control_main_army(bot, main_army: Units, target: Point2, squads: list[UnitSq
                     )
                     if ramp_result is not None and ramp_result.assignments:
                         ff_debug_center = ramp_result.enemy_center
+                        ff_debug_mode = "RAMP"
                         ff_assignments = {}
                         for sentry_unit, pos in ramp_result.assignments:
                             ff_assignments.setdefault(sentry_unit.tag, []).append(pos)
-                    else:
-                        # No ramp block opportunity — try army split
+                    elif choke_tile is not None and enemy_center_chk is not None:
+                        # No ramp block — try choke block using raycast-refined position
+                        passage_dir = enemy_center_chk - squad_position
+                        refined = get_or_refine_choke(bot, choke_tile, passage_dir)
+                        if refined is not None:
+                            choke_result = compute_ff_choke_block(
+                                enemies=list(all_close),
+                                sentries=sentries,
+                                refined=refined,
+                                active_ffs=bot.mediator.get_forcefield_positions,
+                            )
+                            if choke_result is not None and choke_result.assignments:
+                                ff_debug_center = choke_result.enemy_center
+                                ff_debug_mode = "CHOKE"
+                                ff_debug_refined = refined
+                                ff_assignments = {}
+                                for sentry_unit, pos in choke_result.assignments:
+                                    ff_assignments.setdefault(sentry_unit.tag, []).append(pos)
+                    if ff_assignments is None:
+                        # No ramp or choke block — try army split
                         ff_result = compute_ff_split(
                             enemies=list(all_close),
                             sentries=sentries,
@@ -997,19 +1024,28 @@ def control_main_army(bot, main_army: Units, target: Point2, squads: list[UnitSq
                         )
                         if ff_result is not None:
                             ff_debug_center = ff_result.enemy_center
+                            ff_debug_mode = "SPLIT"
                             if ff_result.assignments:
                                 # Convert [(sentry, pos), ...] → {sentry_tag: [pos1, pos2, ...]}
                                 ff_assignments = {}
                                 for sentry_unit, pos in ff_result.assignments:
                                     ff_assignments.setdefault(sentry_unit.tag, []).append(pos)
 
-                # Debug visualization for FF split
+                # Debug visualization for FF placement
                 render_ff_split_debug(
                     bot,
                     ff_assignments=ff_assignments,
                     sentries=sentries,
                     enemy_center=ff_debug_center,
+                    ff_mode=ff_debug_mode,
                 )
+                # Refined choke overlay (green) when a choke block is active
+                if ff_debug_refined is not None:
+                    render_refined_choke_debug(
+                        bot,
+                        refined=ff_debug_refined,
+                        enemy_center=ff_debug_center,
+                    )
 
                 for sentry in sentries:
                     micro_sentry(
