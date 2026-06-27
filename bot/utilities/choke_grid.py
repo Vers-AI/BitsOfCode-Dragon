@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
-from map_analyzer import MapData
+from map_analyzer import MapData, VisionBlockerArea
 from sc2.position import Point2
 from cython_extensions import cy_distance_to
 
@@ -109,7 +109,7 @@ def create_narrow_choke_points(bot: "PiG_Bot") -> dict[Point2, float]:
     for choke in map_data.map_chokes:
         # Vision blockers (bushes/fog) look like narrow passages geometrically
         # but don't physically block movement — FF placed there seals nothing.
-        if choke.is_vision_blocker:
+        if isinstance(choke, VisionBlockerArea):
             continue
 
         width = None
@@ -122,7 +122,7 @@ def create_narrow_choke_points(bot: "PiG_Bot") -> dict[Point2, float]:
             sa = Point2(choke.side_a) if not isinstance(choke.side_a, Point2) else choke.side_a
             sb = Point2(choke.side_b) if not isinstance(choke.side_b, Point2) else choke.side_b
             width = cy_distance_to(sa, sb)
-        elif choke.side_a is not None and choke.side_b is not None:
+        elif hasattr(choke, "side_a") and choke.side_a is not None and hasattr(choke, "side_b") and choke.side_b is not None:
             sa = Point2(choke.side_a) if not isinstance(choke.side_a, Point2) else choke.side_a
             sb = Point2(choke.side_b) if not isinstance(choke.side_b, Point2) else choke.side_b
             width = cy_distance_to(sa, sb)
@@ -268,3 +268,51 @@ def get_or_refine_choke(
     refined = refine_choke_with_raycast(grid, choke_tile, passage_dir)
     cache[choke_tile] = refined
     return refined
+
+
+def refine_all_chokes(bot: "PiG_Bot") -> None:
+    """Pre-refine all narrow choke tiles at on_start and populate bot.refined_choke_points.
+
+    Groups choke tiles by their parent choke (using side_a/side_b distance to
+    identify unique chokes), picks one representative tile per choke, and
+    raycasts it. The passage direction is estimated from side_a → side_b, which
+    is the choke's narrowest span — the perpendicular of that is the passage axis.
+
+    This makes refined chokes visible immediately when the squad approaches one,
+    without needing enemies on the other side to trigger is_choke_between.
+
+    Cost: ~N raycast calls where N = number of unique narrow chokes (typically 5-15).
+    Each call is ≤45 cy_in_pathing_grid_ma checks. Total: <700 calls at on_start.
+    """
+    map_data: MapData = bot.mediator.get_map_data_object
+    grid = map_data.get_pyastar_grid()
+    cache: dict[Point2, RefinedChoke | None] = bot.refined_choke_points
+
+    for choke in map_data.map_chokes:
+        if isinstance(choke, VisionBlockerArea):
+            continue
+        if not choke.points:
+            continue
+
+        # Estimate passage direction from side_a → side_b if available
+        # Only RawChoke and MDRamp have side_a/side_b (set in __init__);
+        # base ChokeArea doesn't — guard with hasattr
+        passage_dir: Point2 | None = None
+        if hasattr(choke, "side_a") and choke.side_a is not None and hasattr(choke, "side_b") and choke.side_b is not None:
+            sa = Point2(choke.side_a) if not isinstance(choke.side_a, Point2) else choke.side_a
+            sb = Point2(choke.side_b) if not isinstance(choke.side_b, Point2) else choke.side_b
+            # side_a → side_b is the narrowest span; perpendicular is the passage axis
+            span = sb - sa
+            passage_dir = Point2((-span.y, span.x))
+
+        if passage_dir is None:
+            # No side info — use the choke center as a fallback direction.
+            # The angle search in refine_choke_with_raycast will try ±15° to correct.
+            passage_dir = Point2((1.0, 0.0))
+
+        # Use the choke center as the representative tile
+        center_tile = Point2((int(choke.center.x), int(choke.center.y)))
+        if center_tile in cache:
+            continue
+        refined = refine_choke_with_raycast(grid, center_tile, passage_dir)
+        cache[center_tile] = refined

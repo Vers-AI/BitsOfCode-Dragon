@@ -1001,6 +1001,10 @@ def control_main_army(bot, main_army: Units, target: Point2, squads: list[UnitSq
                         passage_dir = enemy_center_chk - squad_position
                         refined = get_or_refine_choke(bot, choke_tile, passage_dir)
                         if refined is not None:
+                            # Show the refined choke overlay even if FF doesn't fire,
+                            # so the raycast result is visible during testing
+                            ff_debug_refined = refined
+                            ff_debug_center = enemy_center_chk
                             choke_result = compute_ff_choke_block(
                                 enemies=list(all_close),
                                 sentries=sentries,
@@ -1008,9 +1012,7 @@ def control_main_army(bot, main_army: Units, target: Point2, squads: list[UnitSq
                                 active_ffs=bot.mediator.get_forcefield_positions,
                             )
                             if choke_result is not None and choke_result.assignments:
-                                ff_debug_center = choke_result.enemy_center
                                 ff_debug_mode = "CHOKE"
-                                ff_debug_refined = refined
                                 ff_assignments = {}
                                 for sentry_unit, pos in choke_result.assignments:
                                     ff_assignments.setdefault(sentry_unit.tag, []).append(pos)
