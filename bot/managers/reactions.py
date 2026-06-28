@@ -309,10 +309,9 @@ class ReactionManager:
             # to avoid doubling up buildings at the wrong location. PvZ uses
             # the same nat_wall as the standard build, so keep the existing
             # Cyber Core check for that case.
-            if (is_cheese or is_all_in) and bot.enemy_race in (Race.Protoss, Race.Terran):
-                remove_completed = True
-            else:
-                remove_completed = bot.structures(UnitTypeId.CYBERNETICSCORE).exists
+            # TODO: needs more testing — the True branch for PvT/PvP caused
+            # regressions; reverted to original Cyber Core check for all races.
+            remove_completed = bot.structures(UnitTypeId.CYBERNETICSCORE).exists
             bot.build_order_runner.switch_opening(build_name, remove_completed=remove_completed)
 
             # Cancel fast-expanding Nexus if category says to.
