@@ -21,12 +21,11 @@ BuildChoices:
         BotName: ZergRace
         Cycle:
             - B2GM_PVZ_Standard_Build
-            - B2GM_PVZ_Standard_Build_Sentry
+            - Parting_PvZ_Soul_Train
     Random:
         BotName: RandomRace
         Cycle:
             - B2GM_PVZ_Standard_Build
-            - B2GM_PVZ_Standard_Build_Sentry
 
     # Can also use specific opponent ids (overrides race options above)
     81fa0acc-93ea-479c-9ba5-08ae63b9e3f5:
@@ -34,10 +33,20 @@ BuildChoices:
         Cycle:
             - B2GM_PVT_Stalker_Centric_2021
 
+    60337090-fa15-485d-9497-d9b1c28a86b5:
+        BotName: Caninana
+        Cycle:
+            - Parting_PvZ_Soul_Train
+
+    6bcce16a-8139-4dc0-8e72-b7ee8b3da1d8:
+        BotName: Eris
+        Cycle:
+            - Parting_PvZ_Soul_Train
+
     test_123:
         BotName: test
         Cycle:
-            - B2GM_PVZ_Standard_Build_Sentry
+            - Parting_PvZ_Soul_Train
 
 Builds:
     B2GM_PVT_Standard_Build:
@@ -152,43 +161,37 @@ Builds:
             - 50 ROBOTICSBAY
             - 50 ROBOTICSFACILITY 
 
-    B2GM_PVZ_Standard_Build_Sentry:
-        # Same as B2GM_PVZ_Standard_Build but adds a Sentry for FF/defense
-        ConstantWorkerProductionTill: 44
+    Parting_PvZ_Soul_Train:
+        # Parting PvZ All-in Soul Train — converted from Spawning Tool build.
+        #  Adept at 22 replaced with
+        # Stalker (No Adept code yet — add back when Adept micro exists).
+        ConstantWorkerProductionTill: 45
         ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 33
         OpeningBuildOrder:
             - 14 WORKER_SCOUT:
                 [enemy_spawn, enemy_nat, map_center, fourth,third, enemy_spawn, enemy_nat]
             - 14 PYLON @ nat_wall
-            - 16 GATEWAY @ nat_wall
-            - 16 CHRONO @ NEXUS
+            - 15 CHRONO @ NEXUS
+            - 15 GATEWAY @ nat_wall
             - 16 GAS
             - 20 EXPAND
             - 20 CORE @ nat_wall
-            - 21 PYLON
             - 21 GAS
-            - 22 WARPGATERESEARCH
-            - 22 CHRONO @ NEXUS # chroning instead of cyber
-            - 24 ZEALOT
-            - 26 CHRONO @ GATEWAY
-            - 26 ROBOTICSFACILITY
-            - 27 STALKER
-            - 27 CHRONO @ NEXUS 
-            - 27 GATEWAY @ nat_wall
-            - 28 GATEWAY 
-            - 30 STALKER
-            - 33 CHRONO @ NEXUS
-            - 34 PYLON @ nat_wall
-            - 34 OBSERVER
-            - 35 GAS X2
-            - 36 SENTRY
-            - 36 IMMORTAL
-            - 36 CHRONO @  ROBOTICSFACILITY
-            - 48 STALKER X3 @ NAT
-            - 48 EXPAND
-            - 50 ROBOTICSBAY
-            - 50 ROBOTICSFACILITY 
+            - 22 PYLON
+            # - 22 ADEPT  # No Adept code yet — add back when Adept micro exists
+            - 22 STALKER  # Placeholder for Adept
+            - 23 ROBOTICSFACILITY
+            - 25 WARPGATERESEARCH
+            - 26 STALKER
+            - 34 WARPPRISM
+            - 38 GATEWAY @ nat_wall
+            - 38 SENTRY
+            - 41 PYLON
+            - 43 IMMORTAL
+            - 49 GAS
+            - 49 PYLON
+            - 50 SHIELDBATTERY @ nat_wall
             
     B2GM_PVP_2-Gate_Expand:
         # Build constant worker production till this supply
