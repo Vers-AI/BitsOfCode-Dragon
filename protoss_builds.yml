@@ -20,7 +20,7 @@ BuildChoices:
     Zerg:
         BotName: ZergRace
         Cycle:
-            - B2GM_PVZ_Standard_Build
+            #- B2GM_PVZ_Standard_Build
             - Parting_PvZ_Soul_Train
     Random:
         BotName: RandomRace
