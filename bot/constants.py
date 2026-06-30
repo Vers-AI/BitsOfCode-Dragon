@@ -293,6 +293,9 @@ MASS_RECALL_RETREAT_SEARCH_RADIUS = 15.0
 """Radius to search for safe retreat spot on ARES avoidance grid.
 If no safe spot closer to base exists within this radius, retreat is considered blocked."""
 
+RECHARGE_RANGE = 12.0
+"""Cast range of Nexus Energy Recharge ability — only units within this radius are eligible"""
+
 # ===== UNDER ATTACK DETECTION =====
 # OBSERVATION: These thresholds determine when _under_attack flag triggers
 # Adjust based on gameplay feedback

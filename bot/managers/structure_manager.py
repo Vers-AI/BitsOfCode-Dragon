@@ -14,6 +14,7 @@ from cython_extensions import cy_distance_to
 from bot.constants import (
     MASS_RECALL_COOLDOWN,
     MASS_RECALL_ENERGY_COST,
+    RECHARGE_RANGE,
     get_active_profile,
 )
 
@@ -45,20 +46,21 @@ def _get_recall_nexus_tag(bot) -> int | None:
 
 def use_recharge(bot, main_army: Units) -> bool:
     """
-    Uses Energy Recharge on the unit with the lowest energy percentage within range of the closest Nexus.
+    Uses Energy Recharge on the highest-priority unit within range of any eligible Nexus.
 
-    Targets energy-using units in priority order: Shield Battery, Mothership, High Templar, Oracle, and Sentry.
+    Iterates all Nexuses with enough energy, and for each scans for units within
+    RECHARGE_RANGE that need energy. Picks the best (Nexus, target) pair across
+    all Nexuses using the unit-type priority order, breaking ties by lowest energy %.
+
+    Target priority: Shield Battery > Mothership > High Templar > Oracle > Sentry.
 
     Args:
         bot: The bot instance
-        main_army: Units to consider for the army center calculation
+        main_army: Unused — kept for call-site compatibility
 
     Returns:
         bool: True if Energy Recharge was used, False otherwise
     """
-    if not main_army:
-        return False
-
     # Priority order: Shield Battery > Mothership > High Templar > Oracle > Sentry
     priority_unit_types = [
         UnitTypeId.SHIELDBATTERY,
@@ -68,43 +70,48 @@ def use_recharge(bot, main_army: Units) -> bool:
         UnitTypeId.SENTRY
     ]
 
-    # Find the closest Nexus to the army center
     # Recall Nexus requires 100 energy (50 reserve + 50 cost) to spend
     recall_nexus_tag = _get_recall_nexus_tag(bot)
-    closest_nexus = None
-    closest_distance = float("inf")
+    eligible_nexuses = []
     for nexus in bot.structures(UnitTypeId.NEXUS).ready:
         min_energy = 100 if nexus.tag == recall_nexus_tag else 50
-        if nexus.energy < min_energy:
-            continue
-        distance = cy_distance_to(main_army.center, nexus.position)
-        if distance < closest_distance:
-            closest_distance = distance
-            closest_nexus = nexus
+        if nexus.energy >= min_energy:
+            eligible_nexuses.append(nexus)
 
-    if not closest_nexus:
+    if not eligible_nexuses:
         return False
 
-    # Find highest priority target within 12 range that needs energy
-    target_unit = None
-    for unit_type in priority_unit_types:
-        candidates = []
-        # Shield Battery is in structures collection, others are in units
-        collection = bot.structures if unit_type == UnitTypeId.SHIELDBATTERY else bot.units
-        for unit in collection:
-            if (unit.type_id == unit_type and
-                cy_distance_to(unit.position, closest_nexus.position) <= 12 and
-                unit.energy_percentage < 1.0):
-                candidates.append(unit)
+    # Scan all eligible Nexuses for the best (Nexus, target) pair.
+    # Best = highest-priority unit type found, then lowest energy % within that type.
+    best_nexus = None
+    best_target = None
+    best_priority_idx = len(priority_unit_types)  # lower is better
+    best_energy_pct = float("inf")
 
-        if candidates:
-            target_unit = min(candidates, key=lambda u: u.energy_percentage)
-            break
+    for nexus in eligible_nexuses:
+        for prio_idx, unit_type in enumerate(priority_unit_types):
+            # Can't improve on a higher-priority target already found
+            if prio_idx > best_priority_idx:
+                break
 
-    if not target_unit:
+            # Shield Battery is in structures collection, others are in units
+            collection = bot.structures if unit_type == UnitTypeId.SHIELDBATTERY else bot.units
+            for unit in collection:
+                if (unit.type_id == unit_type and
+                    cy_distance_to(unit.position, nexus.position) <= RECHARGE_RANGE and
+                    unit.energy_percentage < 1.0):
+                    # Pick this if: higher priority type, or same type but lower energy
+                    if (prio_idx < best_priority_idx or
+                        (prio_idx == best_priority_idx and unit.energy_percentage < best_energy_pct)):
+                        best_priority_idx = prio_idx
+                        best_energy_pct = unit.energy_percentage
+                        best_nexus = nexus
+                        best_target = unit
+
+    if not best_target:
         return False
 
-    closest_nexus(AbilityId.ENERGYRECHARGE_ENERGYRECHARGE, target_unit)
+    best_nexus(AbilityId.ENERGYRECHARGE_ENERGYRECHARGE, best_target)
     return True
 
 
