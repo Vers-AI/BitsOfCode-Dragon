@@ -968,9 +968,9 @@ FF_OVERLAP = 0.5
 FF_SPLIT_MIN_ENEMIES = 8
 """Minimum total ground combat enemies to attempt a force field split"""
 
-FF_SPLIT_FRONT_FRACTION = 0.5
+FF_SPLIT_FRONT_FRACTION = 0.0
 """Fraction of enemy front-line extent to shift the FF split line toward our army.
-0.0 = through enemy center (old behavior, splits army in half).
+0.0 = through enemy center (splits army in half — Soul Train style).
 0.5 = halfway between center and front edge (traps front line against our army,
 backline reinforcements can't reach). Higher = more enemy units trapped on our side."""
 
@@ -984,9 +984,11 @@ FF_MAIN_RAMP_BLOCK_MIN_VALUE = 6.0
 Roughly 2 stalkers or 6 zerglings worth — below this, 50 energy isn't worth spending.
 Uses the same UNIT_DATA army_value as ENGAGEMENT_ARMY_VALUE_THRESHOLD."""
 
-FF_CHOKE_BLOCK_RADIUS = 5.0
+FF_CHOKE_BLOCK_RADIUS = 2.5
 """Max distance from enemy center to the refined choke center to trigger a choke block.
-Mirrors FF_MAIN_RAMP_BLOCK_RADIUS — the enemy must be actively crossing the choke, not just nearby."""
+Tightened from 5.0 so the choke block only fires when the enemy is truly crossing
+the choke (on top of it), not just nearby. Otherwise the army split takes priority
+and FFs fire on the enemy centroid to split their forces."""
 
 FF_CHOKE_BLOCK_MIN_VALUE = 6.0
 """Minimum enemy army_value to justify a choke block FF. Matches FF_MAIN_RAMP_BLOCK_MIN_VALUE
