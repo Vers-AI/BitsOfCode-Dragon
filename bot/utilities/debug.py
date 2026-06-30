@@ -7,6 +7,7 @@ Limitations: Requires bot.debug=True in bot.py to activate
 
 import math
 
+import numpy as np
 from sc2.position import Point2, Point3
 from sc2.units import Units
 from sc2.ids.unit_typeid import UnitTypeId
@@ -1466,6 +1467,106 @@ def render_ff_split_debug(
         )
 
 
+def render_gs_debug(bot, sentries: list, squad_position: Point2) -> None:
+    """Render Guardian Shield influence-map debug visualization.
+
+    Shows:
+    - Friendly-density grid as on-map text (only non-zero cells, green)
+    - Green sphere at each assigned peak (where a Sentry should go)
+    - Green ring at GUARDIAN_SHIELD_RADIUS around each peak (coverage area)
+    - Sentry energy + "GS→peak" labels for approved Sentries
+    - "NO GS" label at squad center if ranged enemies exist but no Sentry
+      was approved (full coverage already achieved)
+
+    Reads debug state stashed by _compute_guardian_shield_assignments() on
+    bot._gs_debug_density / bot._gs_debug_peaks when bot.debug is True.
+
+    Args:
+        bot: Bot instance
+        sentries: List of sentry units in the squad
+        squad_position: Squad center (for the "NO GS" fallback label)
+    """
+    if not bot.debug:
+        return
+
+    from bot.constants import GUARDIAN_SHIELD_RADIUS
+
+    density = getattr(bot, "_gs_debug_density", None)
+    peaks: dict = getattr(bot, "_gs_debug_peaks", {})
+
+    # 1) Density grid overlay — paint non-zero cells as small green numbers
+    if density is not None:
+        height = bot.get_terrain_z_height(squad_position)
+        # Sample every 2nd tile to avoid flooding the renderer on large armies
+        ys, xs = np.where(density > 0)
+        step = 2
+        for i in range(0, len(ys), step):
+            x, y = int(xs[i]), int(ys[i])
+            val = int(density[x, y])
+            bot.client.debug_text_world(
+                str(val),
+                Point3((x, y, height)),
+                color=(0, 200, 0),
+                size=8,
+            )
+
+    # 2) Peak markers + coverage rings
+    for tag, peak in peaks.items():
+        z = bot.get_terrain_z_height(peak)
+        bot.client.debug_sphere_out(
+            Point3((peak.x, peak.y, z + 0.3)),
+            0.8,
+            Point3((0, 255, 0)),
+        )
+        bot.client.debug_text_world(
+            f"GS→{tag}",
+            Point3((peak.x, peak.y, z + 2.0)),
+            color=(0, 255, 0),
+            size=10,
+        )
+        # Coverage ring: 12 segments around the peak at GUARDIAN_SHIELD_RADIUS
+        for j in range(12):
+            a1 = (2 * math.pi * j) / 12
+            a2 = (2 * math.pi * (j + 1)) / 12
+            p1 = Point2((peak.x + math.cos(a1) * GUARDIAN_SHIELD_RADIUS,
+                         peak.y + math.sin(a1) * GUARDIAN_SHIELD_RADIUS))
+            p2 = Point2((peak.x + math.cos(a2) * GUARDIAN_SHIELD_RADIUS,
+                         peak.y + math.sin(a2) * GUARDIAN_SHIELD_RADIUS))
+            z1 = bot.get_terrain_z_height(p1)
+            z2 = bot.get_terrain_z_height(p2)
+            bot.client.debug_line_out(
+                Point3((p1.x, p1.y, z1 + 0.3)),
+                Point3((p2.x, p2.y, z2 + 0.3)),
+                color=Point3((0, 200, 0)),
+            )
+
+    # 3) Sentry labels — energy + whether approved
+    for s in sentries:
+        pos = s.position
+        z = bot.get_terrain_z_height(pos)
+        approved = s.tag in peaks
+        label = f"E:{s.energy:.0f}{' GS' if approved else ''}"
+        color = (0, 255, 0) if approved else (128, 128, 128)
+        bot.client.debug_text_world(
+            label,
+            Point3((pos.x, pos.y, z + 1.5)),
+            color=color,
+            size=12,
+        )
+
+    # 4) "NO GS" if there are sentries with energy but no peaks (full coverage)
+    if not peaks and sentries:
+        capable = [s for s in sentries if s.energy >= 75]
+        if capable:
+            z = bot.get_terrain_z_height(squad_position)
+            bot.client.debug_text_world(
+                "NO GS (covered)",
+                Point3((squad_position.x, squad_position.y, z + 2.5)),
+                color=(160, 160, 160),
+                size=12,
+            )
+
+
 def render_refined_choke_debug(
     bot,
     refined,
@@ -1951,3 +2052,61 @@ def render_detection_cannon_debug(bot) -> None:
     _y = min(getattr(bot, '_debug_y', 0.50), 0.95)
     bot.client.debug_text_2d(summary, Point2((0.1, _y)), None, 12)
     bot._debug_y = _y + 0.018
+
+
+def render_nexus_ability_debug(bot) -> None:
+    """Render 3D labels above each Nexus showing energy and available abilities.
+
+    Shows: energy/energy_max, plus a letter per ability if currently castable:
+      R = Energy Recharge, C = Chrono Boost, M = Mass Recall
+
+    Color coding:
+        Green: 2+ abilities available
+        Yellow: 1 ability available
+        Gray: no abilities available (low energy or on cooldown)
+
+    Only renders when bot.debug is True.
+    """
+    if not bot.debug:
+        return
+
+    from sc2.ids.ability_id import AbilityId
+
+    for nexus in bot.townhalls.ready:
+        if nexus.type_id != UnitTypeId.NEXUS:
+            continue
+
+        # Check which abilities are currently castable (accounts for energy + cooldowns)
+        abilities = nexus.abilities
+        can_recharge = AbilityId.ENERGYRECHARGE_ENERGYRECHARGE in abilities
+        can_chrono = AbilityId.EFFECT_CHRONOBOOSTENERGYCOST in abilities
+        can_recall = AbilityId.EFFECT_MASSRECALL_NEXUS in abilities
+
+        avail = []
+        if can_recharge:
+            avail.append("R")
+        if can_chrono:
+            avail.append("C")
+        if can_recall:
+            avail.append("M")
+        avail_str = "".join(avail) if avail else "CD"
+
+        label = f"E:{int(nexus.energy)}/{int(nexus.energy_max)} [{avail_str}]"
+
+        # Color by how many abilities are available
+        n_avail = len(avail)
+        if n_avail >= 2:
+            color = (0, 255, 0)    # Green — multiple options
+        elif n_avail == 1:
+            color = (255, 255, 0)  # Yellow — one option
+        else:
+            color = (128, 128, 128)  # Gray — nothing available
+
+        pos = nexus.position
+        z = bot.get_terrain_z_height(pos)
+        bot.client.debug_text_world(
+            label,
+            Point3((pos.x, pos.y, z + 3.0)),
+            color=color,
+            size=12,
+        )

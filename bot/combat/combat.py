@@ -103,6 +103,7 @@ from bot.utilities.debug import (
     render_choke_decision_debug,
     render_ff_split_debug,
     render_refined_choke_debug,
+    render_gs_debug,
     render_snipe_debug,
     render_chase_debug,
     render_focus_debug,
@@ -157,6 +158,7 @@ def _compute_guardian_shield_assignments(
     from bot.constants import (
         GUARDIAN_SHIELD_ENERGY_COST,
         GUARDIAN_SHIELD_RADIUS,
+        GUARDIAN_SHIELD_OVERLAP_DISTANCE,
         GS_INFLUENCE_RADIUS,
         GS_IGNORE_TYPES,
         MELEE_RANGE_THRESHOLD,
@@ -221,10 +223,16 @@ def _compute_guardian_shield_assignments(
     # Rule 2: Sentry deploys only if an uncovered pocket exists.
     # Loop terminates when no candidates remain OR density is fully zeroed
     # (full coverage achieved — no Sentry deploys into an already-covered area).
+    # A candidate standing too close to an active shield is assigned a peak
+    # (so it paths away) but NOT approved to cast this frame — it would
+    # overlap the existing shield before reaching its own peak. This mirrors
+    # the Disruptor Nova register_nova_target() proximity rejection.
     while candidates and density.max() > 0:
-        # Densest uncovered pocket
+        # Densest uncovered pocket. Grid is indexed [x, y] (ARES convention),
+        # so C-order flatten = x * shape[1] + y → x = flat // shape[1], y = flat % shape[1].
         flat_idx = int(np.argmax(density))
-        peak_x, peak_y = flat_idx % density.shape[1], flat_idx // density.shape[1]
+        peak_x = flat_idx // density.shape[1]
+        peak_y = flat_idx % density.shape[1]
         peak_pos = Point2((peak_x, peak_y))
 
         # Closest capable Sentry to this pocket
@@ -232,13 +240,29 @@ def _compute_guardian_shield_assignments(
             candidates,
             key=lambda s: cy_distance_to_squared(s.position, peak_pos),
         )
-        approved.add(best.tag)
+
+        # If this Sentry is standing on an active shield, assign it the peak
+        # so it paths away, but don't approve the cast — it would overlap
+        # before moving. Next frame, once it's clear, it can cast.
+        too_close = any(
+            cy_distance_to(best.position, sh.position) < GUARDIAN_SHIELD_OVERLAP_DISTANCE
+            for sh in already_shielded
+        )
+        if not too_close:
+            approved.add(best.tag)
         peaks[best.tag] = peak_pos
 
-        # Zero out the area this Sentry will cover
+        # Zero out the area this Sentry will cover (claimed, so the next
+        # Sentry picks a different pocket even if this one isn't casting yet)
         mask = _circular_mask(peak_pos, GUARDIAN_SHIELD_RADIUS, density.shape)
         density[mask] = 0.0
         candidates.remove(best)
+
+    # Stash debug state for render_gs_debug() to pick up. No per-frame cost
+    # when bot.debug is False — this block is a plain attribute assignment.
+    if getattr(bot, "debug", False):
+        bot._gs_debug_density = density
+        bot._gs_debug_peaks = peaks
 
     return approved, peaks
 
@@ -1129,6 +1153,9 @@ def control_main_army(bot, main_army: Units, target: Point2, squads: list[UnitSq
                         refined=ff_debug_refined,
                         enemy_center=ff_debug_center,
                     )
+
+                # Guardian Shield influence-map overlay
+                render_gs_debug(bot, sentries, squad_position)
 
                 for sentry in sentries:
                     micro_sentry(
