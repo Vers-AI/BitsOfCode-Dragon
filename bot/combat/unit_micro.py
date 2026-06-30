@@ -922,17 +922,12 @@ def micro_sentry(
     couldn't achieve alone.
 
     Guardian Shield assignment is computed once per squad (in combat.py) via
-    _compute_guardian_shield_assignments(), which builds a friendly-density
-    influence map and greedily assigns each Sentry to the densest uncovered
-    pocket. Already-shielded areas are zeroed (exclusion-mask pattern, like
-    Disruptor Nova), so Sentries spread to different pockets instead of
-    stacking. A Sentry deploys only if an uncovered pocket exists — no
-    redundant deployment into already-covered areas.
-
-    When gs_target is set (this Sentry was approved and assigned a peak),
-    it paths to that peak instead of ranged_center, so it reaches the
-    pocket it's responsible for covering. KeepUnitSafe layers stay first
-    in the maneuver chain — safety always overrides placement.
+    _compute_guardian_shield_assignments(), which uses a Sentry-centric
+    influence map: each Sentry casts where it is if there are uncovered
+    friendlies nearby, rather than being sent to a distant pocket. A Sentry
+    standing on an active shield (overlap) is assigned the nearest uncovered
+    pocket so it can reposition and cast next frame — mirroring the Disruptor
+    Nova exclusion-mask pattern without scattering Sentries across the army.
 
     Uses two KeepUnitSafe layers like ranged/melee units:
       1. avoid_grid — dodge immediate danger (biles, disruptor shots, etc.)
@@ -984,12 +979,24 @@ def micro_sentry(
             return True
 
     # Priority 2: Guardian Shield
-    # Squad-level assignment (computed in combat.py) determines which
-    # sentries cast. Only approved sentries spend energy, ensuring
-    # minimum shields to cover the squad without over-casting.
+    # Sentry-centric: the assignment (combat.py) approves a Sentry to cast
+    # only if there are uncovered friendlies within GS radius of the Sentry's
+    # current position. The peak IS the Sentry's position, so the arrival
+    # gate is trivially satisfied. For overlapping Sentries (not approved,
+    # assigned a repositioning peak), gs_target is the nearest uncovered
+    # pocket — they path there and cast next frame once they arrive.
     if gs_approved and not sentry.has_buff(BuffId.GUARDIANSHIELD):
-        sentry(AbilityId.GUARDIANSHIELD_GUARDIANSHIELD)
-        return True
+        if gs_target is not None:
+            # Cast only once we're within GS radius of the assigned peak.
+            # Until then, fall through to the movement block to path there.
+            dist_to_peak = cy_distance_to(sentry.position, gs_target)
+            if dist_to_peak <= GUARDIAN_SHIELD_RADIUS:
+                sentry(AbilityId.GUARDIANSHIELD_GUARDIANSHIELD)
+                return True
+        else:
+            # No specific peak (e.g. single Sentry, already at squad center)
+            sentry(AbilityId.GUARDIANSHIELD_GUARDIANSHIELD)
+            return True
 
     # No cast opportunity — stay safe and follow army
     maneuver = CombatManeuver()
@@ -1000,17 +1007,21 @@ def micro_sentry(
     # Layer 2: Kite away from enemy influence zones (same pattern as ranged/melee units)
     maneuver.add(KeepUnitSafe(sentry, grid))
 
-    # Follow target: if this Sentry was assigned a GS peak, path there so it
-    # reaches the pocket it's responsible for covering. Otherwise follow the
-    # ranged line during combat, or the squad center as fallback.
+    # Movement: if this Sentry has a gs_target, path toward it. For approved
+    # Sentries this is their current position (cast in place — minimal movement).
+    # For overlapping Sentries (not approved, but assigned a repositioning
+    # peak), this moves them away from the active shield to the nearest
+    # uncovered pocket so they can cast next frame. Sentries with no gs_target
+    # follow ranged_center / squad_position as before.
     follow_target = gs_target if gs_target is not None else (
         ranged_center if ranged_center is not None else squad_position
     )
-    # Approved Sentries stop at GS radius (in coverage range); others use
-    # the standard squad follow distance.
     success_dist = GUARDIAN_SHIELD_RADIUS if gs_target is not None else SENTRY_SQUAD_TARGET_DISTANCE
+    # Sentries with a gs_target need to close to GS radius (to cast or to
+    # clear the overlap). Others use the standard follow distance.
+    follow_threshold = GUARDIAN_SHIELD_RADIUS if gs_target is not None else SENTRY_SQUAD_FOLLOW_DISTANCE
     distance_to_follow = cy_distance_to(sentry.position, follow_target)
-    if distance_to_follow > SENTRY_SQUAD_FOLLOW_DISTANCE:
+    if distance_to_follow > follow_threshold:
         maneuver.add(PathUnitToTarget(
             unit=sentry,
             grid=bot.mediator.get_ground_grid,

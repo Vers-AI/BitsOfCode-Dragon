@@ -139,21 +139,26 @@ def _compute_guardian_shield_assignments(
 ) -> tuple[set[int], dict[int, Point2]]:
     """Determine which Sentries should cast Guardian Shield and where each should go.
 
-    Builds a per-squad friendly-density influence grid (each squad unit paints
-    its army_value in a GS_INFLUENCE_RADIUS circle), then greedily assigns
-    Sentries to the densest *uncovered* pocket. Each assigned Sentry zeros out
-    its coverage area, so the next Sentry seeks a different pocket — the direct
-    analog of the Disruptor Nova exclusion-mask pattern.
+    Builds a per-squad friendly-density influence grid, then uses a
+    Sentry-centric assignment: each Sentry casts where it currently is, NOT
+    sent across the army to a distant pocket. Sending every Sentry to a
+    different pocket of a spread-out army makes them all leave the squad —
+    the influence map's job is just to tell whether there are uncovered
+    friendlies near each Sentry, not to scatter Sentries across the army.
 
     Deployment rules:
       1. Range is the trigger — no ranged enemy, no cast.
-      2. No redundant deployment — a Sentry deploys only if an uncovered
-         pocket exists. When the grid is fully zeroed (full coverage), the
-         loop stops and no further Sentries cast.
+      2. No redundant deployment — a Sentry casts only if there are
+         uncovered friendlies within GS radius of its current position.
+      3. Overlap handling — a Sentry standing on an active shield (overlap)
+         is assigned the nearest uncovered pocket so it paths away, but
+         does NOT cast until it arrives. This mirrors the Disruptor Nova
+         exclusion-mask pattern.
 
     Returns:
-        (approved_tags, peaks) where peaks maps each approved sentry tag to
-        the position it should path to (the densest uncovered pocket it covers).
+        (approved_tags, peaks) where peaks maps each sentry tag to
+        the position it should path to (its own position for in-place casts,
+        or the nearest uncovered pocket for overlapping Sentries repositioning).
     """
     from bot.constants import (
         GUARDIAN_SHIELD_ENERGY_COST,
@@ -212,7 +217,7 @@ def _compute_guardian_shield_assignments(
 
     # Zero out areas already covered by active shields (free coverage sources).
     # This is the exclusion-mask step: covered pockets drop to zero so the next
-    # Sentry seeks a different uncovered pocket.
+    # Sentry knows those areas don't need another shield.
     for s in already_shielded:
         mask = _circular_mask(s.position, GUARDIAN_SHIELD_RADIUS, density.shape)
         density[mask] = 0.0
@@ -220,43 +225,59 @@ def _compute_guardian_shield_assignments(
     approved: set[int] = set()
     peaks: dict[int, Point2] = {}
 
-    # Rule 2: Sentry deploys only if an uncovered pocket exists.
-    # Loop terminates when no candidates remain OR density is fully zeroed
-    # (full coverage achieved — no Sentry deploys into an already-covered area).
-    # A candidate standing too close to an active shield is assigned a peak
-    # (so it paths away) but NOT approved to cast this frame — it would
-    # overlap the existing shield before reaching its own peak. This mirrors
-    # the Disruptor Nova register_nova_target() proximity rejection.
-    while candidates and density.max() > 0:
-        # Densest uncovered pocket. Grid is indexed [x, y] (ARES convention),
-        # so C-order flatten = x * shape[1] + y → x = flat // shape[1], y = flat % shape[1].
-        flat_idx = int(np.argmax(density))
-        peak_x = flat_idx // density.shape[1]
-        peak_y = flat_idx % density.shape[1]
-        peak_pos = Point2((peak_x, peak_y))
+    # Sentry-centric assignment: each Sentry casts where it is, NOT sent across
+    # the army to a distant pocket. Sending every Sentry to a different pocket
+    # of a spread-out army makes them all leave the squad — the cure is worse
+    # than the disease. Instead:
+    #
+    # 1. Check if the Sentry's current position has uncovered density nearby
+    #    (is there friendly value within GS radius that isn't already shielded?).
+    # 2. If yes → approve the cast at the Sentry's current position. It's
+    #    already in the army, covering units around it.
+    # 3. If no but the Sentry is too close to an active shield → find the
+    #    nearest uncovered pocket and assign it as a move target (so it paths
+    #    away from the overlap), but don't approve casting until it arrives.
+    # 4. If no and the Sentry isn't near any shield → skip it (nothing to cover
+    #    where it is, and we don't send it wandering).
+    #
+    # This keeps Sentries with the squad. Only overlapping Sentries reposition.
+    for s in candidates:
+        # Density within GS radius of this Sentry's current position
+        local_mask = _circular_mask(s.position, GUARDIAN_SHIELD_RADIUS, density.shape)
+        local_density = density[local_mask].max() if density[local_mask].size > 0 else 0.0
 
-        # Closest capable Sentry to this pocket
-        best = min(
-            candidates,
-            key=lambda s: cy_distance_to_squared(s.position, peak_pos),
-        )
+        if local_density > 0:
+            # There are uncovered friendlies around this Sentry → cast here.
+            approved.add(s.tag)
+            peaks[s.tag] = s.position
 
-        # If this Sentry is standing on an active shield, assign it the peak
-        # so it paths away, but don't approve the cast — it would overlap
-        # before moving. Next frame, once it's clear, it can cast.
-        too_close = any(
-            cy_distance_to(best.position, sh.position) < GUARDIAN_SHIELD_OVERLAP_DISTANCE
-            for sh in already_shielded
-        )
-        if not too_close:
-            approved.add(best.tag)
-        peaks[best.tag] = peak_pos
-
-        # Zero out the area this Sentry will cover (claimed, so the next
-        # Sentry picks a different pocket even if this one isn't casting yet)
-        mask = _circular_mask(peak_pos, GUARDIAN_SHIELD_RADIUS, density.shape)
-        density[mask] = 0.0
-        candidates.remove(best)
+            # Zero out the area this Sentry will cover so the next Sentry
+            # only casts if there's still uncovered density near *it*.
+            density[local_mask] = 0.0
+        else:
+            # No uncovered density near this Sentry. Is it overlapping an
+            # existing shield? If so, assign it the nearest uncovered pocket
+            # so it paths away — but don't approve casting this frame.
+            too_close = any(
+                cy_distance_to(s.position, sh.position) < GUARDIAN_SHIELD_OVERLAP_DISTANCE
+                for sh in already_shielded
+            )
+            if too_close and density.max() > 0:
+                # Find the nearest uncovered pocket to this Sentry (not the
+                # densest globally — the nearest, so it doesn't run across
+                # the map). Use the density grid: find the max-value cell
+                # within a reasonable radius of the Sentry, not globally.
+                search_radius = GUARDIAN_SHIELD_OVERLAP_DISTANCE * 2
+                search_mask = _circular_mask(s.position, search_radius, density.shape)
+                search_density = density.copy()
+                search_density[~search_mask] = 0.0
+                if search_density.max() > 0:
+                    flat_idx = int(np.argmax(search_density))
+                    peak_x = flat_idx // density.shape[1]
+                    peak_y = flat_idx % density.shape[1]
+                    peaks[s.tag] = Point2((peak_x, peak_y))
+                    # Don't zero — this Sentry isn't casting yet, so the
+                    # pocket is still uncovered for next frame.
 
     # Stash debug state for render_gs_debug() to pick up. No per-frame cost
     # when bot.debug is False — this block is a plain attribute assignment.
