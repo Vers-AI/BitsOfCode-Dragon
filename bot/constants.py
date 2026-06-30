@@ -1322,17 +1322,17 @@ PVZ_STANDARD_PROFILE = BuildProfile(
     conditional_structures=[],  # No reactive structures needed — Robo is in core path
 )
 
-# --- PvZ Sentry (Robo-Centric + Sentry ramp) ---
-# Same robo path as PVZ_STANDARD but army comps include SENTRY for FF defense.
-# Economy-gated one-way switch ramps Sentry proportion 0.10 → 0.05 at moderate economy
-# (mirrors the Stalker build's HT ramp pattern). Otherwise identical infrastructure.
+# --- Parting PvZ Soul Train ---
+# Stalker/Immortal/Sentry all-in. Warp Prism + Immortal push with FF support.
+# No HT/Templar Archive — gas goes to Immortal/Sentry.
+# army_0 = all-in push, army_1 = recovery (Disruptor/Colossus via RoboBay).
+# Economy switch to army_1 fires if the push stalls and economy matures.
 PVZ_SENTRY_PROFILE = BuildProfile(
     army_composition_0={},  # Set at runtime from macro.py PVZ_SENTRY_ARMY_0
     army_composition_1={},  # Set at runtime from macro.py PVZ_SENTRY_ARMY_1
     archon_switch_threshold=0.15,
     upgrade_order=[
         UpgradeId.WARPGATERESEARCH,
-        UpgradeId.EXTENDEDTHERMALLANCE,
         UpgradeId.CHARGE,
         UpgradeId.PROTOSSGROUNDWEAPONSLEVEL1,
         UpgradeId.PROTOSSGROUNDARMORSLEVEL1,
@@ -1343,22 +1343,20 @@ PVZ_SENTRY_PROFILE = BuildProfile(
     ],
     conditional_upgrades=[],  # Populated after import in macro.py
     gas_target=lambda bot: len(bot.townhalls) * 2,
-    worker_cap=lambda bot: 90 if bot.game_state >= 1 else 66,
-    observer_target=3,
-    warp_prism_target=0,  # No Warp Prism in PvZ Sentry
-    gateway_thresholds=[(1, 3), (3, 5), (5, 8)],
+    worker_cap=45,  # All-in: 16 min/base + 3/gas × 4 = ~40, small buffer
+    observer_target=2,
+    warp_prism_target=1,  # Warp Prism is core to the all-in push
+    gateway_thresholds=[(1, 3), (2, 7), (5, 8)],  # 7 gates on 2 bases for the push
     forge_count=lambda bot: 2 if len(bot.townhalls.ready) >= 4 else (1 if len(bot.townhalls.ready) >= 2 else 0),
     chrono_priority=[
-        UnitTypeId.ROBOTICSBAY,
+        UnitTypeId.ROBOTICSFACILITY,  # Immortals are the push core
         UnitTypeId.FORGE,
-        UnitTypeId.TWILIGHTCOUNCIL,
         UnitTypeId.CYBERNETICSCORE,
-        UnitTypeId.ROBOTICSFACILITY,
         UnitTypeId.GATEWAY,
         UnitTypeId.NEXUS,
     ],
-    conditional_structures=[],  # No reactive structures needed — Robo is in core path
-    economy_switch_threshold="moderate",  # One-way ramp: Sentry 0.10 → 0.05
+    conditional_structures=[],  # Shield Battery is in the build order, not conditional
+    economy_switch_threshold="moderate",  # Switch to recovery comp if push stalls
 )
 
 # --- PvP 2-Gate Expand ---
@@ -1401,7 +1399,7 @@ PVP_2GATE_PROFILE = BuildProfile(
 # Add all profiles to the lookup dict
 BUILD_PROFILES.update({
     "B2GM_PVZ_Standard_Build": PVZ_STANDARD_PROFILE,
-    "B2GM_PVZ_Standard_Build_Sentry": PVZ_SENTRY_PROFILE,
+    "Parting_PvZ_Soul_Train": PVZ_SENTRY_PROFILE,
     "B2GM_PVP_2-Gate_Expand": PVP_2GATE_PROFILE,
 })
 
