@@ -110,10 +110,25 @@ UNIT_ALIASES = {
 RACE_MAP = {"Terran": 0, "Zerg": 1, "Protoss": 2, "Random": 3}
 
 MODEL_FILE = Path("bot/models/strategy_belief_model.pkl")
+NPZ_FILE = Path("bot/models/strategy_belief_model.npz")
 OPPONENT_PRIORS_FILE = Path("bot/models/opponent_priors.json")
+CATEGORY_PRIOR_FILE = Path("bot/models/strategy_category_prior.json")
 
 # Minimum games per opponent to include in priors (avoids overfitting to 1-game samples)
 MIN_GAMES_PER_OPPONENT = 3
+
+# When True, only rows with API-provided strategy_category (replay ground truth)
+# are used for training. Heuristic-derived labels are dropped entirely, breaking
+# the self-referential loop where the BN learns from its own rule-based outputs.
+GROUND_TRUTH_ONLY_DEFAULT = True
+
+# Self-correction: when the previous BN model disagrees with the ground-truth
+# label on a training row, and a deterministic timing guard also agrees with
+# the ground truth (not the BN), the row's label is trusted as-is and the BN
+# is forced to learn from it. This makes each retraining cycle correct the
+# CPD entries that were wrong last time. Stats are printed so you can see how
+# many rows the previous BN got wrong.
+SELF_CORRECT_DEFAULT = True
 
 
 def fetch_matches(limit: int = 500, api_url: str = API_BASE) -> pd.DataFrame:
@@ -891,6 +906,249 @@ def train_bn(df: pd.DataFrame) -> dict:
     }
 
 
+def _load_previous_bn():
+    """Load the previous BN model for self-correction comparison.
+
+    Returns a BNInference instance or None if no prior model exists.
+    Uses the runtime numpy .npz loader (no pgmpy needed).
+    """
+    try:
+        from bot.belief.bn_inference import BNInference
+        bn = BNInference()
+        if bn.is_loaded:
+            return bn
+    except Exception as e:
+        print(f"[SelfCorrect] Could not load previous BN: {e}")
+    return None
+
+
+def _build_evidence_from_row(row) -> dict[str, str]:
+    """Build BN evidence dict from a training row (post-discretization).
+
+    Mirrors the parent variable names used in train_bn().
+    """
+    return {
+        "enemy_race": str(row.get("enemy_race", "Unknown")),
+        "duration_bin": str(row.get("duration_bin", "unknown")),
+        "pool_bin": str(row.get("pool_bin", "unknown")),
+        "rax_bin": str(row.get("rax_bin", "none")),
+        "gateway_bin": str(row.get("gateway_bin", "none")),
+        "bases_bin": str(row.get("bases_bin", "one")),
+        "factory_bin": str(row.get("factory_bin", "no")),
+        "rax_near_base": str(row.get("rax_near_base", "unknown")),
+        "gw_near_base": str(row.get("gw_near_base", "unknown")),
+        "cannon_near_base": str(row.get("cannon_near_base", "unknown")),
+        "bunker_near_base": str(row.get("bunker_near_base", "unknown")),
+        "rax_timing": str(row.get("rax_timing", "none")),
+        "pool_timing": str(row.get("pool_timing", "none")),
+        "gw_timing": str(row.get("gw_timing", "none")),
+        "nat_timing": str(row.get("nat_timing", "none")),
+    }
+
+
+def _deterministic_guard_label(row) -> str | None:
+    """Return a high-confidence label from timing guards, or None.
+
+    These are the same early-game timing signals the bot uses at runtime.
+    When the guard agrees with the ground-truth label (but the previous BN
+    disagreed), that row is a correction signal — the BN was wrong and the
+    ground truth + guard both say otherwise.
+    """
+    pool_start = row.get("pool_start", -1)
+    pool_timing = str(row.get("pool_timing", "none"))
+    nat_timing = str(row.get("nat_timing", "none"))
+    bases_bin = str(row.get("bases_bin", "one"))
+    duration_bin = str(row.get("duration_bin", "unknown"))
+    enemy_race = str(row.get("enemy_race", "Unknown"))
+
+    # 12-pool: pool < 35s is always cheese, regardless of what the replay
+    # parser or BN says. This is the strongest deterministic signal in SC2.
+    if pool_start is not None and pool_start > 0 and pool_start < 35:
+        return "cheese"
+    if pool_timing == "very_early":
+        return "cheese"
+
+    # Speedling: pool 35-52s + early gas = cheese (Zerg only)
+    if enemy_race == "Zerg" and pool_timing == "early":
+        gas_time = row.get("gas_time", -1)
+        if gas_time is not None and gas_time > 0 and gas_time < 60:
+            return "cheese"
+
+    # One base + short game = all_in (no natural, game ends fast)
+    if bases_bin == "one" and duration_bin == "short":
+        return "all_in"
+
+    # Three+ bases + long game = macro
+    if bases_bin == "three_plus" and duration_bin in ("long", "very_long"):
+        return "macro"
+
+    # Natural on time + standard pool = macro
+    if nat_timing == "early" and pool_timing == "standard":
+        return "macro"
+
+    return None
+
+
+def apply_self_correction(df: pd.DataFrame) -> pd.DataFrame:
+    """Compare previous BN predictions to ground-truth labels and report errors.
+
+    This doesn't relabel rows — the ground-truth labels are already correct
+    (they come from the replay). Instead it:
+      1. Loads the previous BN model
+      2. Predicts on each training row
+      3. Compares to the ground-truth label
+      4. Reports where the BN was wrong, and whether a deterministic guard
+         also disagrees with the BN (confirming the ground truth)
+
+    The correction happens implicitly: MLE fitting on these rows will update
+    the CPD entries that the previous BN got wrong. Rows where the BN was
+    wrong AND a guard confirms the ground truth are the strongest correction
+    signal — those evidence combinations will shift the CPD hardest.
+
+    Returns the df unchanged (labels are already ground truth). Prints stats.
+    """
+    prev_bn = _load_previous_bn()
+    if prev_bn is None:
+        print("[SelfCorrect] No previous BN model found — first training run.")
+        return df
+
+    df = df.copy()
+    df_disc = discretize_features(df)
+    df_disc = df_disc.rename(columns={"strategy_label": "strategy"})
+    df_disc = df_disc[df_disc["strategy"].notna()]
+
+    if len(df_disc) == 0:
+        print("[SelfCorrect] No labeled rows to compare.")
+        return df
+
+    correct = 0
+    wrong = 0
+    guard_confirmed = 0
+    wrong_by_label: dict[str, int] = {}
+    wrong_by_race: dict[str, int] = {}
+
+    for _, row in df_disc.iterrows():
+        true_label = row["strategy"]
+        evidence = _build_evidence_from_row(row)
+        probs = prev_bn.predict(**evidence)
+        # predict() returns dict[StrategyCategory, float]; keys are enum members
+        pred_cat = max(probs, key=probs.get) if probs else None
+        pred_label = pred_cat.value if pred_cat else "unknown"
+
+        if pred_label == true_label:
+            correct += 1
+        else:
+            wrong += 1
+            wrong_by_label[true_label] = wrong_by_label.get(true_label, 0) + 1
+            race = str(row.get("enemy_race", "Unknown"))
+            wrong_by_race[race] = wrong_by_race.get(race, 0) + 1
+
+            # Check if a deterministic guard also disagrees with the BN
+            guard_label = _deterministic_guard_label(row)
+            if guard_label is not None and guard_label == true_label:
+                guard_confirmed += 1
+
+    total = correct + wrong
+    accuracy = correct / total * 100 if total > 0 else 0
+
+    print(f"\n=== Self-Correction: Previous BN vs Ground Truth ===")
+    print(f"  Previous BN accuracy: {correct}/{total} ({accuracy:.1f}%)")
+    print(f"  Wrong predictions: {wrong}")
+    if guard_confirmed > 0:
+        print(f"  Guard-confirmed corrections: {guard_confirmed} "
+              f"(BN wrong, guard + ground truth agree)")
+    if wrong_by_label:
+        print(f"  Errors by true label:")
+        for label, count in sorted(wrong_by_label.items(), key=lambda x: -x[1]):
+            print(f"    {label}: {count}")
+    if wrong_by_race:
+        print(f"  Errors by race:")
+        for race, count in sorted(wrong_by_race.items(), key=lambda x: -x[1]):
+            print(f"    {race}: {count}")
+    print(f"  → These {wrong} rows will correct the CPD via MLE fitting.")
+
+    return df
+
+
+def filter_ground_truth_only(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep only rows where the API provided a replay-derived strategy_category.
+
+    This drops heuristic-derived labels so the BN CPD is trained purely from
+    the replay source of truth, not from the bot's own rule-based predictions.
+    Also normalizes the API label ("timing" → "timing_attack").
+    """
+    before = len(df)
+
+    def _api_label(row) -> str | None:
+        raw = (row.get("strategy_category_api") or "").strip().lower()
+        if raw == "timing":
+            raw = "timing_attack"
+        if raw in ("cheese", "all_in", "timing_attack", "macro"):
+            return raw
+        return None
+
+    df = df.copy()
+    df["_api_label"] = df.apply(_api_label, axis=1)
+    df = df[df["_api_label"].notna()].copy()
+    df["strategy_label"] = df["_api_label"]
+    df = df.drop(columns=["_api_label"])
+
+    dropped = before - len(df)
+    print(f"[GroundTruthOnly] Kept {len(df)}/{before} rows "
+          f"(dropped {dropped} heuristic-only labels)")
+    return df
+
+
+def build_category_prior(df: pd.DataFrame, output_path: str = str(CATEGORY_PRIOR_FILE)) -> dict:
+    """Compute marginal P(strategy) from API ground-truth labels.
+
+    Replaces the hardcoded STRATEGY_CATEGORY_PRIOR in constants.py with a
+    data-driven prior derived from replay analysis. Writes a JSON file that
+    StrategyBelief loads at runtime.
+    """
+    import json
+
+    categories = STRATEGY_CATEGORY_VALUES
+
+    if "strategy_label" not in df.columns:
+        print("[CategoryPrior] Missing strategy_label column. Skipping.")
+        return {}
+
+    valid = df.dropna(subset=["strategy_label"])
+    valid = valid[valid["strategy_label"].isin(categories)]
+
+    if len(valid) == 0:
+        print("[CategoryPrior] No valid labels. Skipping.")
+        return {}
+
+    counts = {cat: 0 for cat in categories}
+    for label in valid["strategy_label"]:
+        if label in counts:
+            counts[label] += 1
+
+    total = sum(counts.values())
+    probs = {cat: counts[cat] / total for cat in categories}
+
+    data = {
+        "schema_version": 1,
+        "categories": categories,
+        "counts": {cat: counts[cat] for cat in categories},
+        "probs": {cat: round(probs[cat], 4) for cat in categories},
+        "n_samples": total,
+    }
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+    print(f"\n=== Category prior saved to {output_path} ===")
+    print(f"  Samples: {total}")
+    for cat in categories:
+        print(f"  {cat}: {counts[cat]} ({probs[cat]:.1%})")
+
+    return data
+
+
 def build_opponent_priors(df: pd.DataFrame, output_path: str = str(OPPONENT_PRIORS_FILE)) -> dict:
     """Build per-opponent Dirichlet alpha parameters from match data.
 
@@ -1056,6 +1314,19 @@ def main():
                         help="Output path for opponent priors JSON")
     parser.add_argument("--skip-priors", action="store_true",
                         help="Skip building opponent priors")
+    parser.add_argument("--ground-truth-only", dest="ground_truth_only",
+                        action=argparse.BooleanOptionalAction,
+                        default=GROUND_TRUTH_ONLY_DEFAULT,
+                        help="Only train on rows with API replay-derived labels "
+                             "(default: True). Use --no-ground-truth-only to also "
+                             "include heuristic-derived labels.")
+    parser.add_argument("--self-correct", dest="self_correct",
+                        action=argparse.BooleanOptionalAction,
+                        default=SELF_CORRECT_DEFAULT,
+                        help="Compare previous BN predictions to ground-truth labels "
+                             "and report errors before retraining (default: True). "
+                             "The MLE fit on ground-truth rows automatically corrects "
+                             "CPD entries the previous BN got wrong.")
     args = parser.parse_args()
 
     print("=== Strategy Belief Model Training ===\n")
@@ -1066,6 +1337,26 @@ def main():
     # Build training data
     print("\nBuilding training data...")
     df = build_training_data(matches, api_url=args.api_url)
+
+    # Ground-truth-only filtering: drop heuristic-derived labels so the BN
+    # learns purely from replay-derived strategy_category.
+    if args.ground_truth_only:
+        print("\n=== Ground-Truth-Only Mode ===")
+        print("Filtering to rows with API replay-derived strategy_category...")
+        df = filter_ground_truth_only(df)
+        if len(df) < 20:
+            print(f"WARNING: Only {len(df)} ground-truth rows after filtering.")
+            print("Consider collecting more replays or use --no-ground-truth-only.")
+    else:
+        print("\n=== Mixed-Label Mode (heuristic fallbacks included) ===")
+        print("WARNING: BN will be partly trained on heuristic-derived labels.")
+
+    # Self-correction: compare previous BN to ground truth before retraining.
+    # The MLE fit on these ground-truth rows will correct CPD entries the
+    # previous BN got wrong — each retraining cycle fixes the previous errors.
+    if args.self_correct:
+        print("\n=== Self-Correction Mode ===")
+        df = apply_self_correction(df)
 
     print(f"\nLabel distribution:")
     print(df["strategy_label"].value_counts())
@@ -1105,6 +1396,10 @@ def main():
     else:
         print("\n=== BN model NOT saved — rule-based guards will be used ===")
         print("Collect more data (50+ games per race) and re-run this script.")
+
+    # Build data-driven marginal prior P(strategy) from API ground truth
+    print("\n=== Building Category Prior (marginal) ===")
+    build_category_prior(df)
 
     # Build opponent priors from match data
     if not args.skip_priors:

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "categories": [
+    "cheese",
+    "all_in",
+    "timing_attack",
+    "macro"
+  ],
+  "counts": {
+    "cheese": 119,
+    "all_in": 91,
+    "timing_attack": 71,
+    "macro": 219
+  },
+  "probs": {
+    "cheese": 0.238,
+    "all_in": 0.182,
+    "timing_attack": 0.142,
+    "macro": 0.438
+  },
+  "n_samples": 500
+}
