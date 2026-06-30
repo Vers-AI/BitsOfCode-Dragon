@@ -42,7 +42,7 @@ from bot.combat import (
 from bot.intel import update_enemy_intel_tracking
 from bot.utilities.choke_grid import create_choke_grid, create_narrow_choke_points, refine_all_chokes
 from cython_extensions import cy_distance_to
-from bot.utilities.debug import render_narrow_choke_points, render_refined_choke_points
+from bot.utilities.debug import render_narrow_choke_points, render_refined_choke_points, render_nexus_ability_debug
 from ares.behaviors.macro import Mining
 #debugs
 from bot.utilities.use_disruptor_nova import UseDisruptorNova
@@ -323,6 +323,7 @@ class PiG_Bot(AresBot):
         # Render choke points on map (debug only, no-op when debug=False)
         render_narrow_choke_points(self)
         render_refined_choke_points(self)
+        render_nexus_ability_debug(self)
         
         # Print periodic intel report (every 30 game seconds)
         print_periodic_intel_report(self, iteration)

@@ -266,23 +266,24 @@ def compute_ff_choke_block(
     if refined.width > FF_CHOKE_BLOCK_MAX_WIDTH:
         return None
 
-    # Anti-stack: skip if an active FF is already at the choke center
+    # Anti-stack: skip if an active FF is already near the enemy center
     if active_ffs:
         for ff_pos in active_ffs:
-            if cy_distance_to(ff_pos, refined.center) < FF_RADIUS:
+            if cy_distance_to(ff_pos, enemy_center) < FF_RADIUS:
                 return None
 
-    # FF chain along the perpendicular, centered on the refined choke center
+    # FF chain along the perpendicular, centered on the enemy center of mass
+    # (not the choke center) so FFs land on the enemy passing through, not on
+    # empty terrain that could cut off our own army.
     ff_spacing = 2 * FF_RADIUS - FF_OVERLAP
     num_ffs = max(1, math.ceil(refined.width / ff_spacing))
-    # Single FF for narrow chokes; chain for wider ones
     ff_positions: list[Point2] = []
     for i in range(num_ffs):
-        # Offset from center: spread FFs symmetrically
+        # Offset from enemy center: spread FFs symmetrically along the choke's perpendicular
         t = (i - (num_ffs - 1) / 2.0) * ff_spacing
         pos = Point2((
-            refined.center.x + refined.perp.x * t,
-            refined.center.y + refined.perp.y * t,
+            enemy_center.x + refined.perp.x * t,
+            enemy_center.y + refined.perp.y * t,
         ))
         ff_positions.append(pos)
 
