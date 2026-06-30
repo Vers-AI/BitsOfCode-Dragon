@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
+import json
 
 import numpy as np
 
@@ -88,6 +89,36 @@ class StrategyBelief:
         self._bn = BNInference()
         self._model_loaded = self._bn.is_loaded
         self._last_prediction: Optional[StrategyPrediction] = None
+        self._category_prior = self._load_category_prior()
+
+    @staticmethod
+    def _load_category_prior() -> dict[StrategyCategory, float]:
+        """Load data-driven marginal P(strategy) from replay-derived JSON.
+
+        Falls back to the hardcoded STRATEGY_CATEGORY_PRIOR in constants.py
+        when the file is missing or invalid. The JSON file is produced by
+        train_strategy_belief.py from API replay ground-truth labels.
+        """
+        path = Path("bot/models/strategy_category_prior.json")
+        if not path.exists():
+            return dict(STRATEGY_CATEGORY_PRIOR)
+
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            probs = data.get("probs", {})
+            result = {}
+            for cat in StrategyCategory:
+                result[cat] = float(probs.get(cat.value, STRATEGY_CATEGORY_PRIOR[cat]))
+            total = sum(result.values())
+            if total > 0:
+                result = {k: v / total for k, v in result.items()}
+            print(f"[StrategyBelief] Loaded data-driven category prior from {path}")
+            return result
+        except (json.JSONDecodeError, OSError, ValueError, TypeError) as e:
+            print(f"[StrategyBelief] Failed to load category prior: {e}. "
+                  f"Using hardcoded fallback.")
+            return dict(STRATEGY_CATEGORY_PRIOR)
 
     def update(
         self,
@@ -669,7 +700,7 @@ class StrategyBelief:
         probabilities across all four categories instead of a binary flag.
         Produces soft probabilities from accumulated evidence.
         """
-        probs = dict(STRATEGY_CATEGORY_PRIOR)
+        probs = dict(self._category_prior)
 
         # Zerg: accumulate evidence from timing signals
         if bot.enemy_race.name in ("Zerg", "Random"):
