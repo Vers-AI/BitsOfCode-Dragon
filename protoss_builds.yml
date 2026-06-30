@@ -260,6 +260,7 @@ Builds:
         ConstantWorkerProductionTill: 20
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
+            - 0 PYLON @ nat_wall
             - 0 GATEWAY @ nat_wall
             - 0 CYBERNETICSCORE @ nat_wall
             - 0 ZEALOT
@@ -274,6 +275,7 @@ Builds:
         ConstantWorkerProductionTill: 20
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
+            - 0 PYLON @ ramp
             - 0 GATEWAY @ ramp
             - 0 CYBERNETICSCORE @ ramp
             - 0 ZEALOT
@@ -290,6 +292,7 @@ Builds:
         ConstantWorkerProductionTill: 20
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
+            - 0 PYLON @ reaper_wall
             - 0 GATEWAY @ reaper_wall
             - 0 CYBERNETICSCORE @ reaper_wall
             - 0 ZEALOT
@@ -304,6 +307,7 @@ Builds:
         ConstantWorkerProductionTill: 20
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
+            - 0 PYLON @ nat_wall
             - 0 GATEWAY @ nat_wall
             - 0 CYBERNETICSCORE @ nat_wall
             - 0 ZEALOT
@@ -319,6 +323,7 @@ Builds:
         ConstantWorkerProductionTill: 20
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
+            - 0 PYLON @ ramp
             - 0 GATEWAY @ ramp
             - 0 CYBERNETICSCORE @ ramp
             - 0 ZEALOT
@@ -336,6 +341,7 @@ Builds:
         ConstantWorkerProductionTill: 20
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
+            - 0 PYLON @ reaper_wall
             - 0 GATEWAY @ reaper_wall
             - 0 CYBERNETICSCORE @ reaper_wall
             - 0 ZEALOT
