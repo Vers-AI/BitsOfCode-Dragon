@@ -163,8 +163,8 @@ Builds:
 
     Parting_PvZ_Soul_Train:
         # Parting PvZ All-in Soul Train — converted from Spawning Tool build.
-        #  Adept at 22 replaced with
-        # Stalker (No Adept code yet — add back when Adept micro exists).
+        # Supply timings adjusted for bot speed mining (bot hits supply faster than human).
+        # Adept at 22 replaced with Stalker (No Adept code yet — add back when Adept micro exists).
         ConstantWorkerProductionTill: 45
         ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 33
@@ -172,26 +172,29 @@ Builds:
             - 14 WORKER_SCOUT:
                 [enemy_spawn, enemy_nat, map_center, fourth,third, enemy_spawn, enemy_nat]
             - 14 PYLON @ nat_wall
-            - 15 CHRONO @ NEXUS
-            - 15 GATEWAY @ nat_wall
+            - 16 CHRONO @ NEXUS
+            - 16 GATEWAY @ nat_wall
             - 16 GAS
             - 20 EXPAND
             - 20 CORE @ nat_wall
             - 21 GAS
-            - 22 PYLON
+            - 21 PYLON
             # - 22 ADEPT  # No Adept code yet — add back when Adept micro exists
-            - 22 STALKER  # Placeholder for Adept
-            - 23 ROBOTICSFACILITY
-            - 25 WARPGATERESEARCH
-            - 26 STALKER
-            - 34 WARPPRISM
-            - 38 GATEWAY @ nat_wall
-            - 38 SENTRY
-            - 41 PYLON
-            - 43 IMMORTAL
-            - 49 GAS
-            - 49 PYLON
-            - 50 SHIELDBATTERY @ nat_wall
+            - 24 STALKER  # Placeholder for Adept
+            - 26 ROBOTICSFACILITY
+            - 22 WARPGATERESEARCH
+            - 27 STALKER
+            - 30 WARPPRISM
+            - 33 GATEWAY @ nat_wall
+            - 33 SENTRY
+            - 37 PYLON
+            - 36 IMMORTAL
+            - 44 GAS
+            - 44 PYLON
+            - 45 SHIELDBATTERY @ nat_wall
+            - 42 IMMORTAL
+            - 50 GATEWAY X2 
+            - 50 SENTRY X2
             
     B2GM_PVP_2-Gate_Expand:
         # Build constant worker production till this supply
