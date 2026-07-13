@@ -224,6 +224,7 @@ def _compute_guardian_shield_assignments(
 
     approved: set[int] = set()
     peaks: dict[int, Point2] = {}
+    approved_positions: list[Point2] = []
 
     # Sentry-centric assignment: each Sentry casts where it is, NOT sent across
     # the army to a distant pocket. Sending every Sentry to a different pocket
@@ -241,7 +242,28 @@ def _compute_guardian_shield_assignments(
     #    where it is, and we don't send it wandering).
     #
     # This keeps Sentries with the squad. Only overlapping Sentries reposition.
+    #
+    # Same-frame overlap guard: when Sentries are stacked (common on the first
+    # engagement — they all follow ranged_center), their local masks overlap
+    # but aren't identical. Edge cells of the second Sentry's mask can still
+    # have density > 0 after the first Sentry's zeroing, causing both to cast
+    # simultaneously. The geographic zeroing alone can't prevent this because
+    # the masks are circles centered on different (but nearby) positions.
+    # The overlap distance check below is the per-Sentry gate that fixes this:
+    # once a Sentry is approved this frame, any other candidate within
+    # GUARDIAN_SHIELD_OVERLAP_DISTANCE is skipped. Next frame the first
+    # Sentry's buff makes it a free coverage source on the density grid, and
+    # the influence map naturally decides if a second Sentry is needed.
     for s in candidates:
+        # Skip if too close to a Sentry already approved this frame — their
+        # shields would overlap heavily, so only one should cast. The rest
+        # will re-evaluate next frame once the first shield is active.
+        if any(
+            cy_distance_to(s.position, ap) < GUARDIAN_SHIELD_OVERLAP_DISTANCE
+            for ap in approved_positions
+        ):
+            continue
+
         # Density within GS radius of this Sentry's current position
         local_mask = _circular_mask(s.position, GUARDIAN_SHIELD_RADIUS, density.shape)
         local_density = density[local_mask].max() if density[local_mask].size > 0 else 0.0
@@ -250,17 +272,22 @@ def _compute_guardian_shield_assignments(
             # There are uncovered friendlies around this Sentry → cast here.
             approved.add(s.tag)
             peaks[s.tag] = s.position
+            approved_positions.append(s.position)
 
             # Zero out the area this Sentry will cover so the next Sentry
             # only casts if there's still uncovered density near *it*.
             density[local_mask] = 0.0
         else:
             # No uncovered density near this Sentry. Is it overlapping an
-            # existing shield? If so, assign it the nearest uncovered pocket
-            # so it paths away — but don't approve casting this frame.
+            # existing shield or a Sentry just approved this frame? If so,
+            # assign it the nearest uncovered pocket so it paths away — but
+            # don't approve casting this frame.
             too_close = any(
                 cy_distance_to(s.position, sh.position) < GUARDIAN_SHIELD_OVERLAP_DISTANCE
                 for sh in already_shielded
+            ) or any(
+                cy_distance_to(s.position, ap) < GUARDIAN_SHIELD_OVERLAP_DISTANCE
+                for ap in approved_positions
             )
             if too_close and density.max() > 0:
                 # Find the nearest uncovered pocket to this Sentry (not the
