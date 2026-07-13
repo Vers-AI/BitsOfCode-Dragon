@@ -58,13 +58,18 @@ COMMON_UNIT_IGNORE_TYPES: set[UnitTypeId] = {
 }
 """Units to ignore in combat targeting and threat calculations - non-threatening scouts, supply, temporary units"""
 
-DISRUPTOR_IGNORE_TYPES: set[UnitTypeId] = COMMON_UNIT_IGNORE_TYPES | {
+TARGET_IGNORE_TYPES: set[UnitTypeId] = COMMON_UNIT_IGNORE_TYPES | {
     UnitTypeId.SCV,
     UnitTypeId.DRONE,
     UnitTypeId.PROBE,
     UnitTypeId.BROODLING,
 }
-"""Units to ignore for Disruptor nova targeting - includes workers (too low value)"""
+"""Units to ignore for ability targeting (FF, Disruptor nova, etc.) — extends
+COMMON_UNIT_IGNORE_TYPES with workers (too low value to spend abilities on) and
+broodlings (short-lived ~8s Swarm Host spawns, not worth 50 energy to block)."""
+
+DISRUPTOR_IGNORE_TYPES: set[UnitTypeId] = TARGET_IGNORE_TYPES
+"""Alias retained for backward compat — see TARGET_IGNORE_TYPES."""
 
 # ===== COMBAT PARAMETERS =====
 MELEE_RANGE_THRESHOLD = 3.0

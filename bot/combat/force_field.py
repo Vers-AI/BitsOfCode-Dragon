@@ -31,16 +31,15 @@ from sc2.unit import Unit
 from cython_extensions import cy_distance_to, cy_find_units_center_mass
 from cython_extensions.general_utils import cy_in_pathing_grid_ma
 
-from ares.consts import WORKER_TYPES
 from ares.dicts.unit_data import UNIT_DATA
 
 from bot.constants import (
-    COMMON_UNIT_IGNORE_TYPES,
     FF_CAST_RANGE,
     FF_CHOKE_BLOCK_MAX_WIDTH,
     FF_CHOKE_BLOCK_MIN_VALUE,
     FF_CHOKE_BLOCK_RADIUS,
     FF_ENERGY_COST,
+    TARGET_IGNORE_TYPES,
     FF_MAIN_RAMP_BLOCK_MIN_VALUE,
     FF_MAIN_RAMP_BLOCK_RADIUS,
     FF_OVERLAP,
@@ -85,8 +84,7 @@ def _filter_ground_combat(enemies: List[Unit]) -> list[Unit]:
     return [
         e for e in enemies
         if not e.is_flying
-        and e.type_id not in COMMON_UNIT_IGNORE_TYPES
-        and e.type_id not in WORKER_TYPES
+        and e.type_id not in TARGET_IGNORE_TYPES
         and not e.is_structure
     ]
 
