@@ -9,11 +9,40 @@ Limitations: Transition events only emit on value change; periodic snapshots sam
 from sc2.ids.unit_typeid import UnitTypeId
 from ares.consts import UnitRole, WORKER_TYPES, TIE_OR_BETTER
 from sc2.data import Race
+from cython_extensions import cy_distance_to
 from bot.constants import StrategyCategory, STRATEGY_LABELS
 from bot.managers.macro import get_economy_state
 from bot.utilities.telemetry import (
     log_event, log_transition, log_match, log_event_no_sample,
 )
+
+
+def _bool_to_int(value: bool, seen: bool) -> int:
+    """Encode a position boolean for telemetry: 1=yes, 0=no (seen but not near), -1=unknown."""
+    if value:
+        return 1
+    return 0 if seen else -1
+
+
+def _cannon_near_base_int(bot) -> int:
+    """Encode cannon-near-base as int. No persistent attr exists, so derive at game end.
+
+    Mirrors strategy_belief.py: checks _cannon_rush_active (reaction manager flag)
+    and falls back to geometric proximity of visible cannons.
+    """
+    if getattr(bot, "_cannon_rush_active", False):
+        return 1
+    cannons = [s for s in bot.enemy_structures
+               if s.type_id == UnitTypeId.PHOTONCANNON]
+    if not cannons:
+        return -1
+    our_nat = bot.mediator.get_own_nat
+    near = any(
+        cy_distance_to(c.position, bot.start_location) < 25.0
+        or cy_distance_to(c.position, our_nat) < 25.0
+        for c in cannons
+    )
+    return 1 if near else 0
 
 
 def _get_cheese_type(bot) -> str:
@@ -732,6 +761,21 @@ def emit_match_record(bot, game_result, game_time: float,
         "ling_seen": _get_rush_timing('_first_ling_seen_time', bot),
         "ling_contact": _get_rush_timing('_first_ling_contact_nat_time', bot),
         "rush_distance_seconds": round(getattr(bot, '_rush_time_seconds', 0.0), 1),
+        # Schema v2 BN features (Phase 5 Steps 1+2) — position + timing.
+        # Position booleans: 1=yes, 0=no (seen but not near), -1=unknown (never seen).
+        # These feed the API's match-level-full endpoint so train_strategy_belief.py
+        # can use real position data instead of hardcoding "unknown".
+        "rax_start": _get_rush_timing('_barracks_seen_time', bot),
+        "gw_start": _get_rush_timing('_gateway_seen_time', bot),
+        "rax_near_base": _bool_to_int(getattr(bot, '_barracks_near_our_base', False),
+                                      seen=bool(getattr(bot, '_barracks_count', 0))),
+        "gw_near_base": _bool_to_int(getattr(bot, '_gateway_near_our_base', False),
+                                     seen=bool(getattr(bot, '_gateway_count', 0)
+                                               + getattr(bot, '_warpgate_count', 0))),
+        "cannon_near_base": _cannon_near_base_int(bot),
+        "bunker_near_base": _bool_to_int(getattr(bot, '_bunker_near_base', False),
+                                         seen=any(s.type_id == UnitTypeId.BUNKER
+                                                  for s in bot.enemy_structures)),
     })
 
     # Zerg-specific cheese detection fields (only set for Zerg/Random)

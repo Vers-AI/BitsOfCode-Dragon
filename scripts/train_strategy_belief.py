@@ -628,30 +628,44 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
         row["ravager_seen"] = 1 if units.get("ravager", 0) > 0 else 0
 
         # === Schema v2 features (Step 1: position) ===
-        # Position booleans aren't directly in the API — derive from struct counts.
-        # If we saw the structure but it wasn't near our base, it's "no".
-        # If we never saw it, it's "unknown". This is a training-side approximation;
-        # the runtime bot has the actual _barracks_near_our_base booleans.
+        # struct_first_seen is used as fallback for rax/gw timing (see below).
         struct_first = row.get("struct_first_seen", {}) or {}
-        row["rax_near_base"] = "unknown"  # API doesn't expose position data yet
-        row["gw_near_base"] = "unknown"
-        row["cannon_near_base"] = "unknown"
-        row["bunker_near_base"] = "unknown"
+        # Position booleans come from the API match record (emitted by game_report.py).
+        # API sends: 1=yes (near our base), 0=no (seen but not near), -1=unknown (never seen).
+        # Map to BN state strings. Unknown stays "unknown" so the BN can learn from
+        # the absence of observation rather than treating it as "no".
+        def _pos_str(val) -> str:
+            if val == 1 or val is True:
+                return "yes"
+            if val == 0 or val is False:
+                return "no"
+            return "unknown"
+
+        row["rax_near_base"] = _pos_str(match.get("rax_near_base", -1))
+        row["gw_near_base"] = _pos_str(match.get("gw_near_base", -1))
+        row["cannon_near_base"] = _pos_str(match.get("cannon_near_base", -1))
+        row["bunker_near_base"] = _pos_str(match.get("bunker_near_base", -1))
 
         # === Schema v2 features (Step 2: timing) ===
         # Use match-level timing fields directly — the event-based struct_first_seen
         # is unreliable (API often returns only the last batch of events at ~714s).
-        # pool_start and nat_start are populated at match level from rush_detect
-        # telemetry and are far more accurate for early-game timing.
+        # pool_start, nat_start, rax_start, and gw_start are all populated at match
+        # level from rush_detect/enemy_timings telemetry and are far more accurate
+        # for early-game timing than event-derived struct_first_seen.
         pool_time = row.get("pool_start", -1)
         row["pool_timing_raw"] = pool_time if pool_time and pool_time > 0 else -1
 
-        # rax/gw timing: fall back to struct_first_seen (no match-level equivalent)
-        rax_time = struct_first.get("barracks")
-        row["rax_timing_raw"] = rax_time if rax_time is not None else -1
+        # rax/gw timing: prefer match-level rax_start/gw_start (from enemy_timings.py
+        # via game_report.py), fall back to struct_first_seen if missing.
+        rax_time = match.get("rax_start", -1)
+        if rax_time is None or rax_time < 0:
+            rax_time = struct_first.get("barracks", -1)
+        row["rax_timing_raw"] = rax_time if rax_time is not None and rax_time > 0 else -1
 
-        gw_time = struct_first.get("gateway")
-        row["gw_timing_raw"] = gw_time if gw_time is not None else -1
+        gw_time = match.get("gw_start", -1)
+        if gw_time is None or gw_time < 0:
+            gw_time = struct_first.get("gateway", -1)
+        row["gw_timing_raw"] = gw_time if gw_time is not None and gw_time > 0 else -1
 
         # nat_timing: use nat_start from match level (populated for ~78% of matches)
         nat_time = row.get("nat_start", -1)
