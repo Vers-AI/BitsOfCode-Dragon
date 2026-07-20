@@ -65,6 +65,11 @@ class MapPrior:
     def is_loaded(self) -> bool:
         return self._loaded
 
+    @property
+    def map_count(self) -> int:
+        """Number of loaded map priors."""
+        return len(self._maps)
+
     def load(self) -> None:
         """Load map priors from bot/models/map_priors.json."""
         self._maps = {}
@@ -93,8 +98,6 @@ class MapPrior:
             for map_name, alphas in maps.items():
                 if len(alphas) == 4:
                     self._maps[map_name] = [float(a) for a in alphas]
-
-            print(f"[MapPrior] Loaded {len(self._maps)} map priors from {_PRIORS_FILE}")
         except (json.JSONDecodeError, OSError, ValueError) as e:
             print(f"[MapPrior] Failed to load {_PRIORS_FILE}: {e}. Using flat priors.")
 
@@ -118,3 +121,21 @@ class MapPrior:
 
         alphas = self._maps[map_name]
         return {cat: alpha for cat, alpha in zip(_CATEGORY_ORDER, alphas)}
+
+    def describe_prior(self, map_name: Optional[str]) -> Optional[str]:
+        """Return a one-line summary of a known map's prior, or None if unknown.
+
+        Intended for the startup report — call once per game, not per frame.
+        """
+        if not map_name or not self._loaded or map_name not in self._maps:
+            return None
+
+        alphas = self._maps[map_name]
+        total_games = sum(alphas) - 4.0  # Subtract baseline [1,1,1,1]
+        if total_games < 1:
+            return None
+
+        alpha_str = ", ".join(
+            f"{cat.value}={a:.0f}" for cat, a in zip(_CATEGORY_ORDER, alphas)
+        )
+        return f"Map '{map_name}': {int(total_games)} games, priors: {alpha_str}"

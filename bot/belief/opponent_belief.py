@@ -71,6 +71,11 @@ class OpponentBelief:
         self._insertion_order: list[tuple[str, str]] = []
         self._loaded = False
 
+    @property
+    def profile_count(self) -> int:
+        """Number of loaded (opponent_id, race) profiles."""
+        return len(self._profiles)
+
     def load(self) -> None:
         """Load opponent profiles from disk. Runtime file takes precedence.
 
@@ -88,6 +93,31 @@ class OpponentBelief:
             loaded = self._load_file(_BASELINE_PRIORS)
 
         self._loaded = True
+
+    def describe_prior(
+        self, opponent_id: Optional[str], enemy_race: str
+    ) -> Optional[str]:
+        """Return a one-line summary of a known opponent's prior, or None if unknown.
+
+        Intended for the startup report — call once per game, not per frame.
+        """
+        if not opponent_id or not self._loaded:
+            return None
+
+        key = (opponent_id, enemy_race)
+        if key not in self._profiles:
+            return None
+
+        alphas = self._profiles[key]
+        total_games = sum(alphas) - 4.0  # Subtract baseline [1,1,1,1]
+        if total_games < 1:
+            return None
+
+        alpha_str = ", ".join(
+            f"{cat.value}={a:.0f}" for cat, a in zip(_CATEGORY_ORDER, alphas)
+        )
+        return (f"Known opponent {opponent_id} vs {enemy_race}: "
+                f"{int(total_games)} games, priors: {alpha_str}")
 
     def get_prior(
         self, opponent_id: Optional[str], enemy_race: str
@@ -110,16 +140,7 @@ class OpponentBelief:
             return dict(FLAT_PRIOR)
 
         alphas = self._profiles[key]
-        prior = {cat: alpha for cat, alpha in zip(_CATEGORY_ORDER, alphas)}
-
-        # Debug: log when a known opponent's prior is applied
-        total_games = sum(alphas) - 4.0  # Subtract baseline [1,1,1,1]
-        if total_games >= 1:
-            alpha_str = ", ".join(f"{cat.value}={a:.0f}" for cat, a in zip(_CATEGORY_ORDER, alphas))
-            print(f"[OpponentBelief] Known opponent {opponent_id} vs {enemy_race}: "
-                  f"{int(total_games)} games, priors: {alpha_str}")
-
-        return prior
+        return {cat: alpha for cat, alpha in zip(_CATEGORY_ORDER, alphas)}
 
     def update(
         self,
@@ -221,7 +242,6 @@ class OpponentBelief:
                 self._profiles[(opp_id, race)] = [float(a) for a in alphas]
                 self._insertion_order.append((opp_id, race))
 
-            print(f"[OpponentBelief] Loaded {len(self._profiles)} profiles from {path}")
             return True
 
         except (json.JSONDecodeError, OSError, ValueError) as e:

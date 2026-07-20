@@ -200,6 +200,25 @@ def print_startup_report(bot) -> None:
     print(f"  Rush Distance Tier: {bot.rush_distance_tier}")
     rush_time_str = f"{bot._rush_time_seconds:.1f}s" if bot._rush_time_seconds > 0 else "unknown"
     print(f"  Rush Time: {rush_time_str}")
+
+    # Opponent prior (if known from cross-game profiles)
+    opponent = getattr(bot._belief_updater, "_opponent", None)
+    if opponent is not None:
+        opponent_id = getattr(bot, 'opponent_id', None)
+        enemy_race = bot.enemy_race.name if hasattr(bot, 'enemy_race') else "Unknown"
+        summary = opponent.describe_prior(opponent_id, enemy_race)
+        if summary is not None:
+            print(f"  Opponent Prior: {summary}")
+        print(f"  Opponent Profiles Loaded: {opponent.profile_count}")
+
+    # Map prior (if known from training data)
+    map_prior = getattr(bot._belief_updater, "_map_prior", None)
+    if map_prior is not None:
+        map_summary = map_prior.describe_prior(bot.game_info.map_name)
+        if map_summary is not None:
+            print(f"  Map Prior: {map_summary}")
+        print(f"  Map Priors Loaded: {map_prior.map_count}")
+
     print("="*60 + "\n")
 
 

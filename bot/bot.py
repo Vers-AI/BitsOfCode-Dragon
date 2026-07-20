@@ -257,14 +257,15 @@ class PiG_Bot(AresBot):
         from bot.intel import compute_rush_distance_tier
         self.rush_distance_tier = compute_rush_distance_tier(self)
         
+        # Load opponent profiles for cross-game priors (Phase 4)
+        # Must run before print_startup_report so the prior summary can be included.
+        self._belief_updater.load_opponent()
+
         # Print startup report with all initial game info
         print_startup_report(self)
 
         # Initialize telemetry context (binds match_id, env, game info)
         init_context(self)
-
-        # Load opponent profiles for cross-game priors (Phase 4)
-        self._belief_updater.load_opponent()
 
         # Register reaction handlers (maps StrategyCategory + level2 → handler fn)
         self.reaction_manager.register_handlers()
