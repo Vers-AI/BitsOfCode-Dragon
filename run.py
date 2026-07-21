@@ -89,7 +89,7 @@ def main():
             opponent = Bot(Race.Protoss, ProtossTestBot(), "ProtossTest")
             print("🧪 Test mode: Protoss opponent (Worker Rush)")
         else:
-            opponent = Computer(Race.Zerg, Difficulty.VeryHard, ai_build=AIBuild.Macro)
+            opponent = Computer(Race.Protoss, Difficulty.VeryHard, ai_build=AIBuild.Macro)
 
         map_list: List[str] = [
             #"TorchesAIE_v4",

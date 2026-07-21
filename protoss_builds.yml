@@ -200,6 +200,7 @@ Builds:
     B2GM_PVP_2-Gate_Expand:
         # Build constant worker production till this supply
         ConstantWorkerProductionTill: 26
+        ShouldHandleGasSteal: False
         # After 0 supply turn AutoSupply on
         AutoSupplyAtSupply: 33
         OpeningBuildOrder:
@@ -232,6 +233,7 @@ Builds:
     B2GM_PVP_4-Gate_ALL-IN:
         # Build constant worker production till this supply
         ConstantWorkerProductionTill: 44
+        ShouldHandleGasSteal: False
         # After 0 supply turn AutoSupply on
         AutoSupplyAtSupply: 33
         OpeningBuildOrder:
@@ -259,6 +261,7 @@ Builds:
     Cheese_Reaction_Build:
         # Cheese reaction Build order — PvZ / Random: wall at natural
         ConstantWorkerProductionTill: 20
+        ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
             - 0 PYLON @ nat_wall
@@ -274,6 +277,7 @@ Builds:
     Cheese_Reaction_Build_Protoss:
         # Cheese reaction Build order — PvP: wall at main ramp
         ConstantWorkerProductionTill: 20
+        ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
             - 0 PYLON @ ramp
@@ -291,6 +295,7 @@ Builds:
     Cheese_Reaction_Build_Terran:
         # Cheese reaction Build order — PvT: reaper wall & main ramp
         ConstantWorkerProductionTill: 20
+        ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
             - 0 PYLON @ reaper_wall
@@ -306,6 +311,7 @@ Builds:
         # All-in reaction Build order — PvZ / Random: wall at natural
         # Stand-in: mirrors Cheese_Reaction_Build until dedicated all-in logic is added
         ConstantWorkerProductionTill: 20
+        ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
             - 0 PYLON @ nat_wall
@@ -322,6 +328,7 @@ Builds:
         # All-in reaction Build order — PvP: wall at main ramp
         # Stand-in: mirrors Cheese_Reaction_Build_Protoss until dedicated all-in logic is added
         ConstantWorkerProductionTill: 20
+        ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
             - 0 PYLON @ ramp
@@ -340,6 +347,7 @@ Builds:
         # All-in reaction Build order — PvT: reaper wall & main ramp
         # Stand-in: mirrors Cheese_Reaction_Build_Terran until dedicated all-in logic is added
         ConstantWorkerProductionTill: 20
+        ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
             - 0 PYLON @ reaper_wall
