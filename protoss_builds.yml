@@ -201,7 +201,7 @@ Builds:
         # Build constant worker production till this supply
         ConstantWorkerProductionTill: 26
         ShouldHandleGasSteal: False
-        # After 0 supply turn AutoSupply on
+        # After 33 supply turn AutoSupply on
         AutoSupplyAtSupply: 33
         OpeningBuildOrder:
             - 14 PYLON @ ramp
@@ -210,21 +210,21 @@ Builds:
             - 16 WORKER_SCOUT:
                 [nat, spawn,enemy_spawn, enemy_spawn,fourth,third, nat, spawn]
             - 17 GAS X2
-            - 19 GATEWAY @ ramp
-            - 20 CORE @ ramp
-            - 21 PYLON
-            - 23 STALKER X2
+            - 18 GATEWAY @ ramp
+            - 19 CORE @ ramp
+            - 19 PYLON
             - 21 PYLON @ nat_wall
-            - 22 SENTRY X2
-            - 22 CHRONO @ NEXUS 
-            - 27 WARPGATERESEARCH
+            - 21 STALKER X2
+            - 23 CHRONO @ GATEWAY
+            - 23 CHRONO @ GATEWAY
+            - 24 SENTRY X2
+            - 26 WARPGATERESEARCH
             - 28 EXPAND
-            - 34 STALKER X2
-            - 34 SHIELDBATTERY @ nat_wall
-            - 35 ROBOTICSFACILITY
+            - 32 STALKER X2
+            - 33 SHIELDBATTERY @ nat_wall
+            - 34 ROBOTICSFACILITY
             - 36 STALKER X2
-            - 38 IMMORTAL
-       
+            - 38 IMMORTAL       
 
             
             
