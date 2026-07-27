@@ -17,7 +17,7 @@ from sc2.data import Race
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.upgrade_id import UpgradeId
 
-from cython_extensions import cy_structure_pending_ares, cy_unit_pending
+from cython_extensions import cy_structure_pending_ares
 
 # Lazy import to avoid circular dependency — get_economy_state is only called inside lambdas
 # that execute at runtime, so the import resolves correctly by then.
@@ -1236,7 +1236,7 @@ def _needs_warp_prism(bot) -> bool:
     """
     total_prisms = (bot.units(UnitTypeId.WARPPRISM).amount +
                     bot.units(UnitTypeId.WARPPRISMPHASING).amount +
-                    cy_unit_pending(bot, UnitTypeId.WARPPRISM))
+                    bot.already_pending(UnitTypeId.WARPPRISM))
     return (bot.structures(UnitTypeId.ROBOTICSFACILITY).ready
             and bot.structures(UnitTypeId.TEMPLARARCHIVE).ready
             and bot.structures(UnitTypeId.ROBOTICSBAY).ready

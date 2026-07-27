@@ -901,7 +901,7 @@ def _train_warp_prism(bot) -> None:
 
     total_prisms = (bot.units(UnitTypeId.WARPPRISM).amount +
                     bot.units(UnitTypeId.WARPPRISMPHASING).amount +
-                    cy_unit_pending(bot, UnitTypeId.WARPPRISM))
+                    bot.already_pending(UnitTypeId.WARPPRISM))
     if total_prisms >= target_count:
         return
     if not bot.can_afford(UnitTypeId.WARPPRISM):
@@ -1068,6 +1068,13 @@ def _train_observers(bot) -> None:
     """Train observers to target count from the active BuildProfile.
     Supports dynamic observer_target (e.g., 2021 build returns 1 when detection needed, 0 otherwise).
     Returns early if profile says 0 observers and no detection trigger is active.
+
+    Uses already_pending() instead of cy_unit_pending() because cy_unit_pending only
+    inspects orders[0] on each production structure. When an Observer is queued behind
+    another unit (e.g. Immortal in slot 0), cy_unit_pending returns 0 and the function
+    would re-issue an observer train order every step until the front unit completes —
+    producing the "3 observers popping out at once" pile-up. already_pending iterates
+    all queued orders via _abilities_count_and_build_progress, so it sees the whole queue.
     """
     profile = get_active_profile(bot)
     target_count = _resolve(profile.observer_target, bot)
@@ -1078,11 +1085,14 @@ def _train_observers(bot) -> None:
         bot.units(UnitTypeId.OBSERVER).amount
         + bot.units(UnitTypeId.OBSERVERSIEGEMODE).amount
     )
-    if cy_unit_pending(bot, UnitTypeId.OBSERVER) or not bot.can_afford(UnitTypeId.OBSERVER):
+    pending = bot.already_pending(UnitTypeId.OBSERVER)
+    total_observers = observer_count + pending
+
+    if pending or not bot.can_afford(UnitTypeId.OBSERVER):
         return
 
     robotics_facilities = bot.structures(UnitTypeId.ROBOTICSFACILITY).ready
-    if observer_count < 1:
+    if total_observers < 1:
         for facility in robotics_facilities:
             facility.train(UnitTypeId.OBSERVER)
             return
@@ -1090,7 +1100,8 @@ def _train_observers(bot) -> None:
     if bot.game_state == 0:
         return
 
-    if observer_count < target_count:
+    # Non-urgent: only train on idle Robos to avoid queuing behind other units.
+    if total_observers < target_count:
         for facility in robotics_facilities.idle:
             facility.train(UnitTypeId.OBSERVER)
             return
