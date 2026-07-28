@@ -41,6 +41,8 @@
 
 - **First Fix Principle:** When fixing an issue or bug, do not introduce a new pattern or technology without first exhausting all options for the existing implementation. If you must, remove the old implementation to avoid duplication.
 
+- **Reuse before creating:** Before defining a new variable, constant, or function, check for an existing equivalent — `constants.py`, module-level definitions, and existing utilities/functions. Avoid duplicates that represent the same value or concept. Prefer extending an existing implementation over creating a parallel one.
+
 - **Code Cleanliness:** Always leave the codebase cleaner and more organized than you found it.
 
 - **Environment Awareness:** Ensure code works safely across all relevant environments (dev, test, competition/production). Never add mock/stub logic to code paths used in production or competition runs.
