@@ -271,9 +271,11 @@ Builds:
             - 16 PYLON @ nat_wall
             - 20 GATEWAY @ nat_wall
             - 20 CYBERNETICSCORE @ nat_wall
-            - 21 ZEALOT
-            - 21 CHRONO @ GATEWAY
-            - 21 SHIELDBATTERY @ nat_wall
+            - 20 ZEALOT
+            - 22 CHRONO @ GATEWAY
+            - 22 ZEALOT
+            - 24 SHIELDBATTERY @ nat_wall
+
 
 
     Cheese_Reaction_Build_Protoss:

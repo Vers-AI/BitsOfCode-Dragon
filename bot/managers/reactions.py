@@ -81,16 +81,10 @@ class ReactionManager:
         self._reaction_start_time: float = -1.0
         self._transitioned: bool = False
 
-        # Tracks the last time an enemy combat unit was near our bases.
-        # Used by the cheese transition to detect a sustained threat-free window.
         self._last_threat_near_base_time: float = -1.0
 
-        # Handler registry: category → {level2_label → handler}
-        # Handlers are set after module init to avoid circular imports.
         self._handlers: dict[StrategyCategory, dict[str, Callable]] = {}
-        # Category defaults: category → fallback handler (used when no specific handler matches)
         self._category_defaults: dict[StrategyCategory, Optional[Callable]] = {}
-        # Deactivation checks: strategy → should_deactivate function
         self._deactivation_checks: dict[str, Callable] = {}
 
     def register_handlers(self) -> None:
@@ -349,12 +343,14 @@ class ReactionManager:
         if not self.is_active:
             return
 
-        # Check strategy-specific deactivation (e.g., no more enemy workers near base)
         if self._active_strategy in self._deactivation_checks:
-            should_deactivate = self._deactivation_checks[self._active_strategy](bot)
-            if should_deactivate:
-                self.deactivate(bot)
-                return
+            threat_gone = self._deactivation_checks[self._active_strategy](bot)
+            if threat_gone:
+                if self._last_threat_near_base_time >= 0.0:
+                    self.deactivate(bot)
+                    return
+            else:
+                self._last_threat_near_base_time = bot.time
 
         # Category-default: cheese/all-in transitions to standard army, then
         # fully deactivates once _under_attack clears (threat_detection's
