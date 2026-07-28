@@ -20,6 +20,7 @@ from ares.behaviors.macro import (
     GasBuildingController,
     UpgradeController,
     BuildStructure,
+    TechUp,
 )
 from ares.consts import UnitRole, WORKER_TYPES
 from ares.consts import LOSS_MARGINAL_OR_BETTER, ID, TARGET
@@ -1582,6 +1583,16 @@ async def handle_macro(
             pass  # No SpawnController — minerals go to ExpansionController
         else:
             macro_plan.add(SpawnController(army_composition, spawn_target=spawn_target, freeflow_mode=spawn_freeflow))
+        
+        # Cheese response: ProductionController and UpgradeController both use
+        # TechUp to auto-build missing tech, but they're gated to moderate/full
+        # economy. Cheese keeps economy in reduced/recovery, so TechUp never
+        # fires. This ensures tech buildings (e.g. Cyber Core for Stalkers)
+        # get built even when the build runner was force-completed early.
+        if bot.reaction_manager.is_cheese_response:
+            for unit_type in army_composition:
+                if not bot.tech_ready_for_unit(unit_type):
+                    macro_plan.add(TechUp(unit_type, base_location=production_location))
         
         # Expansion logic: moderate+ gets full expansion, reduced gets safety net to 2 bases
         # Skip expansions when under attack - focus resources on defense

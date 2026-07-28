@@ -398,6 +398,8 @@ class PiG_Bot(AresBot):
             self.reaction_manager.update(self)
             self.reaction_manager.execute(self)
         else:
+            self.reaction_manager.execute(self)
+
             # Macro calls (only run if build order is complete)
             await handle_macro(
                 bot=self,
