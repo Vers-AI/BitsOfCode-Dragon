@@ -262,50 +262,53 @@ Builds:
         # Cheese reaction Build order — PvZ / Random: wall at natural
         ConstantWorkerProductionTill: 20
         ShouldHandleGasSteal: False
-        AutoSupplyAtSupply: 0
+        AutoSupplyAtSupply: 20
         OpeningBuildOrder:
-            - 0 PYLON @ nat_wall
-            - 0 GATEWAY @ nat_wall
-            - 0 CYBERNETICSCORE @ nat_wall
-            - 0 ZEALOT
-            - 0 CHRONO @ GATEWAY
-            - 0 SHIELDBATTERY @ nat_wall
-            - 0 ZEALOT
-            - 0 CHRONO @ GATEWAY
-            - 0 PYLON @ nat_wall
+            - 14 PYLON @ nat_wall
+            - 14 CHRONO @ NEXUS
+            - 16 GAS
+            - 16 GATEWAY @ nat_wall
+            - 16 PYLON @ nat_wall
+            - 20 GATEWAY @ nat_wall
+            - 20 CORE @ nat_wall
+            - 21 ZEALOT
+            - 21 CHRONO @ GATEWAY
+            - 21 SHIELDBATTERY @ nat_wall
+
 
     Cheese_Reaction_Build_Protoss:
         # Cheese reaction Build order — PvP: wall at main ramp
-        ConstantWorkerProductionTill: 20
+        ConstantWorkerProductionTill: 26
         ShouldHandleGasSteal: False
-        AutoSupplyAtSupply: 0
+        AutoSupplyAtSupply: 22
         OpeningBuildOrder:
-            - 0 PYLON @ ramp
-            - 0 GATEWAY @ ramp
-            - 0 CYBERNETICSCORE @ ramp
-            - 0 ZEALOT
-            - 0 CHRONO @ GATEWAY
-            - 0 SHIELDBATTERY @ ramp
-            - 0 ZEALOT
-            - 0 PYLON @ ramp
-            - 0 STALKER
-            - 0 CHRONO @ GATEWAY
-            - 0 SENTRY
+            - 14 PYLON @ ramp
+            - 14 CHRONO @ NEXUS
+            - 16 GATEWAY
+            - 17 GAS X2
+            - 17 GATEWAY @ ramp
+            - 19 CORE @ ramp
+            - 22 ZEALOT
+            - 22 PYLON 
+            - 24 SHIELDBATTERY @ ramp
+            - 26 SENTRY
+            - 26 CHRONO @ GATEWAY
+            - 26 STALKER
 
     Cheese_Reaction_Build_Terran:
         # Cheese reaction Build order — PvT: reaper wall & main ramp
-        ConstantWorkerProductionTill: 20
+        ConstantWorkerProductionTill: 23
         ShouldHandleGasSteal: False
-        AutoSupplyAtSupply: 0
+        AutoSupplyAtSupply: 20
         OpeningBuildOrder:
-            - 0 PYLON @ reaper_wall
-            - 0 GATEWAY @ reaper_wall
-            - 0 CYBERNETICSCORE @ reaper_wall
-            - 0 ZEALOT
-            - 0 PYLON @ ramp
-            - 0 CHRONO @ GATEWAY
-            - 0 SHIELDBATTERY @ ramp
-            - 0 ZEALOT
+            - 14 PYLON @ reaper_wall
+            - 16 GATEWAY @ reaper_wall
+            - 20 PYLON @ ramp
+            - 22 ZEALOT
+            - 22 CORE @ reaper_wall
+            - 22 CHRONO @ GATEWAY
+            - 23 GATEWAY
+            - 23 SHIELDBATTERY @ ramp
 
     AllIn_Reaction_Build:
         # All-in reaction Build order — PvZ / Random: wall at natural
