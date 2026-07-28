@@ -63,7 +63,7 @@ Builds:
                 [enemy_spawn, enemy_nat, map_center, fourth,third, enemy_nat]
             - 16 GAS
             - 20 EXPAND
-            - 20 CORE @ reaper_wall
+            - 20 CYBERNETICSCORE @ reaper_wall
             - 21 PYLON
             - 21 GAS
             - 22 WARPGATERESEARCH
@@ -101,7 +101,7 @@ Builds:
             - 16 GAS
             - 18 CHRONO @ NEXUS 
             - 20 EXPAND
-            - 20 CORE @ reaper_wall
+            - 20 CYBERNETICSCORE @ reaper_wall
             - 21 PYLON
             - 21 GAS
             - 22 WARPGATERESEARCH
@@ -138,7 +138,7 @@ Builds:
             - 16 CHRONO @ NEXUS
             - 16 GAS
             - 20 EXPAND
-            - 20 CORE @ nat_wall
+            - 20 CYBERNETICSCORE @ nat_wall
             - 21 PYLON
             - 21 GAS
             - 22 WARPGATERESEARCH
@@ -177,7 +177,7 @@ Builds:
             - 16 GATEWAY @ nat_wall
             - 16 GAS
             - 20 EXPAND
-            - 20 CORE @ nat_wall
+            - 20 CYBERNETICSCORE @ nat_wall
             - 21 GAS
             - 21 PYLON
             # - 22 ADEPT  # No Adept code yet — add back when Adept micro exists
@@ -211,7 +211,7 @@ Builds:
                 [nat, spawn,enemy_spawn, enemy_spawn,fourth,third, nat, spawn]
             - 17 GAS X2
             - 18 GATEWAY @ ramp
-            - 19 CORE @ ramp
+            - 19 CYBERNETICSCORE @ ramp
             - 19 PYLON
             - 21 PYLON @ nat_wall
             - 21 STALKER X2
@@ -245,7 +245,7 @@ Builds:
             - 16 GAS
             - 18 GAS
             - 19 GATEWAY @ ramp
-            - 20 CORE @ ramp
+            - 20 CYBERNETICSCORE @ ramp
             - 21 PYLON
             - 22 WARPGATERESEARCH
             - 22 CHRONO @ NEXUS 
@@ -270,7 +270,7 @@ Builds:
             - 16 GATEWAY @ nat_wall
             - 16 PYLON @ nat_wall
             - 20 GATEWAY @ nat_wall
-            - 20 CORE @ nat_wall
+            - 20 CYBERNETICSCORE @ nat_wall
             - 21 ZEALOT
             - 21 CHRONO @ GATEWAY
             - 21 SHIELDBATTERY @ nat_wall
@@ -287,7 +287,7 @@ Builds:
             - 16 GATEWAY
             - 17 GAS X2
             - 17 GATEWAY @ ramp
-            - 19 CORE @ ramp
+            - 19 CYBERNETICSCORE @ ramp
             - 22 ZEALOT
             - 22 PYLON 
             - 24 SHIELDBATTERY @ ramp
@@ -303,10 +303,11 @@ Builds:
         OpeningBuildOrder:
             - 14 PYLON @ reaper_wall
             - 16 GATEWAY @ reaper_wall
+            - 16 GAS
+            - 20 ZEALOT
             - 20 PYLON @ ramp
-            - 22 ZEALOT
-            - 22 CORE @ reaper_wall
-            - 22 CHRONO @ GATEWAY
+            - 20 CYBERNETICSCORE @ reaper_wall
+            - 20 CHRONO @ GATEWAY
             - 23 GATEWAY
             - 23 SHIELDBATTERY @ ramp
 
