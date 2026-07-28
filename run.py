@@ -94,11 +94,11 @@ def main():
         map_list: List[str] = [
             #"TorchesAIE_v4",
             #"PylonAIE_v4",
-            "PersephoneAIE_v4",
+            #"PersephoneAIE_v4",
             #"IncorporealAIE_v4",
             #"LeyLinesAIE_v3",
             #"UltraloveAIE_v2",
-            #"MagannathaAIE_v2"
+            "MagannathaAIE_v2"
         ]
 
         print("Starting local game...")
