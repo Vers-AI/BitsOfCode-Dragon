@@ -474,10 +474,12 @@ class PiG_Bot(AresBot):
         # Update game state based on game time
         current_time = self.time
         
+        from bot.constants import BUILD_FORCE_COMPLETE_MINERALS
+
         # Fail-safe: Force complete build if banking too many minerals.
         # Runs in ALL game states — a stuck build runner blocks handle_macro()
         # entirely, so this must not be gated to early game only.
-        if self.minerals > 800 and not self.build_order_runner.build_completed:
+        if self.minerals > BUILD_FORCE_COMPLETE_MINERALS and not self.build_order_runner.build_completed:
             self.build_order_runner.set_build_completed()
             print(f"Build order force-completed at {self.time:.1f}s due to high minerals")
         

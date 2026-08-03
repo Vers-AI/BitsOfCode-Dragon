@@ -1077,6 +1077,13 @@ FREEFLOW_INCOME_RATIO_THRESHOLD = 3.0
 FREEFLOW_BANK_THRESHOLD = 800
 """Resource bank threshold for triggering freeflow when spending is inefficient."""
 
+BUILD_FORCE_COMPLETE_MINERALS = 1000
+"""Mineral bank that force-completes the opening build order.
+
+Fail-safe in bot.py: if minerals exceed this and the build runner hasn't
+finished, we mark it complete so macro freeflow can take over. A stuck
+build runner blocks handle_macro() entirely, so this runs in all game states."""
+
 
 # ===== BUILD PROFILES =====
 # Each build gets a BuildProfile that bundles all build-specific macro settings.
