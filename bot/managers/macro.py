@@ -23,10 +23,11 @@ from ares.behaviors.macro import (
     TechUp,
 )
 from ares.consts import UnitRole, WORKER_TYPES
-from ares.consts import LOSS_MARGINAL_OR_BETTER, ID, TARGET
+from ares.consts import ID, TARGET
 
 from bot.utilities.performance_monitor import get_economy_state
 from bot.intel import get_enemy_intel_quality
+from bot.managers.reactions import assess_threat
 from bot.utilities.debug import render_detection_cannon_debug
 from bot.combat.target_scoring import COUNTER_TABLE
 from bot.constants import (
@@ -35,6 +36,9 @@ from bot.constants import (
     RESOURCE_PRESSURE_MAX_NUDGE,
     RESOURCE_IMBALANCE_RATIO,
     FREEFLOW_INCOME_RATIO_THRESHOLD,
+    THREAT_BLOCK_EXPANSION_LEVEL,
+    EXPANSION_INTEL_URGENCY_BLOCK,
+    EXPANSION_PASSIVE_ENEMY_TIME,
     BuildProfile,
     BUILD_PROFILES,
     PVT_STANDARD_2023_PROFILE,
@@ -784,79 +788,182 @@ def is_base_depleted(bot) -> bool:
     )
 
 
+def _can_expand_natural_under_attack(bot) -> bool:
+    """
+    Simple defender's advantage check: allow the natural expansion during an
+    attack if we have a shield battery near the natural and haven't taken it yet.
+
+    The natural is behind our wall — the defender's advantage (wall, battery,
+    high ground) lets a smaller army hold while the Nexus builds. The
+    ExpansionController's own ground-grid safety check is the final gate: if
+    enemies are physically at the natural, it won't place the Nexus.
+
+    This is the simple version — see plan/expansion_improvement_plan.md #6 for
+    the enhanced version (wall building check, threat-level thresholds, etc.).
+    """
+    # Only applies when expanding to the natural (1 base → 2)
+    if len(bot.townhalls) >= 2:
+        return False
+
+    # Must have a completed shield battery near the natural
+    nat_pos = bot.mediator.get_own_nat
+    battery_at_nat = bot.structures(UnitTypeId.SHIELDBATTERY).ready.filter(
+        lambda b: cy_distance_to(b.position, nat_pos) < 20.0
+    )
+    return bool(battery_at_nat)
+
+
+def _has_map_control(bot) -> bool:
+    """
+    Determines whether the bot has enough map control to safely expand.
+
+    Based on pro expansion principles (race-neutral signals only):
+      - Expand behind aggression (commenced attack = map control)
+      - Don't expand under direct attack or combat threats near bases
+      - Don't expand blind when intel is very stale (enemy could be timing)
+      - Expand if opponent is passive/turtling (army not seen in a long time)
+      - Expand if no enemy army has ever been seen (no known threat)
+      - Defender's advantage: allow natural expansion behind a battery
+        even when under attack (simple version; see plan for enhancement)
+
+    The ExpansionController independently verifies the expansion location is
+    safe via the ground grid, so this function only answers: "is it generally
+    safe to send a worker out?"
+
+    Race-specific signals (opponent base-count mirroring, all-in detection,
+    worker economy comparison) are deferred — see plan/expansion_improvement_plan.md.
+    """
+    # ── HARD GATES: block expansion entirely ──────────────────────────
+
+    # Gate 1: Under direct attack — defense first, never expand.
+    # Exception: defender's advantage allows the natural behind a battery.
+    if bot._under_attack:
+        if not _can_expand_natural_under_attack(bot):
+            return False
+
+    # Gate 2: Combat threat near our bases — defense system is engaged
+    # Uses the threat system (assess_threat) for consistency with defense logic.
+    # Only blocks for real combat threats, not harassment handled by defenders.
+    ground_near = bot.mediator.get_ground_enemy_near_bases
+    flying_near = bot.mediator.get_flying_enemy_near_bases
+    all_threat_tags: set[int] = set()
+    for enemy_tags in ground_near.values():
+        all_threat_tags.update(enemy_tags)
+    for enemy_tags in flying_near.values():
+        all_threat_tags.update(enemy_tags)
+
+    if all_threat_tags:
+        threatening_units = bot.enemy_units.tags_in(all_threat_tags)
+        if threatening_units:
+            threat_info = assess_threat(bot, threatening_units, bot.own_army, return_details=True)
+            assert isinstance(threat_info, dict), "assess_threat with return_details=True should return dict"
+            if threat_info.get("threat_level", 0) >= THREAT_BLOCK_EXPANSION_LEVEL:
+                return False
+
+    # ── POSITIVE SIGNALS: expand when any is true ──────────────────────
+
+    # Signal 1: "Expand behind aggression" — army has commenced attack.
+    # The opponent is forced to defend, buying time for the expansion.
+    # Reuses handle_attack_toggles' global can_win_fight decision (proper
+    # unit filtering + intel-quality gating) instead of a second sim.
+    if bot._commenced_attack:
+        return True
+
+    # Signal 2: No enemy army ever seen — no known threat exists.
+    # The ExpansionController still verifies the location via ground grid.
+    if not bot._enemy_army_ever_seen:
+        return True
+
+    # Signal 3: "Opponent is turtling/passive" — we've seen the enemy army
+    # before, but haven't seen it in a long time AND no threats are near our
+    # bases. If the opponent isn't attacking, we can safely invest in economy.
+    # Race-neutral: a passive opponent isn't pressuring us regardless of race.
+    time_since_seen = bot.time - bot._last_enemy_army_visible_time
+    if time_since_seen > EXPANSION_PASSIVE_ENEMY_TIME:
+        return True
+
+    # ── CAUTIOUS GATES: grey zone (seen enemy recently, not attacking) ──
+
+    # We've seen the enemy recently but our army hasn't commenced attack.
+    # This is the danger zone: the enemy could be setting up a timing attack.
+    # Gate on intel freshness: if intel is very stale (urgency high), we're
+    # blind to the enemy's current position — don't expand blind.
+    # If intel is fresh enough, we have enough recent info to risk expanding.
+    if bot._intel_urgency >= EXPANSION_INTEL_URGENCY_BLOCK:
+        return False
+
+    # Intel is fresh enough: we've seen the enemy recently and have a
+    # reasonable picture of their army. The threat system didn't flag a
+    # blocking threat. The ExpansionController's location safety check
+    # is the final gate.
+    return True
+
+
 def expansion_checker(bot, main_army) -> int:
     """
     Evaluates multiple factors to determine when to expand:
-    1. Resource starvation (production idle due to lack of income)
-    2. Base depletion (worker saturation with declining income)
-    3. Army safety for expansion
+    1. Map control (using army's global assessment + enemy proximity)
+    2. Resource starvation (production idle due to lack of income)
+    3. Base depletion (worker saturation with declining income)
     4. Spending efficiency using python-sc2 score metrics
-    
+
     Returns the recommended expansion count.
     """
     current_bases = len(bot.townhalls)
     current_workers = bot.workers.amount
     optimal_workers = calculate_optimal_worker_count(bot)
     worker_saturation = current_workers / optimal_workers if optimal_workers > 0 else 0
-    
+
     mineral_collection_rate = bot.state.score.collection_rate_minerals
     idle_production_time = bot.state.score.idle_production_time
     expansion_count = current_bases
-    
+
     # Calculate spending efficiency (SQ-style)
     current_unspent = bot.minerals
     spending_efficiency = mineral_collection_rate / (current_unspent + 1) if mineral_collection_rate > 0 else 0
-    
-    # Safety check - only expand if safe (filter workers from both armies)
-    own_combat_units = [u for u in bot.own_army if u.type_id not in WORKER_TYPES]
-    enemy_combat_units = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES]
-    army_safe = bot.mediator.can_win_fight(
-        own_units=own_combat_units,
-        enemy_units=enemy_combat_units,
-        timing_adjust=True,
-        good_positioning=False,
-        workers_do_no_damage=True,
-    ) in LOSS_MARGINAL_OR_BETTER
-    
-    if not army_safe:
-        return expansion_count
-    
+
+    # Map control gate: if we don't have map control, don't add new expansions.
+    # Unlike the old army_safe early-return, this doesn't bypass the game-state
+    # fallback below — it only prevents *new* expansion_count increments.
+    has_map_control = _has_map_control(bot)
+
     resource_starved = (
         idle_production_time > 30.0  # Production buildings idle for 30+ seconds
         and current_unspent < 500    # Low mineral bank
         and mineral_collection_rate > 0  # But we do have some income
     )
-    
+
     bases_depleting = is_base_depleted(bot)
-    
+
     # Spending efficiency thresholds (dynamic by game state)
     if bot.game_state == 0:      # Early: should spend quickly
         efficiency_threshold = 1.5
     elif bot.game_state == 1:    # Mid: more complex economy
-        efficiency_threshold = 1.0  
+        efficiency_threshold = 1.0
     else:                        # Late: can bank for big investments
         efficiency_threshold = 0.5
-    
+
     # Low spending efficiency = banking too much relative to income
     inefficient_spending = spending_efficiency < efficiency_threshold
-    
-    if resource_starved:
-        expansion_count = current_bases + 1
-    elif bases_depleting:
-        expansion_count = current_bases + 1
-    elif inefficient_spending and worker_saturation > 0.7:
-        expansion_count = current_bases + 1
-    
-    # Game state-based fallback expansions (minimal safety net)
-    if bot.game_state >= 1 and current_bases < 2:
-        expansion_count = max(expansion_count, 2)
-    elif bot.game_state >= 2 and current_bases < 3:
-        expansion_count = max(expansion_count, 3)
-    
-    # Limit early expansion with small army
-    if current_bases == 1 and len(main_army) < 5 and bot.game_state == 0:
-        expansion_count = 1
-    
+
+    if has_map_control:
+        if resource_starved:
+            expansion_count = current_bases + 1
+        elif bases_depleting:
+            expansion_count = current_bases + 1
+        elif inefficient_spending and worker_saturation > 0.7:
+            expansion_count = current_bases + 1
+
+    # Game state-based fallback expansions (minimal safety net).
+    # Gated behind map control: don't expand while under pressure even if
+    # the game-state timer says we "should" have more bases by now.
+    # The ExpansionController independently verifies the location is safe.
+    if has_map_control:
+        if bot.game_state >= 1 and current_bases < 2:
+            expansion_count = max(expansion_count, 2)
+        elif bot.game_state >= 2 and current_bases < 3:
+            expansion_count = max(expansion_count, 3)
+
     return expansion_count
 
 
@@ -1536,9 +1643,12 @@ async def handle_macro(
     # expansions when existing bases are mining out.
     nexus_under_construction = bot.structures(UnitTypeId.NEXUS).not_ready.amount > 0
     wants_to_expand = expansion_count > len(bot.townhalls)
+    # Defender's advantage: allow banking for the natural during an attack
+    # if we have a shield battery to hold behind (see _can_expand_natural_under_attack)
+    blocked_by_attack = bot._under_attack and not _can_expand_natural_under_attack(bot)
     banking_for_expansion = (
         economy_state == "reduced"
-        and not bot._under_attack
+        and not blocked_by_attack
         and not nexus_under_construction
         and not bot.reaction_manager.is_cheese_response
         and wants_to_expand
@@ -1595,11 +1705,11 @@ async def handle_macro(
                     macro_plan.add(TechUp(unit_type, base_location=production_location))
         
         # Expansion logic: moderate+ gets full expansion, reduced gets safety net to 2 bases
-        # Skip expansions when under attack - focus resources on defense
+        # Skip expansions when under attack (unless defender's advantage applies)
         # No expansions during cheese response — focus entirely on defense
         # Note: when banking_for_expansion, ExpansionController was already
         # added at the top with prioritize=True, so we skip adding it again here.
-        if not banking_for_expansion and not bot._under_attack and not bot.reaction_manager.is_cheese_response:
+        if not banking_for_expansion and not blocked_by_attack and not bot.reaction_manager.is_cheese_response:
             if economy_state in ("moderate", "full"):
                 macro_plan.add(ExpansionController(to_count=expansion_count, max_pending=1))
             elif wants_to_expand:

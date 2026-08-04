@@ -313,6 +313,23 @@ UNDER_ATTACK_RATIO_THRESHOLD = 0.4
 UNDER_ATTACK_CLEAR_VALUE = 5.0
 """Threat value below which under_attack clears (hysteresis to prevent flickering)"""
 
+# ===== EXPANSION MAP CONTROL =====
+THREAT_BLOCK_EXPANSION_LEVEL = 5
+"""Minimum threat_level from assess_threat to block expansion (combat threats only).
+    Below this, harassment/patrol threats are handled by defenders without
+    blocking the natural expansion."""
+
+EXPANSION_INTEL_URGENCY_BLOCK = 0.7
+"""Intel urgency above which we won't expand blind (we've seen the enemy army
+    but intel has gone very stale — they could be setting up a timing).
+    Race-neutral: being blind is dangerous regardless of opponent race.
+    Below this, we have enough recent intel to risk sending a worker out."""
+
+EXPANSION_PASSIVE_ENEMY_TIME = 60.0
+"""Seconds since last seeing enemy army after which we classify the opponent
+    as passive/turtling. Race-neutral: if we haven't seen combat units in 60s
+    and no threats are near our bases, the opponent is not attacking us."""
+
 # ===== EARLY GAME DEFENSE =====
 EARLY_GAME_TIME_LIMIT = 600.0
 """Time limit (seconds) for early game defensive positioning (10 minutes)"""
