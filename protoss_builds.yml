@@ -217,14 +217,16 @@ Builds:
             - 21 STALKER X2
             - 23 CHRONO @ GATEWAY
             - 23 CHRONO @ GATEWAY
-            - 24 SENTRY X2
-            - 26 WARPGATERESEARCH
-            - 28 EXPAND
+            - 26 SENTRY
+            - 26 PYLON
+            - 26 SENTRY
+            - 28 EXPAND 
+            - 30 SHIELDBATTERY @ nat_wall
+            - 30 WARPGATERESEARCH
+            - 30 CHRONO @ CYBERNETICSCORE
+            - 32 ROBOTICSFACILITY
             - 32 STALKER X2
-            - 33 SHIELDBATTERY @ nat_wall
-            - 34 ROBOTICSFACILITY
-            - 36 STALKER X2
-            - 38 IMMORTAL       
+            - 36 IMMORTAL       
 
             
             
