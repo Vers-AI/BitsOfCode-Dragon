@@ -94,6 +94,11 @@ class PiG_Bot(AresBot):
 
         # Flags for in-game logic
         self._commenced_attack = False
+        # Attack telemetry accumulators — persist across the whole game,
+        # unlike the boolean above which only reflects the current state.
+        self._attack_initiation_count = 0  # Total times attack was initiated
+        self._total_attack_time = 0.0     # Cumulative seconds spent in attack state
+        self._current_attack_start = 0.0  # Timestamp current attack began (0 = not attacking)
         self._economy_switch_triggered = False  # One-way transition from base to economy-gated composition
         self._rush_time_seconds = 0.0  # Rush time calculated in on_start
         self._under_attack = False

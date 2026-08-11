@@ -743,11 +743,20 @@ def emit_match_record(bot, game_result, game_time: float,
         # Result.Undecided or unknown — likely a crash/disconnect
         result = "undecided"
 
+    # Flush an in-progress attack so the accumulator reflects total time
+    # even if the game ended mid-engagement (on_end may not pass through combat).
+    _current_start = getattr(bot, '_current_attack_start', 0.0)
+    if _current_start > 0:
+        bot._total_attack_time = getattr(bot, '_total_attack_time', 0.0) + (game_time - _current_start)
+        bot._current_attack_start = 0.0
+
     match_fields = {
         "result": result,
         "length": round(game_time, 1),
         "cheese_type": cheese_type,
         "commenced_attack": getattr(bot, '_commenced_attack', False),
+        "attack_initiation_count": getattr(bot, '_attack_initiation_count', 0),
+        "total_attack_time": round(getattr(bot, '_total_attack_time', 0.0), 1),
         "used_cheese_response": bot.reaction_manager.is_cheese_response,
         "sq": round(pm.get_current_sq(), 1),
         "mineral_sq": round(pm.get_mineral_sq(), 1),
