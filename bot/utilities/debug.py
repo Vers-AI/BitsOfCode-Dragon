@@ -501,6 +501,70 @@ def render_target_markers(bot, main_army: Units) -> None:
     bot._debug_y = _y
 
 
+def render_expansion_debug(bot) -> None:
+    """Render expansion decision debug overlay.
+
+    Reads bot._expansion_debug (set by expansion_checker + handle_macro in macro.py).
+    Shows: current vs target base count, map control gate, which trigger fired,
+    banking state, and economy state. Lets you verify the expansion logic is
+    working correctly during replays.
+    """
+    if not bot.debug:
+        return
+
+    info = getattr(bot, '_expansion_debug', None)
+    if info is None:
+        return
+
+    _y = min(getattr(bot, '_debug_y', 0.52), 0.95)
+    _step = 0.018
+
+    # Line 1: base counts + map control + trigger
+    wants = info.get("wants_expand", False)
+    mc = info.get("has_map_control", False)
+    trigger = info.get("triggered_by", "none")
+    status_color = (0, 255, 0) if wants and mc else ((255, 165, 0) if not mc else (255, 255, 255))
+    bot.client.debug_text_2d(
+        f"Expand: {info.get('current_bases', 0)}->{info.get('target_bases', 0)} "
+        f"MC:{'Y' if mc else 'N'} Trig:{trigger}",
+        Point2((0.1, _y)), status_color, 12
+    )
+    _y += _step
+
+    # Line 2: banking + blockers + economy
+    banking = info.get("banking", False)
+    blocked = info.get("blocked_by_attack", False)
+    econ = info.get("economy_state", "?")
+    cheese = info.get("cheese_response", False)
+    flags = []
+    if banking:
+        flags.append("BANKING")
+    if blocked:
+        flags.append("ATK_BLOCKED")
+    if cheese:
+        flags.append("CHEESE")
+    flag_str = f" [{','.join(flags)}]" if flags else ""
+    bot.client.debug_text_2d(
+        f"  Econ:{econ}{flag_str}",
+        Point2((0.1, _y)), None, 12
+    )
+    _y += _step
+
+    # Line 3: economy metrics (saturation, spending efficiency)
+    sat = info.get("worker_saturation", 0)
+    eff = info.get("spending_efficiency", 0)
+    eff_thresh = info.get("efficiency_threshold", 0)
+    bot.client.debug_text_2d(
+        f"  Sat:{sat:.0%} SpendEff:{eff:.1f}/{eff_thresh:.1f} "
+        f"Starved:{'Y' if info.get('resource_starved') else 'N'} "
+        f"Depl:{'Y' if info.get('bases_depleting') else 'N'}",
+        Point2((0.1, _y)), None, 11
+    )
+    _y += _step
+
+    bot._debug_y = _y
+
+
 def render_mass_recall_debug(bot, main_army: Units) -> None:
     """Render 3D Mass Recall debug: escape zone samples, trapped/influenced units, recall target.
 

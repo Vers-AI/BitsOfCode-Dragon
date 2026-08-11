@@ -42,7 +42,7 @@ from bot.combat import (
 from bot.intel import update_enemy_intel_tracking
 from bot.utilities.choke_grid import create_choke_grid, create_narrow_choke_points, refine_all_chokes
 from cython_extensions import cy_distance_to
-from bot.utilities.debug import render_narrow_choke_points, render_refined_choke_points, render_nexus_ability_debug
+from bot.utilities.debug import render_narrow_choke_points, render_refined_choke_points, render_nexus_ability_debug, render_expansion_debug
 from ares.behaviors.macro import Mining
 #debugs
 from bot.utilities.use_disruptor_nova import UseDisruptorNova
@@ -440,6 +440,9 @@ class PiG_Bot(AresBot):
 
         # Control BASE_DEFENDER units every frame (separated from allocation in threat_detection)
         control_defenders(self)
+
+        # Expansion debug overlay — after combat renders so it chains off _debug_y
+        render_expansion_debug(self)
 
         # Update active novas every frame (critical for trajectory correction)
         if hasattr(self, 'nova_manager') and self.nova_manager:

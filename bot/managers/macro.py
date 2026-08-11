@@ -964,6 +964,34 @@ def expansion_checker(bot, main_army) -> int:
         elif bot.game_state >= 2 and current_bases < 3:
             expansion_count = max(expansion_count, 3)
 
+    # Debug snapshot — read by render_expansion_debug() in debug.py
+    triggered_by = "none"
+    if has_map_control:
+        if resource_starved:
+            triggered_by = "starved"
+        elif bases_depleting:
+            triggered_by = "depleting"
+        elif inefficient_spending and worker_saturation > 0.7:
+            triggered_by = "inefficient"
+        elif bot.game_state >= 1 and current_bases < 2:
+            triggered_by = "gamestate_mid"
+        elif bot.game_state >= 2 and current_bases < 3:
+            triggered_by = "gamestate_late"
+
+    bot._expansion_debug = {
+        "current_bases": current_bases,
+        "target_bases": expansion_count,
+        "wants_expand": expansion_count > current_bases,
+        "has_map_control": has_map_control,
+        "triggered_by": triggered_by,
+        "resource_starved": resource_starved,
+        "bases_depleting": bases_depleting,
+        "inefficient_spending": inefficient_spending,
+        "worker_saturation": worker_saturation,
+        "spending_efficiency": spending_efficiency,
+        "efficiency_threshold": efficiency_threshold,
+    }
+
     return expansion_count
 
 
@@ -1662,6 +1690,13 @@ async def handle_macro(
         # BuildWorkers (50m) and AutoSupply (100m) can spend. Minerals
         # accumulate and the building manager places the Nexus when affordable.
         macro_plan.add(ExpansionController(to_count=expansion_count, max_pending=1, prioritize=True))
+
+    # Update expansion debug snapshot with banking/build state
+    if hasattr(bot, '_expansion_debug'):
+        bot._expansion_debug["banking"] = banking_for_expansion
+        bot._expansion_debug["blocked_by_attack"] = blocked_by_attack
+        bot._expansion_debug["economy_state"] = economy_state
+        bot._expansion_debug["cheese_response"] = bot.reaction_manager.is_cheese_response
     
     # Always: workers and supply (all economy states)
     # These run after ExpansionController, so they only execute if
