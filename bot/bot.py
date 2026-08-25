@@ -136,7 +136,7 @@ class PiG_Bot(AresBot):
         # Production nudging cache (set by select_army_composition for debug overlay)
         self._last_base_comp: dict = {}
         self._last_nudged_comp: dict = {}
-        self._resource_pressure: str = "BALANCED"  # GAS_STARVED, MIN_STARVED, or BALANCED
+        self._resource_pressure: str = "BALANCED"  # GAS_STARVED, MINERAL_STARVED, or BALANCED
         
         # Intel urgency system (gradual build/decay to avoid oscillation)
         # 0.0 = no urgency, 1.0 = max urgency

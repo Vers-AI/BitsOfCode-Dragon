@@ -25,7 +25,7 @@ from ares.behaviors.macro import (
 from ares.consts import UnitRole, WORKER_TYPES
 from ares.consts import ID, TARGET
 
-from bot.utilities.performance_monitor import get_economy_state
+from bot.utilities.performance_monitor import get_economy_state, get_resource_pressure
 from bot.intel import get_enemy_intel_quality
 from bot.managers.reactions import assess_threat
 from bot.utilities.debug import render_detection_cannon_debug
@@ -34,7 +34,6 @@ from bot.constants import (
     MEMORY_EXPIRY_TIME,
     STALE_INTEL_THRESHOLD,
     RESOURCE_PRESSURE_MAX_NUDGE,
-    RESOURCE_IMBALANCE_RATIO,
     FREEFLOW_INCOME_RATIO_THRESHOLD,
     THREAT_BLOCK_EXPANSION_LEVEL,
     EXPANSION_INTEL_URGENCY_BLOCK,
@@ -457,54 +456,76 @@ def _get_gas_ratio(unit_type: UnitTypeId) -> float:
 
 
 def reorder_priorities_by_resources(composition: dict, bot) -> dict:
-    """Layer 1: Reorder unit priorities based on current resource balance.
-    
-    When mineral-rich/gas-poor: low-gas units (Zealots) get priority 0.
-    When gas-rich/mineral-poor: high-gas units (HT, Disruptor) get priority 0.
-    When balanced: return composition unchanged.
-    
-    This directly addresses the SpawnController break-on-unaffordable problem:
-    by putting affordable units first in priority order, the controller builds
-    them before hitting the unaffordable gas-heavy unit and breaking.
-    
+    """Layer 4: Push unaffordable units behind affordable ones in priority order.
+
+    Only reorders units that can't currently be afforded — those are the ones
+    that would cause the SpawnController's non-freeflow `break` to kill the
+    entire production loop. Affordable units keep their effectiveness-based
+    priority from the counter nudge (step 1), so the strategic choice of
+    "build the most effective unit first" is preserved.
+
+    When balanced (no resource pressure): return composition unchanged.
+    When gas-rich/mineral-starved: unaffordable high-gas units stay near front
+    (they might be affordable next frame when gas accumulates), unaffordable
+    low-gas units go to back (we're waiting for minerals, not gas).
+    When mineral-rich/gas-starved: the reverse.
+
     The composition dict is never mutated — returns a new dict.
-    
+
     Perf note: O(k log k) sort where k = unit types in comp (~5). Negligible.
-    
+
     Args:
         composition: Army composition dict {UnitTypeId: {"proportion": ..., "priority": ...}}
         bot: Bot instance for resource access
-        
+
     Returns:
         New composition dict with reordered priorities (proportions unchanged)
     """
-    minerals = bot.minerals
-    vespene = bot.vespene
-    
-    # Detect imbalance direction
-    mineral_rich = minerals > RESOURCE_IMBALANCE_RATIO * max(vespene, 1)
-    gas_rich = vespene > RESOURCE_IMBALANCE_RATIO * max(minerals, 1)
-    
+    # Detect imbalance direction via shared economy signal (instantaneous bank)
+    pressure = get_resource_pressure(bot, sustained=False)
+    mineral_rich = pressure == "GAS_STARVED"
+    gas_rich = pressure == "MINERAL_STARVED"
+
     if not mineral_rich and not gas_rich:
         return composition  # Balanced — keep original priorities
-    
-    # Sort unit types by gas_ratio: ascending if mineral-rich (cheap-gas first),
-    # descending if gas-rich (expensive-gas first)
-    unit_types = list(composition.keys())
-    unit_types.sort(
+
+    # Split units into affordable (keep effectiveness priority) and
+    # unaffordable (sort by gas ratio to push them to the back).
+    # This prevents the SpawnController break while preserving the
+    # counter-nudge's effectiveness-based priority for units we can build.
+    affordable: list = []
+    unaffordable: list = []
+    for unit_type in composition:
+        if bot.can_afford(unit_type):
+            affordable.append(unit_type)
+        else:
+            unaffordable.append(unit_type)
+
+    # No unaffordable units — nothing to reorder
+    if not unaffordable:
+        return composition
+
+    # Sort unaffordable by gas_ratio: ascending if mineral-rich (cheap-gas
+    # first — they're closer to affordable), descending if gas-rich
+    unaffordable.sort(
         key=lambda ut: _get_gas_ratio(ut),
         reverse=gas_rich,
     )
-    
-    # Assign new priorities: 0 = highest (first in sorted order)
+
+    # Affordable units keep their existing priority (from counter nudge).
+    # Unaffordable units get pushed behind all affordable ones.
+    # Within each group, preserve relative order (stable sort).
+    affordable.sort(key=lambda ut: composition[ut]["priority"])
+    ordered = affordable + unaffordable
+
     reordered: dict = {}
-    for new_priority, unit_type in enumerate(unit_types):
+    for new_priority, unit_type in enumerate(ordered):
         info = composition[unit_type]
         reordered[unit_type] = {
             "proportion": info["proportion"],
             "priority": new_priority,
         }
-    
+
     return reordered
 
 
@@ -529,12 +550,11 @@ def resource_pressure_nudge(composition: dict, bot) -> dict:
     Returns:
         New composition dict with resource-pressure-adjusted proportions
     """
-    minerals = bot.minerals
-    vespene = bot.vespene
-    
-    # Detect imbalance
-    gas_starved = minerals > RESOURCE_IMBALANCE_RATIO * max(vespene, 1)
-    mineral_starved = vespene > RESOURCE_IMBALANCE_RATIO * max(minerals, 1)
+    # Detect imbalance via shared economy signal (instantaneous bank —
+    # composition nudging should react to what we can afford right now)
+    pressure = get_resource_pressure(bot, sustained=False)
+    gas_starved = pressure == "GAS_STARVED"
+    mineral_starved = pressure == "MINERAL_STARVED"
     
     if not gas_starved and not mineral_starved:
         return composition  # Balanced — no pressure nudge needed
@@ -1182,20 +1202,17 @@ def select_army_composition(bot, main_army: Units) -> dict:
     # Step 2: Resource-pressure nudge (shifts proportions toward affordable units)
     comp = resource_pressure_nudge(comp, bot)
     
-    # Step 3: Priority reorder (puts affordable unit types first in SpawnController loop)
+    # Step 4: Priority reorder — push unaffordable units behind affordable ones
+    # Only touches units we can't afford right now; affordable units keep their
+    # effectiveness-based priority from step 1. Prevents SpawnController break
+    # in non-freeflow mode without overriding the strategic choice.
     comp = reorder_priorities_by_resources(comp, bot)
     
     # Cache for debug overlay
     bot._last_base_comp = selected_composition
     bot._last_nudged_comp = comp
-    # Store resource pressure state for debug display
-    minerals, vespene = bot.minerals, bot.vespene
-    if minerals > RESOURCE_IMBALANCE_RATIO * max(vespene, 1):
-        bot._resource_pressure = "GAS_STARVED"
-    elif vespene > RESOURCE_IMBALANCE_RATIO * max(minerals, 1):
-        bot._resource_pressure = "MIN_STARVED"
-    else:
-        bot._resource_pressure = "BALANCED"
+    # Resource pressure state for debug display (same signal as the nudge above)
+    bot._resource_pressure = get_resource_pressure(bot, sustained=False)
     
     return comp
 
@@ -1710,6 +1727,12 @@ async def handle_macro(
     else:
         # Reduced+: gas buildings and spawn from existing production
         gas_target = _resolve(profile.gas_target, bot)
+        # Mineral-starved: freeze new assimilators at current count. Building one
+        # costs 75 minerals up-front and pulls 3 workers off minerals, deepening
+        # the shortage. Uses sustained (income-rate) signal so a warp-in bank dip
+        # can't trigger a false freeze. Clears automatically when income recovers.
+        if get_resource_pressure(bot, sustained=True) == "MINERAL_STARVED":
+            gas_target = min(gas_target, bot.gas_buildings.amount)
         macro_plan.add(GasBuildingController(to_count=gas_target, max_pending=2))
         
         spawn_target = warp_prism[0].position if warp_prism else spawn_location

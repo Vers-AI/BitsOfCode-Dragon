@@ -8,6 +8,40 @@ Limitations: SQ unreliable when income < 600/min (early game).
 
 import math
 
+from bot.constants import RESOURCE_IMBALANCE_RATIO
+
+
+def get_resource_pressure(bot, sustained: bool = False) -> str:
+    """Classify current resource balance — single source of truth for pressure state.
+
+    Used by composition nudging (sustained=False, instantaneous bank) and by
+    structural decisions like assimilator queuing (sustained=True, income rates).
+
+    sustained=True uses collection_rate_* — immune to spending bursts, so a
+    warp-in cycle that dips the mineral bank won't flip the signal. Right for
+    long-lived decisions where a false positive means halting gas infrastructure.
+    sustained=False uses bot.minerals / bot.vespene — responsive to the current
+    bank, which is the point for composition nudging: produce what we can afford
+    *right now*.
+
+    Returns "MINERAL_STARVED", "GAS_STARVED", or "BALANCED".
+    Threshold governed by RESOURCE_IMBALANCE_RATIO (default 2.0).
+
+    Perf note: O(1) — two attribute reads. Negligible.
+    """
+    if sustained:
+        minerals = bot.state.score.collection_rate_minerals
+        vespene = bot.state.score.collection_rate_vespene
+    else:
+        minerals = bot.minerals
+        vespene = bot.vespene
+
+    if minerals > RESOURCE_IMBALANCE_RATIO * max(vespene, 1):
+        return "GAS_STARVED"
+    if vespene > RESOURCE_IMBALANCE_RATIO * max(minerals, 1):
+        return "MINERAL_STARVED"
+    return "BALANCED"
+
 
 def get_economy_state(bot) -> str:
     """
