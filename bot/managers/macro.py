@@ -22,7 +22,7 @@ from ares.behaviors.macro import (
     BuildStructure,
     TechUp,
 )
-from ares.consts import UnitRole, WORKER_TYPES
+from ares.consts import UnitRole, WORKER_TYPES, LOSS_DECISIVE_OR_WORSE
 from ares.consts import ID, TARGET
 
 from bot.utilities.performance_monitor import get_economy_state, get_resource_pressure
@@ -1015,6 +1015,58 @@ def expansion_checker(bot, main_army) -> int:
     return expansion_count
 
 
+def _safe_to_invest_in_tech(bot) -> bool:
+    """Is it safe to spend minerals on tech buildings/upgrades right now?
+
+    Uses two dimensions:
+      1. Resource pressure: can the bank absorb the cost?
+         (same signal as GasBuildingController and nudge pipeline)
+      2. Situation severity: are we in a fight we might lose?
+         Combines _under_attack / is_early_defensive with the combat sim
+         margin. Being under attack alone doesn't block tech — winning
+         while under attack is exactly when tech investment pays off.
+         Only block when we're losing badly enough that every mineral
+         needs to go to army.
+    """
+    # Bank is drained — can't afford tech buildings without starving army
+    if get_resource_pressure(bot, sustained=False) != "BALANCED":
+        return False
+
+    # Check if we're in a threatened situation at all
+    under_pressure = (
+        getattr(bot, '_under_attack', False)
+        or bot.reaction_manager.is_early_defensive
+    )
+
+    if not under_pressure:
+        return True  # Safe macro — resource pressure is the only concern
+
+    # We're under pressure. Check the combat sim to see if we're holding.
+    # The sim accounts for positioning (good_positioning=True), so a
+    # defender's advantage is reflected in the result.
+    try:
+        own_combat = [u for u in bot.own_army if u.type_id not in WORKER_TYPES]
+        enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES]
+        if not own_combat or not enemy_combat:
+            return True  # No fight to sim — safe to invest
+
+        fight_result = bot.mediator.can_win_fight(
+            own_units=own_combat,
+            enemy_units=enemy_combat,
+            timing_adjust=True,
+            good_positioning=True,
+            workers_do_no_damage=True,
+        )
+        # TIE or better: we're holding — tech investment will pay off
+        # when the attack breaks. LOSS_DECISIVE or worse: every mineral
+        # needs to go to army production.
+        if fight_result in LOSS_DECISIVE_OR_WORSE:
+            return False
+        return True
+    except Exception:
+        return True  # Sim failed — don't block upgrades on uncertainty
+
+
 def get_desired_upgrades(bot) -> list[UpgradeId]:
     """
     Returns dynamic upgrade list based on the active BuildProfile and game state.
@@ -1033,14 +1085,22 @@ def get_desired_upgrades(bot) -> list[UpgradeId]:
         if not bot.pending_or_complete_upgrade(upgrade) and predicate(bot):
             upgrades.append(upgrade)
     
-    # Gate early upgrades if economy not ready (use centralized economy state)
+    # Gate 1: Economy can't sustain investment long-term (income too low)
     economy_state = get_economy_state(bot)
     if economy_state in ("recovery", "reduced"):
         return upgrades
     
-    # Also gate if army is too small (need units before upgrades)
+    # Gate 2: Army too small — need units before upgrades
     if bot.supply_army < 15:
         return upgrades
+    
+    # Gate 3: Situational safety — can we afford to divert minerals from
+    # army production right now? Checks bank balance, threat state, and
+    # combat sim margin. Being under attack doesn't block tech — only
+    # blocks when losing badly (LOSS_DECISIVE or worse). Prevents the
+    # post-build-runner tech cascade from draining the mineral bank.
+    if not _safe_to_invest_in_tech(bot):
+        return []
     
     return upgrades
 
