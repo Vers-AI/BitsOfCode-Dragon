@@ -1390,28 +1390,12 @@ def render_narrow_choke_points(bot) -> None:
         return
     
     # Group tiles by width (each unique width = one choke)
-    # We only need the center label per choke, not per-tile
     width_to_tiles: dict[float, list[Point2]] = {}
     for tile, w in choke_width_map.items():
         width_to_tiles.setdefault(round(w, 1), []).append(tile)
     
-    # Draw each choke group
-    for width, tiles in width_to_tiles.items():
-        # Find center of this choke's tiles for the label
-        cx = sum(t.x for t in tiles) / len(tiles)
-        cy = sum(t.y for t in tiles) / len(tiles)
-        center = Point2((cx, cy))
-        z = bot.get_terrain_z_height(center)
-        
-        # Width label at choke center
-        bot.client.debug_text_world(
-            f"CHOKE w={width:.1f}",
-            Point3((cx, cy, z + 1.5)),
-            color=(255, 255, 0),
-            size=12,
-        )
-        
-        # Draw tiles as small spheres, capped to avoid crashing the SC2 debug renderer.
+    # Draw each choke group as small spheres, capped to avoid crashing the SC2 debug renderer.
+    for tiles in width_to_tiles.values():
         # Large chokes can have 100+ tiles; rendering all of them every frame
         # exceeds the client's draw call budget and crashes the game.
         max_spheres = 40
@@ -1642,7 +1626,6 @@ def render_refined_choke_debug(
     - Green sphere at the refined choke center
     - Green line across the passage (perpendicular direction, spanning the measured width)
     - Green arrow along the passage axis showing orientation
-    - Width label at the choke center
 
     Args:
         bot: Bot instance
@@ -1692,14 +1675,6 @@ def render_refined_choke_debug(
         color=Point3((0, 180, 0)),
     )
 
-    # Width label at the choke center
-    bot.client.debug_text_world(
-        f"CHOKE w={refined.width:.1f}",
-        Point3((center.x, center.y, z + 1.5)),
-        color=(0, 255, 0),
-        size=12,
-    )
-
     # Dashed-style line from choke center to enemy center if provided
     if enemy_center is not None:
         ez = bot.get_terrain_z_height(enemy_center)
@@ -1721,7 +1696,6 @@ def render_refined_choke_points(bot) -> None:
     - Green sphere at the refined center
     - Green line spanning the measured width (perpendicular to passage)
     - Dark green arrow along the passage axis
-    - Green width label
     """
     if not bot.debug:
         return
@@ -1794,14 +1768,6 @@ def render_refined_choke_points(bot) -> None:
             Point3((center.x, center.y, z + 0.3)),
             Point3((arrow_end.x, arrow_end.y, za + 0.3)),
             color=Point3((0, 180, 0)),
-        )
-
-        # Width label at the refined center
-        bot.client.debug_text_world(
-            f"RC w={refined.width:.1f}",
-            Point3((center.x, center.y, z + 1.5)),
-            color=(0, 255, 0),
-            size=12,
         )
 
 
