@@ -1787,11 +1787,12 @@ async def handle_macro(
     else:
         # Reduced+: gas buildings and spawn from existing production
         gas_target = _resolve(profile.gas_target, bot)
-        # Mineral-starved: freeze new assimilators at current count. Building one
-        # costs 75 minerals up-front and pulls 3 workers off minerals, deepening
-        # the shortage. Uses sustained (income-rate) signal so a warp-in bank dip
-        # can't trigger a false freeze. Clears automatically when income recovers.
-        if get_resource_pressure(bot, sustained=True) == "MINERAL_STARVED":
+        # Demand-based gas: only build new assimilators when existing gas
+        # capacity is fully saturated — that's the throughput manager's
+        # (get_optimal_gas_workers) signal that we need more capacity.
+        # When it throttles workers below 3, existing geysers are
+        # underutilized and building more wastes 75m that could go to army.
+        if get_optimal_gas_workers(bot) < 3:
             gas_target = min(gas_target, bot.gas_buildings.amount)
         macro_plan.add(GasBuildingController(to_count=gas_target, max_pending=2))
         
