@@ -320,6 +320,7 @@ def find_best_snipe_target(
     squad_stalkers: list[Unit],
     squad_position: Point2,
     min_value: float = SNIPE_MIN_TARGET_VALUE,
+    sim_enemies: Optional[list] = None,
 ) -> Optional[tuple[Unit, int, list[Unit], str]]:
     """Find the best target for a group blink snipe (Snipe-A, Snipe-B, or Focus).
 
@@ -370,9 +371,11 @@ def find_best_snipe_target(
             continue
 
         # Combat sim gate: can the snipe squad survive against nearby enemies?
+        # sim_enemies includes static defenses (cannons, bunkers, spines) that
+        # all_close excludes — stalkers must know if blinking into cannon range
         sim_result = bot.mediator.can_win_fight(
             own_units=Units(candidates, bot),
-            enemy_units=Units(list(enemies), bot),
+            enemy_units=Units(sim_enemies if sim_enemies is not None else list(enemies), bot),
             workers_do_no_damage=True,
         )
         if sim_result not in SNIPE_SIM_THRESHOLD:
@@ -409,9 +412,10 @@ def find_best_snipe_target(
             continue
 
         # Combat sim gate: more permissive than snipe (TIE_OR_BETTER)
+        # sim_enemies includes static defenses for survival evaluation
         sim_result = bot.mediator.can_win_fight(
             own_units=Units(candidates, bot),
-            enemy_units=Units(list(enemies), bot),
+            enemy_units=Units(sim_enemies if sim_enemies is not None else list(enemies), bot),
             workers_do_no_damage=True,
         )
         if sim_result not in FOCUS_SIM_THRESHOLD:
@@ -444,6 +448,7 @@ def try_commit_snipe(
     enemies: Union[Units, list[Unit]],
     squad_stalkers: list[Unit],
     squad_position: Point2,
+    sim_enemies: Optional[list] = None,
 ) -> bool:
     """Evaluate and commit a snipe (A or B) for this squad.
 
@@ -483,6 +488,7 @@ def try_commit_snipe(
         stalker_sample=stalker_sample,
         squad_stalkers=squad_stalkers,
         squad_position=squad_position,
+        sim_enemies=sim_enemies,
     )
     if result is None:
         return False

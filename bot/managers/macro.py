@@ -1046,7 +1046,7 @@ def _safe_to_invest_in_tech(bot) -> bool:
     # defender's advantage is reflected in the result.
     try:
         own_combat = [u for u in bot.own_army if u.type_id not in WORKER_TYPES]
-        enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES]
+        enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES and not u.is_structure]
         if not own_combat or not enemy_combat:
             return True  # No fight to sim — safe to invest
 

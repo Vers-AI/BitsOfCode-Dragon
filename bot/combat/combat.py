@@ -1788,29 +1788,11 @@ def handle_attack_toggles(
     Returns the target position where army should move (attack target or retreat position).
     DOES NOT control units - only sets flags and returns target.
     """
-
-    def _set_attack_state(new_value: bool) -> None:
-        """Update _commenced_attack and track attack telemetry.
-
-        On False->True: count the initiation and stamp the start time.
-        On True->False: accrue elapsed time into _total_attack_time.
-        No-op if the value is unchanged.
-        """
-        if new_value == bot._commenced_attack:
-            return
-        bot._commenced_attack = new_value
-        if new_value:
-            bot._attack_initiation_count += 1
-            bot._current_attack_start = bot.time
-        else:
-            if bot._current_attack_start > 0:
-                bot._total_attack_time += bot.time - bot._current_attack_start
-                bot._current_attack_start = 0.0
-
+    
     # When under attack, redirect entire army to defend
     # This takes priority - army moves cohesively to threat position
     if bot._under_attack and hasattr(bot, '_defender_threat_position') and bot._defender_threat_position:
-        _set_attack_state(False)  # Cancel any ongoing attack
+        bot._commenced_attack = False  # Cancel any ongoing attack
         return bot._defender_threat_position
     
     # Assess the threat level of enemy units for main combat decisions
@@ -1876,7 +1858,7 @@ def handle_attack_toggles(
                 )
                 if fight_result in LOSS_DECISIVE_OR_WORSE:
                     if try_mass_recall(bot, main_army, fight_result, squads=squads):
-                        _set_attack_state(False)
+                        bot._commenced_attack = False
                         if bot.townhalls:
                             return cy_closest_to(main_army.center, bot.townhalls).position
                         return bot.start_location
@@ -1884,7 +1866,7 @@ def handle_attack_toggles(
                 return attack_target
             else:
                 # No nearby enemies - safe to retreat
-                _set_attack_state(False)
+                bot._commenced_attack = False
                 if bot.townhalls:
                     return cy_closest_to(main_army.center, bot.townhalls).position
                 else:
@@ -1913,11 +1895,11 @@ def handle_attack_toggles(
             if fight_result in LOSS_DECISIVE_OR_WORSE:
                 # Try mass recall first — if army is trapped and losing badly, recall out
                 if try_mass_recall(bot, main_army, fight_result, squads=squads):
-                    _set_attack_state(False)
+                    bot._commenced_attack = False
                     if bot.townhalls:
                         return cy_closest_to(main_army.center, bot.townhalls).position
                     return bot.start_location
-                _set_attack_state(False)
+                bot._commenced_attack = False
                 if bot.townhalls:
                     return cy_closest_to(main_army.center, bot.townhalls).position
                 else:
@@ -1929,7 +1911,7 @@ def handle_attack_toggles(
         
         # Max supply fallback: force attack when capped
         if bot.supply_used >= 199:
-            _set_attack_state(True)
+            bot._commenced_attack = True
             bot._attack_commenced_time = bot.time
             return attack_target
         
@@ -1984,7 +1966,7 @@ def handle_attack_toggles(
         required_result = VICTORY_MARGINAL_OR_BETTER if (is_early_defensive_mode or has_siege_tanks) else TIE_OR_BETTER
         
         if fight_result in required_result:
-            _set_attack_state(True)
+            bot._commenced_attack = True
             bot._attack_commenced_time = bot.time
             return attack_target
         

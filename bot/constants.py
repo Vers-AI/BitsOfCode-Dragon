@@ -71,6 +71,20 @@ broodlings (short-lived ~8s Swarm Host spawns, not worth 50 energy to block)."""
 DISRUPTOR_IGNORE_TYPES: set[UnitTypeId] = TARGET_IGNORE_TYPES
 """Alias retained for backward compat — see TARGET_IGNORE_TYPES."""
 
+STATIC_DEFENSE_TYPES: set[UnitTypeId] = {
+    UnitTypeId.BUNKER,
+    UnitTypeId.MISSILETURRET,
+    UnitTypeId.PHOTONCANNON,
+    UnitTypeId.SPINECRAWLER,
+    UnitTypeId.SPORECRAWLER,
+    UnitTypeId.PLANETARYFORTRESS,
+    UnitTypeId.SPINECRAWLERUPROOTED,
+    UnitTypeId.SPORECRAWLERUPROOTED,
+    UnitTypeId.AUTOTURRET,
+}
+"""Enemy static defenses to include in tactical combat sims. Excludes
+ShieldBattery (no weapon — ARES sim warning: only include units that can attack)."""
+
 # ===== COMBAT PARAMETERS =====
 MELEE_RANGE_THRESHOLD = 3.0
 """Range threshold to classify units as melee vs ranged"""

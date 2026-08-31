@@ -102,7 +102,7 @@ def _get_fight_result(bot):
     """Get can_win_fight EngagementResult, returning None on error."""
     try:
         own_combat = [u for u in bot.own_army if u.type_id not in WORKER_TYPES]
-        enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES]
+        enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES and not u.is_structure]
         return bot.mediator.can_win_fight(
             own_units=own_combat,
             enemy_units=enemy_combat,
