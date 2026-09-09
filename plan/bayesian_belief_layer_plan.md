@@ -1269,49 +1269,134 @@ Implemented as two new API endpoints in `telemetry/pigbot/api.py`:
 - Measure accuracy via training log (`/mnt/forge/telemetry/pigbot/training_log.json`)
 - **Gate:** If accuracy reaches ~60% and the bot's decision-making improves, Phase A may be sufficient. If naive Bayes plateaus below ~55% with clean inputs, proceed to Phase B.
 
-### Phase B — Algorithm Upgrade (conditional)
+### Phase B — Algorithm Upgrade (COMPLETE ✅ — hard cutover executed 2026-09-08)
 
-- Train a sklearn `GradientBoostingClassifier` offline on the same telemetry data
-- Compare accuracy against the naive Bayes model side by side
-- If sklearn wins by a meaningful margin, swap the runtime inference path:
-  - Replace `bn_inference.py` (numpy CPD lookup) with `joblib.load()` + `predict_proba()`
-  - Remove `export_bn_model.py` step (sklearn models save/load directly via joblib)
-  - Keep opponent prior and map prior multiplication as post-hoc Bayesian update on sklearn output
-  - Keep confidence thresholds in ReactionManager unchanged
-- **Trade-off:** sklearn sacrifices per-prediction transparency (no CPD traceability) for higher accuracy. Global feature importances are available but individual prediction reasoning becomes opaque. With naive Bayes, any wrong prediction can be traced to specific CPD entries. With sklearn, debugging is empirical — tweak features, retrain, observe.
+**Gate evaluation (2026-09-07): Phase A FAILED.** Deployed v0.12.4 (Aug 3 retrained BN, 493 games, position features live) accuracy on 123 ground-truth labeled matches: **40.7%** vs ≥60% target. Confusion: macro→timing (18), cheese→macro (17), macro→all_in (12). Macro-vs-aggressive split only 52.8%. The plan's trigger — "if naive Bayes plateaus below ~55% with clean inputs, proceed to Phase B" — has fired.
+
+**Holdout gate results (2026-09-08, seed 42, stratified 80/20 on 1,329 labeled rows):**
+
+| Model | Holdout accuracy | Macro split | Cheese recall | All_in recall | Timing recall | Macro recall |
+|---|---|---|---|---|---|---|
+| Deployed BN (v0.12.4) | **16.9%** | 48.1% | 0.0% | 87.2% | 8.3% | 0.0% |
+| sklearn GBC | **67.7%** | 80.5% | 87.2% | 29.8% | 58.3% | 78.8% |
+
+Delta: **+50.8 pts** — gate passed decisively (needed ≥55% and ≥+8pts). The deployed BN was degenerate on the holdout: it predicted `all_in` for 129/132 macro games. sklearn's weakness is all_in recall (29.8%) — all_in confuses with timing/macro, acceptable for now since cheese (the response-critical class) is at 87.2%.
+
+**Retrain on fresh labels (2026-09-08 evening — labeler unstuck):** The API-side replay labeler resumed (was stalled since Aug 3, match 4916064), adding **682 newly labeled matches** (431 macro / 103 cheese / 91 timing / 57 all_in) — total window now **1,997 labeled games**. Retrained on the full set:
+
+| Metric | Morning model (1,329) | **Final model (1,997)** | Note |
+|---|---|---|---|
+| Holdout accuracy | 67.7% | **70.2%** | n=400 holdout, more reliable |
+| Cheese recall | 87.2% | 55.9% | see below — data shift, not regression |
+| all_in recall | 29.8% | **43.1%** | doubled |
+| Timing recall | 58.3% | **66.7%** | |
+| Macro recall | 78.8% | **82.5%** | |
+
+**Why cheese recall dropped (investigated, not a regression):** the cheese *meta shifted* between windows. Old cheese: 85% Protoss (homogeneous, easy). Fresh cheese: 52% Protoss / 23% Terran / 22% Zerg — diverse proxy play the old window barely contained (`rax_near_base=yes` cheese games: 2 old vs 11+ new). Control experiment: the morning model scored only **40.8% cheese recall** on the 682 fresh games (worse than the fresh-trained model's 55.9%) — the morning 87.2% was inflated by homogeneous holdout cheese. The final model is deployed: same accuracy on fresh games (+15 pts cheese recall vs morning model) and correctly flags proxy-rax evidence as cheese 85.7%.
+
+### Labeler Poison Fix + v3 Features (2026-09-08, evening session 2)
+
+**The test-game investigation.** A local test game (12-pool ling flood: pool at 18s, lings at base at 97s, under_attack at 180s, loss at 4:21) was predicted `macro` at 92.8% — the model saw correct evidence (`pool_bin=very_early`) and still said macro. Root cause chain:
+1. **Labels were poisoned**: the replay labeler mapped `build_label=12_pool` → `macro` 58% (157/270) — fast losses (<7min) to ling floods never accumulated the "aggression" evidence the category logic needed, so it defaulted to macro. The labeler's own `build_label` contradicted its `strategy_category`.
+2. **Disambiguation features existed but weren't fed**: `gas_time`/`ling_seen` (and later `queen_time`/`nat_present` — evaluated and dropped as weak) were collected in training rows and at runtime but left out of the BN-era 15-feature set (CPD memory constraint carried over unexamined).
+
+**Labeler fixes (user, API side, 2026-09-08):**
+- `ling_flood_rule`: early-pool games <7min with ≥30 lings AND opponent workers never exceeding 18 → `all_in/ling_flood` (worker stall = commitment evidence, sc2ai.coach semantics)
+- Commitment guards (`early_pool_split` + `ling_flood`) now run before pattern heuristics — the 13 stragglers that escaped via a cheap third Hatchery (larvae pump, not a base) are caught
+- Full corpus relabel: 2,124/2,124, zero failures; flood-signature macro games 76→0; false ling_flood catches 0 (15 genuine droning games kept macro)
+- **Known-unfixed**: the `_detect_all_in_commitment` sliding window has a pre-existing pid int/string lookup bug — dead code for the entire pipeline history. All historical all_in labels came from Pass 2 heuristics. When fixed, all_in semantics may shift again.
+
+**v3 feature set (bot side):**
+- `SKLEARN_EVIDENCE_COLS` 15 → 17: added `gas_timing` (none/early<50/mid<90/late — all_in takes gas 38-42s, cheese 52-60s) and `ling_timing` (none/early<120/mid<160/late — rush lings scouted mid-band, macro's defensive lings earlier/later). Bins tuned via per-label quartile analysis (v3c variant won: 73.2% vs 70.2% poisoned baseline).
+- `queen_timing` + `nat_present` evaluated and dropped (3 cheese samples; redundant with nat_timing).
+- Runtime `_build_evidence()` in `strategy_belief.py` produces matching bins — the same 17 keys the model was trained on.
+- Telemetry emission bugs fixed in `game_report.py`: (a) Zerg timing fields (`queen_time`, `speed_start`, `ling_has_speed`, `gas_workers`, `score_12p`, `score_speed`, `auto_true_fired`) were gated on `hasattr(bot, '_cheese_label')` — which only exists after `detect_cheese()` runs, which only happens when the model is MISSING. With model primary, these were None for all 2,000 games. Now unconditional. (b) Tech structure timings (`factory_start`, `starport_start`, `stargate_start`, `robotics_facility_start`, `robotics_bay_start`, `baneling_nest_start`, `roach_warren_start`, `spire_start`) now emitted — enables Terran/Protoss timing-vs-macro and Zerg bane-flood discrimination at future retrains, pending API-side column ingestion.
+
+**Clean-corpus results (1,997 labeled in window of user's 2,124 corpus; API caps at newest 2,000, offset ignored):**
+
+| Metric | Poisoned corpus | **Clean corpus** |
+|---|---|---|
+| Holdout accuracy | 70.2% | **72.2%** |
+| all_in recall | 29.3% | **58.2%** (doubled — ling_flood games now learnable) |
+| Macro recall | 82.5% | **89.5%** |
+| Cheese recall | 55.9% | 43.3% (ling_flood moved to all_in where it belongs) |
+| Timing recall | 66.7% | 28.6% (audit item L3: timing labels 329→141, still being assessed) |
+
+**The test game now reads correctly through the runtime path:**
+- t=18-60 (pool seen): all_in 50.6% — suspicious, waits for more evidence
+- **t=97 (lings spotted, no gas): all_in 70.6% — REACTION FIRES** (threshold 0.6)
+- 83 seconds of lead time before the under_attack at t=180 — defenses build in time
+
+**Feature importances (clean model):** enemy_race 0.279, bases_bin 0.163, duration_bin 0.098, cannon_near_base 0.087, **ling_timing 0.085**, **gas_timing 0.069** (#5 and #6 — the v3 disambiguators earned their place), pool_bin 0.058.
+
+**Feature importances (final model):** enemy_race 0.466, bases_bin 0.119, duration_bin 0.092, cannon_near_base 0.076, pool_bin 0.062. Position features carry real signal — Phase A's input fix worked; the BN couldn't exploit it, sklearn does.
+
+**Decision: hard cutover.** Executed:
+
+- `bot/belief/sklearn_inference.py` (new) — joblib artifact loader with BNInference-compatible interface (`load()`, `is_loaded`, `predict(**evidence)`), load-time sanity prediction, DataFrame-based feature alignment. Artifact: `bot/models/strategy_model_sklearn.pkl` = `{model: Pipeline(OneHotEncoder + GBC), feature_cols, classes, n_samples}`.
+- `bot/belief/strategy_belief.py` — `BNInference()` → `SklearnInference()`; source labels `BN`/`BN+OPP` → `SKL`/`SKL+OPP`.
+- `bot/belief/bn_inference.py` — **DELETED**
+- `scripts/export_bn_model.py` — **DELETED** (sklearn saves directly via joblib)
+- `bot/models/strategy_belief_model.npz` + `.pkl` — **DELETED**
+- pgmpy removed from `[tool.poetry.group.dev.dependencies]`; `poetry.lock` regenerated (537-line reduction)
+- `bot/utilities/game_report.py:837` — `pred.source == "BN+OPP"` → `pred.source.endswith("+OPP")` (model-agnostic)
+- `scripts/train_strategy_belief.py` — `train_bn()` → `train_sklearn()`; self-correction loads the previous sklearn artifact (no bot-package import); `--from-cache` flag reuses `data/eval_cache_training_data.pkl.gz` (the events endpoint is ~2.5s/request — serial fetch of 2000 matches takes ~55 min); pre-filters to labeled matches in ground-truth-only mode
+- `scripts/eval_bn_vs_sklearn.py` (new) — the holdout harness with parallel event prefetch + resumable checkpointing (`data/events_cache.pkl`)
+- Final training: 1,329 rows, 4 classes, artifact saved, priors rebuilt (category/opponent: 65 opponents/map: 7 maps)
+- Version bumped to **0.13.0**
+
+**Feature importances (top-5):** enemy_race 0.587, duration_bin 0.110, pool_bin 0.088, nat_timing 0.053, cannon_near_base 0.048. Position features (cannon_near_base) now carry real signal — Phase A's input fix worked; the BN just couldn't exploit it.
+
+**Runtime verification (standalone):** `SklearnInference` loads the artifact, sanity-check passes, `predict()` returns a normalized `dict[StrategyCategory, float]`, partial evidence (missing keys → "unknown") works, no sklearn warnings (DataFrame-based feature alignment).
+
+**What was NOT replaced (verified):** Level-2 labels (`_infer_level2()` rules), opponent/map priors (post-hoc multiply on `predict_proba` — unchanged code), composition belief, scout VOI, guards→rules fallback chain. All gameplay consumers read the `StrategyPrediction` dataclass — interface unchanged. Only observable change: `strategy_source` telemetry values `BN*` → `SKL*`.
+
+**Known behavior difference:** GBC `predict_proba` produces sharper distributions than BN CPD lookups — `strategy_nudge_proportions()` will blend fewer categories above its 0.25 threshold. Watch in first games after deploy.
+
+**Known weaknesses (Phase C targets):**
+- all_in recall 29.8% — confuses with timing_attack and macro. May need class weights or an all_in-specific feature (e.g., worker count decline).
+- Feature importances are race-dominated (0.587) — plausible (race gates strategies) but suggests per-race models might discriminate better if data grows.
+- Replay labeling stalled after match 4916064 — post-deploy accuracy verification via mismatches endpoint will be dark until the API-side labeler resumes.
+
+- **Trade-off:** sklearn sacrifices per-prediction transparency (no CPD traceability) for higher accuracy. Global feature importances are available but individual prediction reasoning becomes opaque. With naive Bayes, any wrong prediction could be traced to specific CPD entries. With sklearn, debugging is empirical — tweak features, retrain, observe.
 - **No container changes needed:** scikit-learn 1.8.0 is already installed in the AI Arena container. Deployment uses `joblib.load()` which is also already available.
 
 ### Phase C — Continuous Improvement (ongoing)
 
-- Retrain after every significant ladder session (every ~200-500 new games)
+- **Labeler restored (2026-09-08):** 682 matches labeled since the Aug 3 stall; verification loop is live again. Retrained on all 1,997 same day.
+- **Corpus clean + relabeled (2026-09-08 evening):** ling_flood rule + commitment guards; 2,124 relabeled, 76 poison games fixed. Clean-corpus model retrained (72.2% holdout, all_in recall 58.2%).
+- **API endpoint complete (2026-09-09):** all 15 telemetry fields exposed in `match-level-full` (7 Zerg detail + 8 tech timings). Population: Zerg fields live for 0.9.x-era games (232/780, 90 with real queen_time), null for 0.10-0.12.x (gate-bug era), restored from v0.13.0 onward. Tech timings −1 until v0.13.0 games arrive. Training script reads them match-level now (event enrichment fallback intact).
+- Retrain after every significant ladder session (every ~200-500 new games): `python scripts/train_strategy_belief.py --from-cache` (refresh cache via `eval_bn_vs_sklearn.py --refresh-cache` first)
 - Append to training log after each retrain to track accuracy trend over time
-- Monitor for feature drift (new maps, balance patches, meta shifts) that may degrade model performance
-- If sklearn is adopted, periodically retrain with fresh data to prevent staleness
+- Monitor for feature drift (new maps, balance patches, meta shifts) that may degrade model performance — the Sep 8 cheese-meta shift (Protoss-homogeneous → diverse race mix) is the first observed example
+- Phase C targets: cheese recall >70% (needs more diverse cheese examples), all_in recall >50% (class weights?), per-race model split, continuous timing features (Backlog)
+- **Backlog — known issues:**
+  - `ling_has_speed` never fires (0 in all 232 populated games — detection logic may be broken in `enemy_timings.py`)
+  - API `_detect_all_in_commitment` pid int/string lookup bug (user's fix pending) — all_in semantics may shift when fixed
+  - Tech-timing features (factory/starport/stargate/etc.) trainable once ~200+ v0.13.0 games accumulate
+  - Combined-aggression threshold (route reaction on P(cheese)+P(all_in) ≥0.7 even when neither alone ≥0.6) — pending more test games; the Sep 9 test game (safe-pool rush with nat@127s + queen) hovered at 77% combined aggression for 2min without routing
 
 ### Constraints
 
-- **AI Arena container**: scikit-learn 1.8.0, numpy 2.0.2, scipy 1.17.0, torch 2.10.0 CPU, pandas 2.3.3, joblib 1.5.3 all available. No new dependencies needed for any phase. pgmpy is NOT in the container but is dev-only (training); runtime uses numpy .npz lookup (current) or joblib .pkl (Phase B).
-- **Runtime performance**: BN lookup stays sub-ms even with 15 parent variables (numpy fancy indexing). sklearn predict() on a GradientBoostingClassifier is ~0.1ms. Both well within the 0.5ms frame budget.
-- **Competition safety**: All changes feature-gated. BN model falls back to existing 7-variable model if new model file is missing. Auto-TRUE guards remain available as fallback (even though currently disabled by config).
+- **AI Arena container (verified against aiarena-docker-base uv.lock, 2026-09-08)**: for Python ≥3.11: scikit-learn 1.8.0, numpy 2.4.4, scipy 1.17.1; universal: pandas 2.3.3, joblib 1.5.3. requires-python ">=3.10, <3.13" (max 3.12). pgmpy: NOT in container (moot now — removed from our dev deps too).
+- **Pickle compatibility audit (2026-09-08)**: artifact `strategy_model_sklearn.pkl` scanned — contains ONLY sklearn/numpy/joblib objects (zero pandas references; pandas is used only to construct the input DataFrame at runtime). Critical deps exact-match the container (sklearn 1.8.0, joblib 1.5.3); numpy 2.1.3→2.4.4 is within-major pickle compat (both use numpy._core layout); pickle protocol 4 (Python 3.4+ — loads on container's 3.10-3.12). Residual risk (numpy cross-version load) is guarded by SklearnInference's load-time sanity prediction → falls back to guards/rules on failure.
+- **Runtime performance**: sklearn predict() on a GradientBoostingClassifier is ~0.1ms — well within the 0.5ms frame budget.
+- **Competition safety**: All changes feature-gated. If the sklearn model file is missing or fails its sanity check, StrategyBelief falls back to auto-TRUE guards → rule-based scoring.
 
 ### Success Metrics
 
-| Metric | Current (2026-07-18) | Target |
-|--------|---------|--------|
-| Level-1 accuracy (bot vs replay) | 42.6% overall | ≥60% after Phase A, ≥70% after Phase B |
-| Cheese false positive rate | 127 FPs in ~700 matches | <10% after Phase A |
-| Cheese false negative rate | 294 FNs in ~700 matches | <15% after Phase A |
-| BN confidence on correct predictions | Unknown | >0.7 average |
+| Metric | BN era (2026-07-18) | sklearn holdout (2026-09-08, n=400) | Target |
+|--------|---------------------|------------------------------|--------|
+| Level-1 accuracy | 42.6% deployed / 16.9% holdout | **70.2% holdout** | ≥75% (Phase C) |
+| Cheese recall | 0.0% holdout | **55.9%** | >70% (harder now — diverse cheese meta) |
+| Macro-vs-aggressive split | 48.1% holdout | **80.8%** | >85% |
+| all_in recall | 87.2% holdout (degenerate) | **43.1%** | >50% (Phase C target) |
+
+**Verification loop reopened (2026-09-08):** the API-side replay labeler resumed after being stalled since Aug 3. Post-deploy accuracy will be measurable via the mismatches endpoint as new v0.13.0 games accumulate labels.
 
 ### Connection to Auto-TRUE Guards
 
-The auto-TRUE guards are currently disabled by config (`config.yml`). The intent is to train the BN to be the sole arbiter. The path to re-enabling guards (or not) depends on BN accuracy:
-
-1. **After Steps 1+2**: Measure BN accuracy with position+timing features. If >90% on cheese detection, guards are redundant for cheese. Keep disabled.
-2. **After Step 3 (if needed)**: If sklearn model hits >92% overall, guards can be permanently removed from the codebase.
-3. **If BN plateaus <85%**: Re-enable guards for the specific scenarios where BN fails. Guards become targeted overrides, not blanket fallbacks.
-
-The end state: BN as the sole strategy classifier, no deterministic guards needed. Whether that's achievable depends on data volume and feature quality. Steps 1-3 are the path to finding out.
+The auto-TRUE guards are the deterministic fallback when the sklearn model is missing (model file absent or failed its load-time sanity check). The end state remains: model as the sole strategy classifier, guards as an emergency net only.
 
 #### Implementation Status
 

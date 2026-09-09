@@ -806,18 +806,37 @@ def emit_match_record(bot, game_result, game_time: float,
                                                   for s in bot.enemy_structures)),
     })
 
-    # Zerg-specific cheese detection fields (only set for Zerg/Random)
+    # Zerg-specific detection fields — sent unconditionally with defaults.
+    # NOTE: previously gated on hasattr(bot, '_cheese_label'), which is only
+    # set inside detect_cheese() — and detect_cheese() only runs when the
+    # sklearn model is MISSING. With the model primary, these fields were
+    # None for every game in the 2000-match window. Timing attrs are safe
+    # getattr defaults; scores default 0.
+    match_fields.update({
+        "queen_time": _get_rush_timing('_queen_started_time', bot),
+        "speed_start": _get_rush_timing('_speed_research_time', bot),
+        "ling_has_speed": 1 if getattr(bot, '_ling_has_speed', False) else 0,
+        "gas_workers": getattr(bot, '_gas_workers_count', 0),
+        "score_12p": getattr(bot, '_score_12p', 0),
+        "score_speed": getattr(bot, '_score_speed', 0),
+        "auto_true_fired": getattr(bot, '_auto_true_fired', False),
+    })
     if hasattr(bot, '_cheese_label'):
-        match_fields.update({
-            "cheese_label": getattr(bot, '_cheese_label', 'none'),
-            "queen_time": _get_rush_timing('_queen_started_time', bot),
-            "speed_start": _get_rush_timing('_speed_research_time', bot),
-            "ling_has_speed": 1 if getattr(bot, '_ling_has_speed', False) else 0,
-            "gas_workers": getattr(bot, '_gas_workers_count', 0),
-            "score_12p": getattr(bot, '_score_12p', 0),
-            "score_speed": getattr(bot, '_score_speed', 0),
-            "auto_true_fired": getattr(bot, '_auto_true_fired', False),
-        })
+        match_fields["cheese_label"] = getattr(bot, '_cheese_label', 'none')
+
+    # Tech structure timings — tracked by enemy_timings.py but never sent.
+    # Needed to train Terran/Protoss timing-vs-macro and Zerg all_in (bane
+    # floods) discrimination. -1 = never scouted (same sentinel as others).
+    match_fields.update({
+        "factory_start": _get_rush_timing('_factory_seen_time', bot),
+        "starport_start": _get_rush_timing('_starport_seen_time', bot),
+        "stargate_start": _get_rush_timing('_stargate_seen_time', bot),
+        "robotics_facility_start": _get_rush_timing('_robotics_facility_seen_time', bot),
+        "robotics_bay_start": _get_rush_timing('_robotics_bay_seen_time', bot),
+        "baneling_nest_start": _get_rush_timing('_baneling_nest_seen_time', bot),
+        "roach_warren_start": _get_rush_timing('_roach_warren_seen_time', bot),
+        "spire_start": _get_rush_timing('_spire_seen_time', bot),
+    })
 
     # Strategy belief fields (when enabled)
     if (bot.config.get("Belief", {}).get("enable_strategy", True)
@@ -834,7 +853,8 @@ def emit_match_record(bot, game_result, game_time: float,
                 "strategy_p_macro": round(pred.p_macro, 3),
             })
             # Opponent prior applied (Phase 4): record which prior shifted the prediction
-            if pred.source == "BN+OPP":
+            # Model-agnostic check — works for BN+OPP, SKL+OPP, or any future source
+            if pred.source.endswith("+OPP"):
                 match_fields["opponent_prior_applied"] = True
 
     # Scout VOI staleness snapshot (when enabled)

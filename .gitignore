@@ -135,8 +135,16 @@ dmypy.json
 /.idea
 
 # Data files - synced separately
+# data/ persists on AI Arena across games (opponent_profiles.json ladder learning)
+# and is NEVER bundled by create_ladder_zip.py. Local training artifacts and
+# per-game telemetry JSONL stay untracked.
 data/*.jsonl
-data/rush_detection_log.jsonl
+data/*.log
+data/*.txt
+data/*.pkl
+data/*.pkl.gz
+data/games/
+data/opponent_profiles.json
 
 
 #logs
