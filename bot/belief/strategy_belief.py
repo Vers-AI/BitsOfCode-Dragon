@@ -1,19 +1,18 @@
 """Strategy Belief — P(strategy=s | observations, race, game_time).
 
 Purpose: Replace per-race boolean cheese detection with a unified probabilistic
-         strategy classifier. Outputs P(strategy) over four Level-1 categories:
-         cheese, all_in, timing_attack, macro. Each category can carry a Level-2
-         build label (e.g., cheese→12_pool, cheese→cannon_rush).
+          strategy classifier. Outputs P(strategy) over four Level-1 categories:
+          cheese, all_in, timing_attack, macro. Each category can carry a Level-2
+          build label (e.g., cheese→12_pool, cheese→cannon_rush).
 
-Key Decisions: Three-layer evaluation: BN model → auto-TRUE guards → rule-based.
-               BN model is the primary classifier (numpy CPD lookup, no pgmpy).
-               Auto-TRUE guards are deterministic overrides (P=1.0) when model
-               is unavailable. Rules are the last-resort fallback.
-               BN inference uses BNInference (numpy .npz) — pgmpy is only
-               needed for training, not runtime.
+Key Decisions: Three-layer evaluation: sklearn model → auto-TRUE guards → rule-based.
+                sklearn GradientBoostingClassifier is the primary classifier
+                (joblib .pkl, Phase B hard cutover — BN removed).
+                Auto-TRUE guards are deterministic overrides (P=1.0) when model
+                is unavailable. Rules are the last-resort fallback.
 
 Limitations: Level-2 labels for Terran and Protoss are limited to what ARES
-             mediator detects. Full Level-2 taxonomy requires BN training data.
+              mediator detects. Full Level-2 taxonomy requires training data.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ from bot.constants import (
     STRATEGY_TIMING_GUARDS,
     StrategyCategory,
 )
-from bot.belief.bn_inference import BNInference
+from bot.belief.sklearn_inference import SklearnInference
 
 if TYPE_CHECKING:
     from bot.bot import PiG_Bot
@@ -80,14 +79,14 @@ class StrategyBelief:
     BeliefState consumption.
 
     Evaluation order:
-      1. BN model: numpy CPD lookup, produces posterior probabilities (primary)
+      1. sklearn model: GradientBoostingClassifier via joblib .pkl (primary)
       2. Auto-TRUE guards: deterministic, only when model is missing (fallback)
       3. Rule-based scoring: soft probabilities from accumulated evidence (last resort)
     """
 
     def __init__(self):
-        self._bn = BNInference()
-        self._model_loaded = self._bn.is_loaded
+        self._model = SklearnInference()
+        self._model_loaded = self._model.is_loaded
         self._last_prediction: Optional[StrategyPrediction] = None
         self._category_prior = self._load_category_prior()
 
@@ -128,8 +127,8 @@ class StrategyBelief:
     ) -> StrategyPrediction:
         """Produce a StrategyPrediction from current game observations.
 
-        Evaluation order: BN model → guards (fallback) → rules (last resort).
-        The BN model is the primary classifier. Guards only fire when the model
+        Evaluation order: sklearn model → guards (fallback) → rules (last resort).
+        The sklearn model is the primary classifier. Guards only fire when the model
         is unavailable, providing deterministic coverage for known patterns.
         Rules are the final fallback when neither model nor guards activate.
 
@@ -137,17 +136,17 @@ class StrategyBelief:
             bot: The bot instance for accessing enemy info and mediator.
             game_time: Current game time in seconds.
             opponent_prior: Optional Dirichlet alpha params from OpponentBelief.
-                If provided, BN output is multiplied by this prior then normalized.
+                If provided, model output is multiplied by this prior then normalized.
 
         Returns:
             StrategyPrediction with probs, label, level2, source, game_time.
         """
-        # Primary: BN model (always runs when available)
+        # Primary: sklearn model (always runs when available)
         if self._model_loaded:
             model_result = self._evaluate_model(bot, game_time, opponent_prior)
             if model_result is not None:
                 self._last_prediction = model_result
-                self._send_strategy_chat(bot, model_result, "BN")
+                self._send_strategy_chat(bot, model_result, "SKL")
                 return model_result
 
         # Fallback: Auto-TRUE guards (only when model is missing)
@@ -455,18 +454,18 @@ class StrategyBelief:
         self, bot: "PiG_Bot", game_time: float,
         opponent_prior: Optional[dict[StrategyCategory, float]] = None,
     ) -> Optional[StrategyPrediction]:
-        """Layer 1: BN model prediction via numpy CPD lookup.
+        """Layer 1: sklearn model prediction via joblib-loaded classifier.
 
         Discretizes current observations into the same bins used during
-        training, then looks up P(strategy | evidence) from the CPD array.
-        If an opponent prior is provided, the BN output is multiplied by
+        training, then predicts P(strategy | evidence) via predict_proba.
+        If an opponent prior is provided, the model output is multiplied by
         the prior then renormalized.
 
         Args:
             bot: The bot instance for accessing enemy info and mediator.
             game_time: Current game time in seconds.
             opponent_prior: Optional Dirichlet alpha params from OpponentBelief.
-                Multiplied with BN output, then renormalized.
+                Multiplied with model output, then renormalized.
 
         Returns None if model is unavailable or produces invalid output.
         """
@@ -475,7 +474,7 @@ class StrategyBelief:
 
         try:
             evidence = self._build_evidence(bot, game_time)
-            category_probs = self._bn.predict(**evidence)
+            category_probs = self._model.predict(**evidence)
 
             # Apply opponent prior if available: P(adjusted) = P(BN) * alpha, then normalize
             # This is a Dirichlet-multinomial posterior where BN provides the likelihood
@@ -491,8 +490,8 @@ class StrategyBelief:
             best_cat = max(category_probs, key=category_probs.get)
             best_l2 = self._infer_level2(bot, best_cat, game_time)
 
-            # Mark source as BN+OPP if opponent prior was applied
-            source = "BN+OPP" if opponent_prior is not None else "BN"
+            # Mark source as SKL+OPP if opponent prior was applied
+            source = "SKL+OPP" if opponent_prior is not None else "SKL"
 
             return StrategyPrediction(
                 probs=category_probs,
@@ -503,15 +502,18 @@ class StrategyBelief:
                 evidence=evidence,
             )
         except Exception as e:
-            print(f"[StrategyBelief] BN prediction error: {e}")
+            print(f"[StrategyBelief] sklearn prediction error: {e}")
             return None
 
     def _build_evidence(self, bot: "PiG_Bot", game_time: float) -> dict[str, str]:
-        """Build discretized evidence dict for the BN model.
+        """Build discretized evidence dict for the sklearn model.
 
         Schema v1: 7 variables (enemy_race, duration_bin, pool_bin, rax_bin,
                    gateway_bin, bases_bin, factory_bin)
         Schema v2: 15 variables (v1 + 4 position + 4 timing)
+        Schema v3: 17 variables (v2 + gas_timing, ling_timing — the
+                   disambiguators that separate "safe pool → drone" from
+                   "pool → ling flood")
 
         Discretization bins must match train_strategy_belief.py.
         Out-of-domain values (e.g., "unknown", "short") are mapped to
@@ -651,6 +653,31 @@ class StrategyBelief:
         else:
             nat_timing = "standard"
 
+        # Schema v3 — disambiguation features (bins must match
+        # train_strategy_belief.py discretize_features):
+        # gas_timing: all_in takes gas ~38-42s, cheese ~52-60s
+        gas_time = getattr(bot, "_extractor_seen_time", None)
+        if gas_time is None:
+            gas_timing = "none"
+        elif gas_time < 50:
+            gas_timing = "early"
+        elif gas_time < 90:
+            gas_timing = "mid"
+        else:
+            gas_timing = "late"
+
+        # ling_timing: rush lings get scouted MID (120-160s, attacking when
+        # spotted) — macro's defensive lings show earlier or later
+        ling_time = getattr(bot, "_first_ling_seen_time", None)
+        if ling_time is None:
+            ling_timing = "none"
+        elif ling_time < 120:
+            ling_timing = "early"
+        elif ling_time < 160:
+            ling_timing = "mid"
+        else:
+            ling_timing = "late"
+
         return {
             # Schema v1 (7 vars)
             "enemy_race": enemy_race,
@@ -670,6 +697,9 @@ class StrategyBelief:
             "pool_timing": pool_timing,
             "gw_timing": gw_timing,
             "nat_timing": nat_timing,
+            # Schema v3 — disambiguation (2 vars)
+            "gas_timing": gas_timing,
+            "ling_timing": ling_timing,
         }
 
     def _evaluate_rules(
@@ -1004,7 +1034,7 @@ class StrategyBelief:
         by consumers — do not mutate the probs dict.
         """
         cp = StrategyBelief.__new__(StrategyBelief)
-        cp._bn = self._bn
+        cp._model = self._model
         cp._model_loaded = self._model_loaded
         cp._last_prediction = self._last_prediction
         return cp

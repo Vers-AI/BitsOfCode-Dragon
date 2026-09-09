@@ -1,24 +1,25 @@
-"""Train pgmpy DiscreteBayesianNetwork for Strategy Belief classification.
+"""Train sklearn GradientBoostingClassifier for Strategy Belief classification.
 
-Purpose: Train a Bayesian Network from telemetry API data to classify opponent
-         strategy into cheese/all_in/timing_attack/macro. Falls back to rule-based
-         guards when the model file is missing.
+Purpose: Train a strategy classifier from telemetry API data to predict
+         opponent strategy into cheese/all_in/timing_attack/macro. Falls back
+         to rule-based guards when the model file is missing.
 
 Key Decisions: Queries /api/features/match-level-full for enriched data.
-               Uses strategy_category column (when populated) as ground truth.
-               Falls back to cheese_type → Level-1 mapping for Zerg games.
-               Derives Terran/Protoss labels from rush_detect + ARES mediator
-               booleans when strategy_category is empty.
+                Uses strategy_category column (when populated) as ground truth.
+                Phase B hard cutover (2026-09-08): sklearn GBC replaces the
+                pgmpy BN — BN scored 16.9% on holdout vs 67.7% for sklearn.
+                The artifact is a single joblib .pkl dict {model, feature_cols,
+                classes}; runtime loads it via SklearnInference with no export step.
 
 Limitations: Requires 50+ games per race for reliable training.
-             Zerg labels come from cheese_type; Terran/Protoss labels are
-             inferred from ARES mediator flags and game-level heuristics.
+              Class imbalance (macro-heavy) — consider class_weight if
+              per-class recall shows cheese/all_in starving.
 
 Usage:
     python scripts/train_strategy_belief.py [--api-url URL] [--output PATH]
 
 Output:
-    bot/models/strategy_belief_model.pkl
+    bot/models/strategy_model_sklearn.pkl
 """
 
 import argparse
@@ -109,8 +110,6 @@ UNIT_ALIASES = {
 
 RACE_MAP = {"Terran": 0, "Zerg": 1, "Protoss": 2, "Random": 3}
 
-MODEL_FILE = Path("bot/models/strategy_belief_model.pkl")
-NPZ_FILE = Path("bot/models/strategy_belief_model.npz")
 OPPONENT_PRIORS_FILE = Path("bot/models/opponent_priors.json")
 CATEGORY_PRIOR_FILE = Path("bot/models/strategy_category_prior.json")
 
@@ -131,11 +130,14 @@ GROUND_TRUTH_ONLY_DEFAULT = True
 SELF_CORRECT_DEFAULT = True
 
 
-def fetch_matches(limit: int = 500, api_url: str = API_BASE) -> pd.DataFrame:
+def fetch_matches(limit: int = 2000, api_url: str = API_BASE) -> pd.DataFrame:
     """Fetch match records from the telemetry API.
 
     Tries /api/features/match-level-full first (enriched endpoint).
     Falls back to /api/matches (basic endpoint) if the full one fails.
+
+    Note: API max limit is 2000 and the offset param is ignored —
+    the reachable set is the newest 2000 matches.
     """
     # Try enriched endpoint first
     url_full = f"{api_url}/features/match-level-full?limit={limit}"
@@ -159,12 +161,45 @@ def fetch_matches(limit: int = 500, api_url: str = API_BASE) -> pd.DataFrame:
     return df
 
 
+_EVENTS_CACHE_PATH = Path("data/events_cache.pkl")
+_events_cache: dict | None = None
+
+
+def _events_cache_lookup(match_id: int) -> list[dict] | None:
+    """Return cached events for a match id, or None if not cached.
+
+    Loads data/events_cache.pkl once (populated by eval_bn_vs_sklearn.py's
+    parallel prefetch). Missing cache or missing id → None (serial fetch path).
+    """
+    global _events_cache
+    if _events_cache is None:
+        if not _EVENTS_CACHE_PATH.exists():
+            _events_cache = {}
+            return None
+        try:
+            import pickle
+            with open(_EVENTS_CACHE_PATH, "rb") as f:
+                _events_cache = pickle.load(f)
+        except Exception:
+            _events_cache = {}
+            return None
+    return _events_cache.get(match_id)
+
+
 def fetch_match_events(match_id: int, api_url: str = API_BASE) -> list[dict]:
     """Fetch all events for a specific match.
 
     The first event in the response typically contains rush_detect timing
     features (pool_start, gas_time, ling_seen, etc.) even for non-Zerg games.
+
+    Uses the shared events cache when present (data/events_cache.pkl) — the
+    endpoint is ~2.5s per request server-side, so training runs prefetch in
+    parallel via scripts/eval_bn_vs_sklearn.py and reuse the cache here.
     """
+    cached = _events_cache_lookup(match_id)
+    if cached is not None:
+        return cached
+
     url = f"{api_url}/matches/{match_id}/events"
     try:
         resp = requests.get(url, timeout=10)
@@ -514,7 +549,8 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
     """
     rows = []
     fetched_events = 0
-    max_event_fetches = min(len(matches), 500)
+    # Event fetches are rate-limited (0.05s sleep each) — cap at 2000 (full window)
+    max_event_fetches = min(len(matches), 2000)
 
     for idx, (_, match) in enumerate(matches.iterrows()):
         match_id = match.get("arena_match_id", 0)
@@ -546,11 +582,27 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
             "first_under_attack_time": None,
         }
 
-        # Default missing timing features
+        # Default missing timing features; prefer match-level values (populated
+        # since the 2026-06-19 API fix) — event enrichment fills the rest
         _fill_missing_timing(row)
-        row["nat_start"] = -1
-        row["last_nat_scout_time"] = -1
-        row["nat_present_on_last_scout"] = -1
+        row["pool_start"] = match.get("pool_start", -1) if match.get("pool_start") is not None else -1
+        row["gas_time"] = match.get("gas_time", -1) if match.get("gas_time") is not None else -1
+        row["ling_seen"] = match.get("ling_seen", -1) if match.get("ling_seen") is not None else -1
+        row["ling_contact"] = match.get("ling_contact", -1) if match.get("ling_contact") is not None else -1
+        row["nat_start"] = match.get("nat_start", -1) if match.get("nat_start") is not None else -1
+        row["last_nat_scout_time"] = match.get("last_nat_scout_time", -1) if match.get("last_nat_scout_time") is not None else -1
+        row["nat_present_on_last_scout"] = match.get("nat_present_on_last_scout", -1) if match.get("nat_present_on_last_scout") is not None else -1
+        # Zerg detail fields — match-level since the 2026-09-09 endpoint fix;
+        # None for old games (0.10-0.12 gate era), -1 = never observed in-game
+        row["queen_time"] = match.get("queen_time", -1) if match.get("queen_time") is not None else -1
+        row["speed_start"] = match.get("speed_start", -1) if match.get("speed_start") is not None else -1
+        row["ling_has_speed"] = match.get("ling_has_speed", 0) if match.get("ling_has_speed") is not None else 0
+        row["gas_workers"] = match.get("gas_workers", 0) if match.get("gas_workers") is not None else 0
+        # Tech structure timings (v0.13.0 emissions — -1 until new games arrive)
+        for f in ["factory_start", "starport_start", "stargate_start",
+                  "robotics_facility_start", "robotics_bay_start",
+                  "baneling_nest_start", "roach_warren_start", "spire_start"]:
+            row[f] = match.get(f, -1) if match.get(f) is not None else -1
 
         # Default engagement/rush features (not available from /api/matches)
         row["engagement_count"] = 0
@@ -571,7 +623,6 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
         if fetched_events < max_event_fetches:
             events = fetch_match_events(match_id, api_url)
             fetched_events += 1
-            time.sleep(0.05)
             if events:
                 timing = _extract_timing_from_events(events)
                 # Merge timing into row (only overwrite defaults)
@@ -826,34 +877,61 @@ def discretize_features(df: pd.DataFrame) -> pd.DataFrame:
         lambda t: "none" if t < 0 else ("early" if t < 120 else "standard")
     )
 
+    # === Schema v3: Disambiguation features ===
+    # Pool timing alone can't separate "safe pool → drone" from "pool → ling flood"
+    # (62% of pool<42s games on this ladder are replay-labeled macro). These
+    # features ARE collected in training rows and at runtime — they were left out
+    # of the BN-era feature set only because of the CPD memory constraint.
+    # Bins tuned via per-label quartile analysis of the 1,997 labeled games
+    # (v3c variant: 73.2% holdout vs 70.2% baseline; queen/nat_present dropped —
+    # queen has only 3 cheese samples, nat_present is redundant with nat_timing).
+    # gas_timing: all_in takes gas ~38-42s, cheese ~52-60s — the <50 cut separates them
+    df["gas_timing"] = df["gas_time"].fillna(-1).apply(
+        lambda t: "none" if t < 0 else ("early" if t < 50 else ("mid" if t < 90 else "late"))
+    )
+
+    # ling_timing: macro's first-ling median (134s) is EARLIER than rush (147-151s)
+    # because rush lings die attacking before being scouted — so 'mid' (120-160)
+    # is the rush band, not 'early'. Three bins keep this signal.
+    df["ling_timing"] = df["ling_seen"].fillna(-1).apply(
+        lambda t: "none" if t < 0 else ("early" if t < 120 else ("mid" if t < 160 else "late"))
+    )
+
     return df
 
 
-def train_bn(df: pd.DataFrame) -> dict:
-    """Train pgmpy DiscreteBayesianNetwork on discretized features.
+SKLEARN_MODEL_FILE = Path("bot/models/strategy_model_sklearn.pkl")
 
-    Returns a dict with model info. The rule-based system in StrategyBelief
-    is the primary engine; the BN is supplemental.
+SKLEARN_EVIDENCE_COLS = [
+    "enemy_race", "duration_bin", "pool_bin", "rax_bin", "gateway_bin",
+    "bases_bin", "factory_bin",
+    "rax_near_base", "gw_near_base", "cannon_near_base", "bunker_near_base",
+    "rax_timing", "pool_timing", "gw_timing", "nat_timing",
+    # Schema v3 disambiguation: gas/ling timing (see discretize_features
+    # for bin rationale; queen_timing + nat_present evaluated and dropped)
+    "gas_timing", "ling_timing",
+]
+
+
+def train_sklearn(df: pd.DataFrame) -> dict:
+    """Train sklearn GradientBoostingClassifier on discretized features.
+
+    Replaces the pgmpy BN (Phase B hard cutover). The model is a Pipeline
+    (OneHotEncoder + GBC) so runtime inference is a single joblib load +
+    predict_proba — no encoder bookkeeping, no .npz export.
+
+    Returns an artifact dict for joblib.dump. Empty dict on failure.
     """
-    try:
-        from pgmpy.models import DiscreteBayesianNetwork
-        from pgmpy.parameter_estimator import DiscreteMLE
-    except ImportError:
-        print("pgmpy not installed. Run: poetry add pgmpy")
-        return {}
+    from sklearn.ensemble import GradientBoostingClassifier
+    from sklearn.preprocessing import OneHotEncoder
+    from sklearn.pipeline import Pipeline
 
-    # Prepare discretized data
     df_disc = discretize_features(df)
-
-    # Rename strategy_label → strategy for BN node naming
     df_disc = df_disc.rename(columns={"strategy_label": "strategy"})
-
-    # Filter to rows with strategy labels
     df_disc = df_disc[df_disc["strategy"].notna()]
 
     if len(df_disc) < 20:
-        print(f"WARNING: Only {len(df_disc)} labeled samples. BN will be unreliable.")
-        print("Recommend collecting 50+ games per race before training.")
+        print(f"WARNING: Only {len(df_disc)} labeled samples — model will be unreliable.")
         if len(df_disc) < 10:
             print("Falling back: model file will NOT be saved.")
             return {}
@@ -862,116 +940,73 @@ def train_bn(df: pd.DataFrame) -> dict:
     print(f"Label distribution:\n{df_disc['strategy'].value_counts()}")
     print(f"Race distribution:\n{df_disc['enemy_race'].value_counts()}")
 
-    # Define network structure (domain knowledge)
-    # Schema v2: 15 parent nodes for better discrimination:
-    #   enemy_race: 100% coverage — race determines available strategies
-    #   duration_bin: 100% coverage — cheese/all_in end early
-    #   pool_bin: Zerg signal — very_early = cheese, early = all_in
-    #   rax_bin: Terran signal — few+one_base = cheese/all_in
-    #   gateway_bin: Protoss signal — many+one_base = four_gate
-    #   bases_bin: economy signal — one = cheese/all_in, three_plus = macro
-    #   factory_bin: Terran tech signal — yes = timing or mech
-    #   rax_near_base: proxy rax vs standard (Step 1)
-    #   gw_near_base: proxy gateway vs standard (Step 1)
-    #   cannon_near_base: cannon rush vs standard forge (Step 1)
-    #   bunker_near_base: bunker rush vs standard (Step 1)
-    #   rax_timing: fine-grained barracks timing (Step 2)
-    #   pool_timing: fine-grained pool timing (Step 2)
-    #   gw_timing: fine-grained gateway timing (Step 2)
-    #   nat_timing: natural expansion timing (Step 2)
-    model = DiscreteBayesianNetwork([
-        ("enemy_race", "strategy"),
-        ("duration_bin", "strategy"),
-        ("pool_bin", "strategy"),
-        ("rax_bin", "strategy"),
-        ("gateway_bin", "strategy"),
-        ("bases_bin", "strategy"),
-        ("factory_bin", "strategy"),
-        # Step 1: position features
-        ("rax_near_base", "strategy"),
-        ("gw_near_base", "strategy"),
-        ("cannon_near_base", "strategy"),
-        ("bunker_near_base", "strategy"),
-        # Step 2: timing features
-        ("rax_timing", "strategy"),
-        ("pool_timing", "strategy"),
-        ("gw_timing", "strategy"),
-        ("nat_timing", "strategy"),
-    ])
+    X = df_disc[SKLEARN_EVIDENCE_COLS].astype(str)
+    y = df_disc["strategy"]
 
-    # Fit parameters with MLE estimator
-    train_cols = ["enemy_race", "duration_bin", "pool_bin",
-                  "rax_bin", "gateway_bin", "bases_bin", "factory_bin",
-                  "rax_near_base", "gw_near_base", "cannon_near_base", "bunker_near_base",
-                  "rax_timing", "pool_timing", "gw_timing", "nat_timing",
-                  "strategy"]
+    model = Pipeline([
+        ("onehot", OneHotEncoder(handle_unknown="ignore")),
+        ("clf", GradientBoostingClassifier(random_state=42)),
+    ])
     try:
-        estimator = DiscreteMLE()
-        model.fit(df_disc[train_cols], estimator=estimator)
+        model.fit(X, y)
     except Exception as e:
-        print(f"BN fitting error: {e}")
+        print(f"sklearn fitting error: {e}")
         print("Falling back: model file will NOT be saved.")
         return {}
 
-    # Validate model
+    # Validate: a synthetic prediction must succeed before we save
     try:
-        from pgmpy.inference import VariableElimination
-        infer = VariableElimination(model)
-        result = infer.query(["strategy"], evidence={"enemy_race": "Zerg"})
-        print("\n=== BN Validation: P(strategy | enemy_race=Zerg) ===")
-        print(result)
+        synthetic = pd.DataFrame([{col: "unknown" for col in SKLEARN_EVIDENCE_COLS}])
+        pred = model.predict(synthetic)[0]
+        print(f"\n=== Sanity check: P(strategy | all-unknown evidence) = {pred} ===")
     except Exception as e:
-        print(f"BN inference test failed: {e}")
+        print(f"sklearn sanity check failed: {e}")
         return {}
+
+    # Feature importances from the fitted GBC (post-onehot, aggregated per raw feature)
+    try:
+        clf = model.named_steps["clf"]
+        ohe = model.named_steps["onehot"]
+        importances = clf.feature_importances_
+        # ohe.categories_ aligns with SKLEARN_EVIDENCE_COLS: category i belongs
+        # to raw feature SKLEARN_EVIDENCE_COLS[i]; count states per feature to
+        # slice the flat importances array correctly
+        per_feature: dict[str, float] = {}
+        pos = 0
+        for col, cats in zip(SKLEARN_EVIDENCE_COLS, ohe.categories_):
+            n = len(cats)
+            per_feature[col] = float(np.sum(importances[pos:pos + n]))
+            pos += n
+        print("\n=== Feature importances (aggregated per raw feature) ===")
+        for col, imp in sorted(per_feature.items(), key=lambda kv: -kv[1]):
+            print(f"  {col:20s} {imp:.3f}")
+    except Exception as e:
+        print(f"(feature importance report skipped: {e})")
 
     return {
         "model": model,
-        "categories": STRATEGY_CATEGORY_VALUES,
-        "feature_cols": FEATURE_COLS,
-        "discretization": "bins_defined_in_code",
+        "feature_cols": SKLEARN_EVIDENCE_COLS,
+        "classes": list(model.classes_),
         "n_samples": len(df_disc),
-        "schema_version": 2,  # Schema v2 = 15 parent variables
     }
 
 
-def _load_previous_bn():
-    """Load the previous BN model for self-correction comparison.
+def _load_previous_model():
+    """Load the previous sklearn model for self-correction comparison.
 
-    Returns a BNInference instance or None if no prior model exists.
-    Uses the runtime numpy .npz loader (no pgmpy needed).
+    Returns a (model, feature_cols, classes) tuple or None if no prior
+    artifact exists. Loads the .pkl directly — no bot package import
+    (which would pull ares and fail outside the game environment).
     """
+    if not SKLEARN_MODEL_FILE.exists():
+        return None
     try:
-        from bot.belief.bn_inference import BNInference
-        bn = BNInference()
-        if bn.is_loaded:
-            return bn
+        import joblib as _joblib
+        artifact = _joblib.load(SKLEARN_MODEL_FILE)
+        return artifact["model"], list(artifact["feature_cols"]), list(artifact["classes"])
     except Exception as e:
-        print(f"[SelfCorrect] Could not load previous BN: {e}")
-    return None
-
-
-def _build_evidence_from_row(row) -> dict[str, str]:
-    """Build BN evidence dict from a training row (post-discretization).
-
-    Mirrors the parent variable names used in train_bn().
-    """
-    return {
-        "enemy_race": str(row.get("enemy_race", "Unknown")),
-        "duration_bin": str(row.get("duration_bin", "unknown")),
-        "pool_bin": str(row.get("pool_bin", "unknown")),
-        "rax_bin": str(row.get("rax_bin", "none")),
-        "gateway_bin": str(row.get("gateway_bin", "none")),
-        "bases_bin": str(row.get("bases_bin", "one")),
-        "factory_bin": str(row.get("factory_bin", "no")),
-        "rax_near_base": str(row.get("rax_near_base", "unknown")),
-        "gw_near_base": str(row.get("gw_near_base", "unknown")),
-        "cannon_near_base": str(row.get("cannon_near_base", "unknown")),
-        "bunker_near_base": str(row.get("bunker_near_base", "unknown")),
-        "rax_timing": str(row.get("rax_timing", "none")),
-        "pool_timing": str(row.get("pool_timing", "none")),
-        "gw_timing": str(row.get("gw_timing", "none")),
-        "nat_timing": str(row.get("nat_timing", "none")),
-    }
+        print(f"[SelfCorrect] Could not load previous sklearn model: {e}")
+        return None
 
 
 def _deterministic_guard_label(row) -> str | None:
@@ -1022,23 +1057,24 @@ def apply_self_correction(df: pd.DataFrame) -> pd.DataFrame:
 
     This doesn't relabel rows — the ground-truth labels are already correct
     (they come from the replay). Instead it:
-      1. Loads the previous BN model
+      1. Loads the previous sklearn model
       2. Predicts on each training row
       3. Compares to the ground-truth label
-      4. Reports where the BN was wrong, and whether a deterministic guard
-         also disagrees with the BN (confirming the ground truth)
+      4. Reports where the model was wrong, and whether a deterministic guard
+          also disagrees with the model (confirming the ground truth)
 
-    The correction happens implicitly: MLE fitting on these rows will update
-    the CPD entries that the previous BN got wrong. Rows where the BN was
+    The correction happens implicitly: fitting on these rows will update
+    the model where the previous one was wrong. Rows where the model was
     wrong AND a guard confirms the ground truth are the strongest correction
-    signal — those evidence combinations will shift the CPD hardest.
+    signal.
 
     Returns the df unchanged (labels are already ground truth). Prints stats.
     """
-    prev_bn = _load_previous_bn()
-    if prev_bn is None:
-        print("[SelfCorrect] No previous BN model found — first training run.")
+    prev = _load_previous_model()
+    if prev is None:
+        print("[SelfCorrect] No previous sklearn model found — first training run.")
         return df
+    prev_model, feature_cols, _classes = prev
 
     df = df.copy()
     df_disc = discretize_features(df)
@@ -1049,19 +1085,18 @@ def apply_self_correction(df: pd.DataFrame) -> pd.DataFrame:
         print("[SelfCorrect] No labeled rows to compare.")
         return df
 
+    X = df_disc[feature_cols].astype(str)
+    y = df_disc["strategy"].values
+
     correct = 0
     wrong = 0
     guard_confirmed = 0
     wrong_by_label: dict[str, int] = {}
     wrong_by_race: dict[str, int] = {}
 
-    for _, row in df_disc.iterrows():
+    preds = prev_model.predict(X)
+    for (idx, row), pred_label in zip(df_disc.iterrows(), preds):
         true_label = row["strategy"]
-        evidence = _build_evidence_from_row(row)
-        probs = prev_bn.predict(**evidence)
-        # predict() returns dict[StrategyCategory, float]; keys are enum members
-        pred_cat = max(probs, key=probs.get) if probs else None
-        pred_label = pred_cat.value if pred_cat else "unknown"
 
         if pred_label == true_label:
             correct += 1
@@ -1071,7 +1106,7 @@ def apply_self_correction(df: pd.DataFrame) -> pd.DataFrame:
             race = str(row.get("enemy_race", "Unknown"))
             wrong_by_race[race] = wrong_by_race.get(race, 0) + 1
 
-            # Check if a deterministic guard also disagrees with the BN
+            # Check if a deterministic guard also disagrees with the model
             guard_label = _deterministic_guard_label(row)
             if guard_label is not None and guard_label == true_label:
                 guard_confirmed += 1
@@ -1079,12 +1114,12 @@ def apply_self_correction(df: pd.DataFrame) -> pd.DataFrame:
     total = correct + wrong
     accuracy = correct / total * 100 if total > 0 else 0
 
-    print(f"\n=== Self-Correction: Previous BN vs Ground Truth ===")
-    print(f"  Previous BN accuracy: {correct}/{total} ({accuracy:.1f}%)")
+    print(f"\n=== Self-Correction: Previous Model vs Ground Truth ===")
+    print(f"  Previous model accuracy: {correct}/{total} ({accuracy:.1f}%)")
     print(f"  Wrong predictions: {wrong}")
     if guard_confirmed > 0:
         print(f"  Guard-confirmed corrections: {guard_confirmed} "
-              f"(BN wrong, guard + ground truth agree)")
+              f"(model wrong, guard + ground truth agree)")
     if wrong_by_label:
         print(f"  Errors by true label:")
         for label, count in sorted(wrong_by_label.items(), key=lambda x: -x[1]):
@@ -1093,7 +1128,7 @@ def apply_self_correction(df: pd.DataFrame) -> pd.DataFrame:
         print(f"  Errors by race:")
         for race, count in sorted(wrong_by_race.items(), key=lambda x: -x[1]):
             print(f"    {race}: {count}")
-    print(f"  → These {wrong} rows will correct the CPD via MLE fitting.")
+    print(f"  >> These {wrong} rows will correct the model via re-fitting.")
 
     return df
 
@@ -1337,10 +1372,10 @@ def build_map_priors(df: pd.DataFrame, output_path: str = str(MAP_PRIORS_FILE)) 
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train Strategy Belief BN model")
+    parser = argparse.ArgumentParser(description="Train Strategy Belief sklearn model")
     parser.add_argument("--api-url", default=API_BASE, help="Telemetry API base URL")
-    parser.add_argument("--output", default=str(MODEL_FILE), help="Output model path")
-    parser.add_argument("--limit", type=int, default=500, help="Max matches to fetch")
+    parser.add_argument("--output", default=str(SKLEARN_MODEL_FILE), help="Output model path")
+    parser.add_argument("--limit", type=int, default=2000, help="Max matches to fetch (API max: 2000)")
     parser.add_argument("--priors-output", default=str(OPPONENT_PRIORS_FILE),
                         help="Output path for opponent priors JSON")
     parser.add_argument("--skip-priors", action="store_true",
@@ -1351,25 +1386,47 @@ def main():
                         help="Only train on rows with API replay-derived labels "
                              "(default: True). Use --no-ground-truth-only to also "
                              "include heuristic-derived labels.")
+    parser.add_argument("--from-cache", action="store_true",
+                        help="Load training data from data/eval_cache_training_data.pkl.gz "
+                             "(built by eval_bn_vs_sklearn.py) instead of fetching from the API")
     parser.add_argument("--self-correct", dest="self_correct",
                         action=argparse.BooleanOptionalAction,
                         default=SELF_CORRECT_DEFAULT,
-                        help="Compare previous BN predictions to ground-truth labels "
+                        help="Compare previous model predictions to ground-truth labels "
                              "and report errors before retraining (default: True). "
-                             "The MLE fit on ground-truth rows automatically corrects "
-                             "CPD entries the previous BN got wrong.")
+                             "The fit on ground-truth rows automatically corrects "
+                             "what the previous model got wrong.")
     args = parser.parse_args()
 
     print("=== Strategy Belief Model Training ===\n")
 
-    # Fetch data
-    matches = fetch_matches(limit=args.limit, api_url=args.api_url)
+    if args.from_cache:
+        cache_path = Path("data/eval_cache_training_data.pkl.gz")
+        if not cache_path.exists():
+            print(f"FATAL: {cache_path} not found — run eval_bn_vs_sklearn.py first "
+                  f"or drop --from-cache to fetch from the API.")
+            return 1
+        print(f"Loading training data from {cache_path}")
+        df = pd.read_pickle(cache_path)
+    else:
+        # Fetch data
+        matches = fetch_matches(limit=args.limit, api_url=args.api_url)
 
-    # Build training data
-    print("\nBuilding training data...")
-    df = build_training_data(matches, api_url=args.api_url)
+        # Pre-filter to labeled matches when in ground-truth-only mode: unlabeled
+        # rows are dropped later anyway, and fetching their events is pure waste
+        # (the events endpoint is ~2.5s per request server-side).
+        if args.ground_truth_only:
+            labeled_mask = matches["strategy_category"].notna() & (matches["strategy_category"] != "")
+            n_labeled = int(labeled_mask.sum())
+            print(f"\n{n_labeled}/{len(matches)} matches have ground-truth labels — "
+                  f"building training data for those only")
+            matches = matches[labeled_mask]
 
-    # Ground-truth-only filtering: drop heuristic-derived labels so the BN
+        # Build training data
+        print("\nBuilding training data...")
+        df = build_training_data(matches, api_url=args.api_url)
+
+    # Ground-truth-only filtering: drop heuristic-derived labels so the model
     # learns purely from replay-derived strategy_category.
     if args.ground_truth_only:
         print("\n=== Ground-Truth-Only Mode ===")
@@ -1380,11 +1437,11 @@ def main():
             print("Consider collecting more replays or use --no-ground-truth-only.")
     else:
         print("\n=== Mixed-Label Mode (heuristic fallbacks included) ===")
-        print("WARNING: BN will be partly trained on heuristic-derived labels.")
+        print("WARNING: Model will be partly trained on heuristic-derived labels.")
 
-    # Self-correction: compare previous BN to ground truth before retraining.
-    # The MLE fit on these ground-truth rows will correct CPD entries the
-    # previous BN got wrong — each retraining cycle fixes the previous errors.
+    # Self-correction: compare previous model to ground truth before retraining.
+    # The fit on these ground-truth rows will correct what the previous model
+    # got wrong — each retraining cycle fixes the previous errors.
     if args.self_correct:
         print("\n=== Self-Correction Mode ===")
         df = apply_self_correction(df)
@@ -1405,27 +1462,18 @@ def main():
         known = sum(1 for _, r in df.iterrows() if r.get(field, -1) != -1)
         print(f"  {field}: {known}/{len(df)} rows have data")
 
-    # Train BN
-    print("\nTraining Bayesian Network...")
-    result = train_bn(df)
+    # Train sklearn model
+    print("\nTraining sklearn GradientBoostingClassifier...")
+    result = train_sklearn(df)
 
     if result and "model" in result:
-        MODEL_FILE.parent.mkdir(exist_ok=True)
+        SKLEARN_MODEL_FILE.parent.mkdir(exist_ok=True)
         joblib.dump(result, args.output)
         print(f"\n=== Model saved to {args.output} ===")
-        print(f"Categories: {result['categories']}")
+        print(f"Classes: {result['classes']}")
         print(f"Training samples: {result['n_samples']}")
-
-        # Auto-export .npz for runtime (no pgmpy dependency)
-        npz_path = Path(args.output).with_suffix(".npz")
-        try:
-            from scripts.export_bn_model import export_model
-            export_model(Path(args.output), npz_path)
-            print(f"=== Also exported .npz to {npz_path} ===")
-        except Exception as e:
-            print(f"Warning: .npz export failed ({e}). Run export_bn_model.py manually.")
     else:
-        print("\n=== BN model NOT saved — rule-based guards will be used ===")
+        print("\n=== Model NOT saved — rule-based guards will be used ===")
         print("Collect more data (50+ games per race) and re-run this script.")
 
     # Build data-driven marginal prior P(strategy) from API ground truth
