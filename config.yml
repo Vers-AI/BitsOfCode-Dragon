@@ -17,6 +17,21 @@ BotDataEnabled: True
 WallGenerationMode: False
 ########################
 
+# Local game settings (run.py) — ignored for ladder games / --TestBot runs
+LocalGame:
+    OpponentRace: Zerg  # Terran | Zerg | Protoss | Random
+    Difficulty: VeryHard   # VeryEasy | Easy | Medium | MediumHard | Hard | Harder | VeryHard | CheatVision | CheatMoney | CheatInsane
+    AIBuild: Rush         # RandomBuild | Rush | Timing | Power | Macro | Air
+    # One map is picked at random each run
+    Maps:
+        - MagannathaAIE_v2
+        # - TorchesAIE_v4
+        # - PylonAIE_v4
+        # - PersephoneAIE_v4
+        # - IncorporealAIE_v4
+        # - LeyLinesAIE_v3
+        # - UltraloveAIE_v2
+
 UseData: True
 Debug: False #Enable debug output for ares
 

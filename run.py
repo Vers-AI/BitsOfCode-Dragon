@@ -28,6 +28,19 @@ MY_BOT_NAME: str = "MyBotName"
 MY_BOT_RACE: str = "MyBotRace"
 
 
+def _load_local_game_settings(config: dict) -> (Race, Difficulty, AIBuild, List[str]):
+    """Read local game settings from config, falling back to sane defaults."""
+    local_cfg: dict = config.get("LocalGame", {})
+    race: Race = Race[local_cfg.get("OpponentRace", "Protoss").title()]
+    difficulty: Difficulty = Difficulty[local_cfg.get("Difficulty", "VeryHard")]
+    ai_build: AIBuild = AIBuild[local_cfg.get("AIBuild", "Macro")]
+    map_list: List[str] = local_cfg.get(
+        "Maps",
+        ["MagannathaAIE_v2"],
+    )
+    return race, difficulty, ai_build, map_list
+
+
 def main():
     bot_name: str = "MyBot"
     race: Race = Race.Random
@@ -37,6 +50,7 @@ def main():
     
     # Load config and check for wall generation mode
     wall_generation_mode = False
+    local_config: dict = {}
     if path.isfile(user_config_path):
         with open(user_config_path) as config_file:
             config: dict = yaml.safe_load(config_file)
@@ -47,6 +61,7 @@ def main():
             # Check for wall generation mode
             if "WallGenerationMode" in config:
                 wall_generation_mode = config["WallGenerationMode"]
+            local_config = config
 
     # Choose bot based on mode
     if wall_generation_mode:
@@ -89,17 +104,13 @@ def main():
             opponent = Bot(Race.Protoss, ProtossTestBot(), "ProtossTest")
             print("🧪 Test mode: Protoss opponent (Worker Rush)")
         else:
-            opponent = Computer(Race.Protoss, Difficulty.VeryHard, ai_build=AIBuild.Macro)
-
-        map_list: List[str] = [
-            #"TorchesAIE_v4",
-            #"PylonAIE_v4",
-            #"PersephoneAIE_v4",
-            #"IncorporealAIE_v4",
-            #"LeyLinesAIE_v3",
-            #"UltraloveAIE_v2",
-            "MagannathaAIE_v2"
-        ]
+            opp_race, difficulty, ai_build, map_list = _load_local_game_settings(
+                local_config
+            )
+            opponent = Computer(opp_race, difficulty, ai_build=ai_build)
+            print(
+                f"💻 Local AI opponent: {opp_race.name} / {difficulty.name} / {ai_build.name}"
+            )
 
         print("Starting local game...")
         run_game(
