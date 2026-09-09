@@ -573,6 +573,32 @@ STRATEGY_THREAT_CLEAR_MULTIPLIER: dict[StrategyCategory, float] = {
 Lower values = harder to clear the under_attack flag. Prevents oscillation
 when small threats keep appearing near our base against known cheesers."""
 
+# ===== OBSERVED-GAME CLASSIFICATION (evidence-anchored profile updates) =====
+# Used by classify_observed_game() at game end — records what ACTUALLY happened
+# (from the bot's fog-of-war point of view) instead of what the model predicted.
+# Thresholds derived from the 2026-09-08 corpus: rush lings arrive 84-120s,
+# macro Zergs take nat at 67-130s, cheese/all-in builds skip or delay expansion.
+
+OBSERVED_EARLY_ATTACK_TIME = 240.0
+"""First under-attack before this (4:00) = committed aggression → ALL_IN.
+The under_attack flag has its own army-value gate, so 2-ling pokes don't count."""
+
+OBSERVED_TIMING_ATTACK_MAX = 600.0
+"""First attack in the 240-600s window WITH enemy nat observed → TIMING_ATTACK.
+They expanded (bounded commitment), then attacked at a power spike."""
+
+OBSERVED_EARLY_NAT_TIME = 150.0
+"""Enemy natural started before this (2:30) = expansion evidence (macro behavior)."""
+
+OBSERVED_LONG_GAME_TIME = 480.0
+"""Game must survive at least this long (8:00) for the macro rule —
+shorter games cannot confirm a long-term economic plan."""
+
+OBSERVED_NAT_SCOUT_FRESH_TIME = 90.0
+"""For the unexpanded-commitment cheese rule: the nat-absent scout must be
+this recent (seconds before the attack) for 'they never expanded' to be
+observed fact rather than stale intel."""
+
 # ===== STRATEGY-AWARE COMPOSITION NUDGING =====
 STRATEGY_NUDGE_MAX = 0.10
 """Maximum proportion shift from strategy nudge (same cap as PRODUCTION_MAX_NUDGE)."""

@@ -141,23 +141,30 @@ class BeliefUpdater:
         )
 
     def load_opponent(self) -> None:
-        """Load opponent profiles and map priors from disk. Call once at game start."""
+        """Load opponent profiles and map priors from disk. Call once at game start.
+
+        Passes the strategy model's epoch so OpponentBelief can invalidate
+        runtime profiles accumulated under a previous model generation.
+        """
         if self._opponent is not None:
-            self._opponent.load()
+            model_epoch = None
+            if self._strategy is not None:
+                model_epoch = self._strategy.model_epoch
+            self._opponent.load(model_epoch=model_epoch)
         if self._map_prior is not None:
             self._map_prior.load()
 
-    def save_opponent(self, opponent_id: str | None, enemy_race: str,
-                      predicted_category) -> None:
-        """Update and save opponent profiles. Call once at game end.
+    def save_opponent(self, bot, opponent_id: str | None, enemy_race: str) -> None:
+        """Update and save opponent profiles from OBSERVED facts. Call once at game end.
 
-        Args:
-            opponent_id: Opponent identifier from ladder (None for local games).
-            enemy_race: Enemy race name.
-            predicted_category: The StrategyCategory the bot concluded.
+        Classifies the game via classify_observed_game() (evidence-anchored —
+        reads only what actually happened, never the model's prediction).
+        Ambiguous games write nothing to the profile.
         """
         if self._opponent is not None and opponent_id is not None:
-            from bot.constants import StrategyCategory
-            if isinstance(predicted_category, StrategyCategory):
-                self._opponent.update(opponent_id, enemy_race, predicted_category)
+            from bot.intel import classify_observed_game
+            observed = classify_observed_game(bot)
+            if observed is not None:
+                category, _source = observed
+                self._opponent.update(opponent_id, enemy_race, category)
                 self._opponent.save()

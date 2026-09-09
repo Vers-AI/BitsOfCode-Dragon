@@ -1152,6 +1152,11 @@ def threat_detection(bot, main_army: Units) -> None:
             bot._under_attack = True
         elif threat_ratio >= UNDER_ATTACK_RATIO_THRESHOLD:
             bot._under_attack = True
+        # Record the FIRST time we came under attack — classify_observed_game()
+        # uses this timestamp (not the flag, which flips back and forth) to
+        # distinguish committed early aggression from mid-game pushes
+        if bot._under_attack and getattr(bot, "_first_under_attack_time", None) is None:
+            bot._first_under_attack_time = bot.time
 
     # Detect cloaked/burrowed enemies near bases that need detection
     # These may not appear in ground_near/flying_near if partially visible

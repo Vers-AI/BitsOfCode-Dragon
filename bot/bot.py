@@ -708,15 +708,14 @@ class PiG_Bot(AresBot):
             idle_production_time=self.state.score.idle_production_time
         )
         
-        # Save opponent profiles for cross-game priors (Phase 4)
-        if self.belief_state.strategy is not None:
-            pred = self.belief_state.strategy.last_prediction
-            if pred is not None:
-                self._belief_updater.save_opponent(
-                    opponent_id=getattr(self, 'opponent_id', None),
-                    enemy_race=self.enemy_race.name,
-                    predicted_category=pred.label,
-                )
+        # Save opponent profiles for cross-game priors (Phase 4).
+        # Records the OBSERVED category (evidence-anchored facts from
+        # classify_observed_game) — never the model's prediction.
+        self._belief_updater.save_opponent(
+            bot=self,
+            opponent_id=getattr(self, 'opponent_id', None),
+            enemy_race=self.enemy_race.name,
+        )
         
         # Reset telemetry state between games
         telemetry_reset()

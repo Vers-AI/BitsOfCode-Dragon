@@ -1398,6 +1398,34 @@ Delta: **+50.8 pts** — gate passed decisively (needed ≥55% and ≥+8pts). Th
 
 The auto-TRUE guards are the deterministic fallback when the sklearn model is missing (model file absent or failed its load-time sanity check). The end state remains: model as the sole strategy classifier, guards as an emergency net only.
 
+### Evidence-Anchored Profile Updates + Model-Epoch Invalidation (2026-09-09)
+
+**The v0.13.0 ladder incident (10 games, 6/10 correct but constant-macro).** The deployed bot predicted macro in every belief event of every game — 4 cheese losses with p_cheese never crossing 4.4%. Root cause was NOT the model (the clean artifact was verified committed and deployed): it was **arena-persisted opponent profiles poisoned by the bot's own predictions**. During the 0.9-0.12.x era, `save_opponent()` recorded the model's *predicted* category (not facts). ~500 games of a misclassification era inflated profiles to `[1,1,1,51]` (94% macro); the prior multiplication then crushed the clean model's output to 99%+ macro regardless of evidence (math-verified: clean model macro 64.6% on nothing-scouted evidence × 51-macro-alpha profile → 99.8% — matching deployed telemetry exactly). The runtime file wins the load order, so the clean baseline priors in the zip never loaded. A self-reinforcing loop: bad predictions → recorded → prior → same predictions.
+
+**Design fix (agreed with user, 2026-09-09):**
+
+1. **Evidence-anchored recording** — `classify_observed_game()` (`bot/intel/observed_game.py`, new) classifies the game at end from OBSERVED facts only, never model output. Priority tree mirrors the server labeler's commitment semantics drawn from fog-of-war evidence:
+   - CHEESE: ARES mediator booleans (worker/marine rush, proxy zealot, four gate), guard-rule labels (12_pool, speedling, proxy_rax, bunker_rush, proxy_gateway), cannon response flags, or unexpanded-commitment (early attack + FRESH nat-absent scout within 90s)
+   - ALL_IN: first under-attack < 240s (committed aggression; the under_attack flag has its own army-value gate)
+   - TIMING_ATTACK: first attack in 240-600s window + enemy nat observed (bounded commitment, bounded window)
+   - MACRO: game ≥ 480s + nat < 150s + no early attack (POSITIVE evidence — the server's evidence-of-absence definition is invalid under fog of war)
+   - **Ambiguous → NOTHING**. Silence can't poison the profile — this is the anti-poison property. A bot that dies unsighted writes no lie.
+   - `_first_under_attack_time` recorded in `threat_detection()` (the flag existed; the timestamp didn't)
+   - Emits `observed_category` + `observed_category_source` to match telemetry (comparable vs replay labels on the API — free validation loop). API-side column join pending (user's list).
+2. **Model-epoch invalidation** (user's design: retrain resets accumulated data):
+   - Training script stamps `model_epoch` (Unix time) into the artifact
+   - `SklearnInference.model_epoch` exposes it; `StrategyBelief.model_epoch` passes through
+   - `OpponentBelief.load(model_epoch)`: runtime file's stored epoch ≠ deployed model's epoch (or absent) → discard runtime profiles → seed from the zip's baseline. On save, stamp the current epoch.
+   - **Fully automatic**: retrain → stamp → upload → first game discards stale data. No arena delete, no manual step. The current poisoned arena file self-cleans on game 1 of this deploy (no epoch field → mismatch).
+   - Rationale: the runtime profile is a cache of ladder games pending replay-truth. The next retrain's baseline already contains replay-quality versions of those games; keeping the runtime file would double-count them.
+   - Edge cases verified: code-only upload (epochs match → persist), rollback (mismatch → old baseline seeds — correct, matches old corpus), same-zip re-upload (persist).
+3. **Cannon train/serve fix** — `_build_evidence`'s `cannon_near_base` read `_cannon_rush_active` (a reaction flag — circular: False until a cheese reaction fires, so the model could never see 'yes' before predicting cheese, despite training rows using the geometric check). Now uses the same geometric check as training (visible PHOTONCANNON within 25 of main/nat). This was a major contributor to the cannon-rush blindness (model feature importance 0.087, structurally unusable at runtime).
+4. **Windows atomic-write fix** — `Path.rename` fails on Windows when destination exists (`WinError 183`); save() now uses `Path.replace` (atomic overwrite cross-platform). Would have broken local dev games; silent on the Linux arena.
+
+**Verification:** all 4 epoch scenarios pass (poison discard, save-stamp, same-epoch persist, next-epoch discard); `classify_observed_game` passes 7/7 scenarios (both Sep 8/9 test games replayed correctly); artifact retrained with epoch 1788968030; previous-model self-correction accuracy on clean corpus: 77.4%.
+
+**API-side pending (user's list):** join `observed_category` + `observed_category_source` into `match-level-full`.
+
 #### Implementation Status
 
 **Done (Steps 1 + 2 — code complete, model retrained):**
