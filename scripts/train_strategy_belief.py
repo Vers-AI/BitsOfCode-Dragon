@@ -988,6 +988,12 @@ def train_sklearn(df: pd.DataFrame) -> dict:
         "feature_cols": SKLEARN_EVIDENCE_COLS,
         "classes": list(model.classes_),
         "n_samples": len(df_disc),
+        # Model generation stamp — OpponentBelief compares this against the
+        # runtime profile file's stored epoch at load; a mismatch discards the
+        # accumulated runtime profiles and re-seeds from the training baseline.
+        # Makes retrain-resets automatic: new artifact → new epoch → stale
+        # runtime data invalidated on first game, forever.
+        "model_epoch": int(time.time()),
     }
 
 

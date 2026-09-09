@@ -41,11 +41,18 @@ class SklearnInference:
         self._feature_cols: list[str] = []
         self._classes: list[str] = []
         self._loaded: bool = False
+        self._model_epoch: Optional[int] = None  # generation stamp for profile invalidation
         self.load()
 
     @property
     def is_loaded(self) -> bool:
         return self._loaded
+
+    @property
+    def model_epoch(self) -> Optional[int]:
+        """Training-generation stamp (Unix seconds). None if artifact lacks one.
+        OpponentBelief uses this to invalidate runtime profiles on retrain."""
+        return self._model_epoch
 
     def load(self) -> None:
         """Load the sklearn artifact and run a sanity prediction.
@@ -62,6 +69,7 @@ class SklearnInference:
             self._model = artifact["model"]
             self._feature_cols = list(artifact["feature_cols"])
             self._classes = [str(c) for c in artifact["classes"]]
+            self._model_epoch = artifact.get("model_epoch")
 
             # Sanity check: corrupt pickle or incompatible sklearn must fail
             # HERE at load time, not mid-game on the first predict call
@@ -70,7 +78,8 @@ class SklearnInference:
 
             self._loaded = True
             print(f"[SklearnInference] Loaded {MODEL_PATH.name} "
-                  f"({len(self._feature_cols)} features, {len(self._classes)} classes)")
+                  f"({len(self._feature_cols)} features, {len(self._classes)} classes, "
+                  f"epoch {self._model_epoch})")
         except Exception as e:
             self._loaded = False
             print(f"[SklearnInference] Failed to load model: {e} — guards/rules will be used")

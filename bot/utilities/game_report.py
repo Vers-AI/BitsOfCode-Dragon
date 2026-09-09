@@ -857,6 +857,19 @@ def emit_match_record(bot, game_result, game_time: float,
             if pred.source.endswith("+OPP"):
                 match_fields["opponent_prior_applied"] = True
 
+    # Observed-game classification (evidence-anchored ground truth from the bot's
+    # POV — facts only, never the model's prediction). Comparable vs replay labels
+    # on the API side; also feeds opponent profile updates at game end.
+    from bot.intel import classify_observed_game
+    observed = classify_observed_game(bot)
+    if observed is not None:
+        observed_category, observed_source = observed
+        match_fields["observed_category"] = observed_category.value
+        match_fields["observed_category_source"] = observed_source
+    else:
+        match_fields["observed_category"] = None
+        match_fields["observed_category_source"] = None
+
     # Scout VOI staleness snapshot (when enabled)
     if bot.config.get("Belief", {}).get("enable_scout_voi", False):
         location_last_seen = getattr(bot, "_location_last_seen", {})

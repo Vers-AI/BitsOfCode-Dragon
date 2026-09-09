@@ -6,6 +6,7 @@ Public API:
     - get_enemy_intel_quality(bot) — How fresh/reliable is our intel?
     - update_enemy_intel_tracking(bot) — Per-frame urgency updates
     - compute_rush_distance_tier(bot) — Rush distance for logging
+    - classify_observed_game(bot)  — Post-game ground truth from observations (facts only)
 """
 
 from bot.intel.enemy_timings import track_enemy_timings
@@ -20,6 +21,7 @@ from bot.intel.intel_quality import (
     get_enemy_intel_quality,
     update_enemy_intel_tracking,
 )
+from bot.intel.observed_game import classify_observed_game
 
 __all__ = [
     "track_enemy_timings",
@@ -30,4 +32,5 @@ __all__ = [
     "detect_worker_rush",
     "get_enemy_intel_quality",
     "update_enemy_intel_tracking",
+    "classify_observed_game",
 ]

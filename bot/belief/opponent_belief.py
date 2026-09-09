@@ -5,10 +5,17 @@ Purpose: Remember opponent tendencies across games. Use Dirichlet alpha
          Unknown opponents get flat priors (same as today).
 
 Key Decisions: Two data sources — runtime file (data/opponent_profiles.json)
-               and baseline file (bot/models/opponent_priors.json). Runtime
-               file takes precedence (more recent, ladder-accumulated).
-               Flat prior [1,1,1,1] for unknown opponents.
-               Race-specific priors keyed by (opponent_id, enemy_race).
+                and baseline file (bot/models/opponent_priors.json). Runtime
+                file takes precedence (more recent, ladder-accumulated), BUT is
+                invalidated when its model_epoch doesn't match the deployed
+                model — retraining resets accumulated runtime data to the new
+                baseline automatically (the baseline already contains
+                replay-quality versions of those games; keeping the runtime
+                file would double-count them).
+                Runtime updates record OBSERVED categories (facts from
+                classify_observed_game), never model predictions.
+                Flat prior [1,1,1,1] for unknown opponents.
+                Race-specific priors keyed by (opponent_id, enemy_race).
 
 Limitations: No per-frame I/O. One load at game start, one save at game end.
              Corrupt/missing files fall back to flat priors safely.
@@ -70,24 +77,43 @@ class OpponentBelief:
         # Track insertion order for eviction
         self._insertion_order: list[tuple[str, str]] = []
         self._loaded = False
+        # Model-epoch state (see load() for the invalidation rationale)
+        self._model_epoch: Optional[int] = None  # deployed model's stamp
+        self._file_epoch: Optional[int] = None    # epoch the loaded file was written under
 
     @property
     def profile_count(self) -> int:
         """Number of loaded (opponent_id, race) profiles."""
         return len(self._profiles)
 
-    def load(self) -> None:
+    def load(self, model_epoch: Optional[int] = None) -> None:
         """Load opponent profiles from disk. Runtime file takes precedence.
 
-        Tries data/opponent_profiles.json first (ladder-accumulated),
-        then falls back to bot/models/opponent_priors.json (training baseline).
-        Either file missing or corrupt → flat priors for all opponents.
+        Model-epoch invalidation: the runtime file records the epoch of the
+        model it accumulated under. If it doesn't match the deployed model's
+        epoch, the runtime profiles are discarded (they reflect a previous
+        model generation / possibly a misclassification era) and the training
+        baseline re-seeds. A file with no epoch (pre-epoch code, or the current
+        poisoned-era file) is always discarded. This makes retrain-resets
+        automatic — see train_strategy_belief.py's model_epoch stamp.
+
+        Args:
+            model_epoch: The deployed model's generation stamp. None skips the
+                epoch check (no model available — behavior identical to before).
         """
         self._profiles = {}
         self._insertion_order = []
+        self._model_epoch = model_epoch
 
-        # Try runtime file first (ladder-accumulated, most recent)
         loaded = self._load_file(_RUNTIME_PROFILES)
+        if loaded and model_epoch is not None:
+            if self._file_epoch != model_epoch:
+                print(f"[OpponentBelief] Runtime profiles are from model epoch "
+                      f"{self._file_epoch}, deployed model is epoch {model_epoch} — "
+                      "discarding runtime data, re-seeding from training baseline.")
+                self._profiles = {}
+                self._insertion_order = []
+                loaded = False
         if not loaded:
             # Fall back to baseline (training-derived, baked into zip)
             loaded = self._load_file(_BASELINE_PRIORS)
@@ -190,18 +216,21 @@ class OpponentBelief:
         data = {
             "schema_version": _SCHEMA_VERSION,
             "categories": [cat.value for cat in _CATEGORY_ORDER],
+            "model_epoch": self._model_epoch,
             "profiles": {},
         }
 
         for (opp_id, race), alphas in self._profiles.items():
             data["profiles"][f"{opp_id}:{race}"] = alphas
 
-        # Write atomically — write to temp file then rename
+        # Write atomically — write to temp file then replace.
+        # os.replace (via Path.replace) overwrites atomically on both POSIX and
+        # Windows; Path.rename fails on Windows when the destination exists.
         tmp_path = _RUNTIME_PROFILES.with_suffix(".tmp")
         try:
             with open(tmp_path, "w") as f:
                 json.dump(data, f, indent=2)
-            tmp_path.rename(_RUNTIME_PROFILES)
+            tmp_path.replace(_RUNTIME_PROFILES)
         except OSError as e:
             print(f"[OpponentBelief] Failed to save profiles: {e}")
             # Clean up temp file if rename failed
@@ -225,6 +254,10 @@ class OpponentBelief:
                       f"expected {_SCHEMA_VERSION}, got {data.get('schema_version')}. "
                       "Using flat priors.")
                 return False
+
+            # Record the file's model epoch (absent = pre-epoch data — always
+            # discarded by load() when a model epoch is available)
+            self._file_epoch = data.get("model_epoch")
 
             # Validate categories match
             file_categories = data.get("categories", [])

@@ -31,6 +31,7 @@ from bot.constants import (
     StrategyCategory,
 )
 from bot.belief.sklearn_inference import SklearnInference
+from cython_extensions import cy_distance_to
 
 if TYPE_CHECKING:
     from bot.bot import PiG_Bot
@@ -605,8 +606,27 @@ class StrategyBelief:
         gw_near_base = "yes" if gw_near else "not_yes"
 
         # cannon_near_base: enemy cannon near our base? (2 states: yes/not_yes)
-        cannon_near = getattr(bot, "_cannon_rush_active", False)
-        cannon_near_base = "yes" if cannon_near else "not_yes"
+        # TRAIN/SSERVE ALIGNMENT: must use the same geometric check the training
+        # rows used (game_report._cannon_near_base_int: visible PHOTONCANNON
+        # within 25 of main/nat). The OLD code read _cannon_rush_active — a
+        # reaction flag that's False until AFTER a cheese reaction fires, i.e.
+        # circular: the model could never see 'yes' before predicting cheese.
+        cannon_near_base = "not_yes"
+        try:
+            from sc2.ids.unit_typeid import UnitTypeId as _UT
+            cannons = [s for s in bot.enemy_structures
+                       if s.type_id == _UT.PHOTONCANNON]
+            if cannons:
+                our_nat = bot.mediator.get_own_nat
+                near = any(
+                    cy_distance_to(c.position, bot.start_location) < 25.0
+                    or cy_distance_to(c.position, our_nat) < 25.0
+                    for c in cannons
+                )
+                if near:
+                    cannon_near_base = "yes"
+        except Exception:
+            pass  # enemy_structures unavailable mid-frame — stays not_yes
 
         # bunker_near_base: enemy bunker near our base? (2 states: yes/not_yes)
         bunker_near = getattr(bot, "_bunker_near_base", False)
@@ -1043,3 +1063,9 @@ class StrategyBelief:
     def last_prediction(self) -> Optional[StrategyPrediction]:
         """Most recent prediction, or None if update() hasn't been called."""
         return self._last_prediction
+
+    @property
+    def model_epoch(self) -> Optional[int]:
+        """The loaded model's generation stamp (None if model not loaded).
+        BeliefUpdater passes this to OpponentBelief for retrain invalidation."""
+        return self._model.model_epoch if self._model is not None else None
