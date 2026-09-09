@@ -14,7 +14,7 @@ from sc2.ids.unit_typeid import UnitTypeId
 from ares.consts import UnitRole
 
 from bot.intel import get_enemy_intel_quality
-from bot.constants import FRESH_INTEL_THRESHOLD, STALE_INTEL_THRESHOLD, MEMORY_EXPIRY_TIME
+from bot.constants import FRESH_INTEL_THRESHOLD, STALE_INTEL_THRESHOLD, MEMORY_EXPIRY_TIME, STATIC_DEFENSE_TYPES
 from cython_extensions import cy_find_units_center_mass, cy_distance_to
 
 # Worker types to filter from combat sim
@@ -104,7 +104,11 @@ def render_combat_state_overlay(bot, main_army: Units, enemy_threat_level: int, 
     fight_result = None
     try:
         cached_enemy = bot.mediator.get_cached_enemy_army or []
-        combat_enemies = [u for u in cached_enemy if u.type_id not in WORKER_TYPES and u.age < MEMORY_EXPIRY_TIME]
+        combat_enemies = [
+            u for u in cached_enemy
+            if u.type_id not in WORKER_TYPES and u.age < MEMORY_EXPIRY_TIME
+            and (not u.is_structure or u.type_id in STATIC_DEFENSE_TYPES)
+        ]
         fight_result = bot.mediator.can_win_fight(
             own_units=main_army, enemy_units=combat_enemies, workers_do_no_damage=True,
         )
@@ -268,7 +272,11 @@ def _render_combat_sim_overlay(bot, main_army: Units) -> None:
 
     # Get enemy army (filter workers and expired ghosts) - use cached enemy
     cached_enemy = bot.mediator.get_cached_enemy_army or []
-    combat_enemies = [u for u in cached_enemy if u.type_id not in WORKER_TYPES and u.age < MEMORY_EXPIRY_TIME]
+    combat_enemies = [
+        u for u in cached_enemy
+        if u.type_id not in WORKER_TYPES and u.age < MEMORY_EXPIRY_TIME
+        and (not u.is_structure or u.type_id in STATIC_DEFENSE_TYPES)
+    ]
     
     # Scout status (any unit with SCOUTING role)
     scout_tags = bot.mediator.get_unit_role_dict.get(UnitRole.SCOUTING, set())
@@ -497,6 +505,70 @@ def render_target_markers(bot, main_army: Units) -> None:
             bot.get_terrain_z_height(army_center)
         ))
         bot.client.debug_sphere_out(army_center_3d, 3, Point3((0, 255, 0)))
+
+    bot._debug_y = _y
+
+
+def render_expansion_debug(bot) -> None:
+    """Render expansion decision debug overlay.
+
+    Reads bot._expansion_debug (set by expansion_checker + handle_macro in macro.py).
+    Shows: current vs target base count, map control gate, which trigger fired,
+    banking state, and economy state. Lets you verify the expansion logic is
+    working correctly during replays.
+    """
+    if not bot.debug:
+        return
+
+    info = getattr(bot, '_expansion_debug', None)
+    if info is None:
+        return
+
+    _y = min(getattr(bot, '_debug_y', 0.52), 0.95)
+    _step = 0.018
+
+    # Line 1: base counts + map control + trigger
+    wants = info.get("wants_expand", False)
+    mc = info.get("has_map_control", False)
+    trigger = info.get("triggered_by", "none")
+    status_color = (0, 255, 0) if wants and mc else ((255, 165, 0) if not mc else (255, 255, 255))
+    bot.client.debug_text_2d(
+        f"Expand: {info.get('current_bases', 0)}->{info.get('target_bases', 0)} "
+        f"MC:{'Y' if mc else 'N'} Trig:{trigger}",
+        Point2((0.1, _y)), status_color, 12
+    )
+    _y += _step
+
+    # Line 2: banking + blockers + economy
+    banking = info.get("banking", False)
+    blocked = info.get("blocked_by_attack", False)
+    econ = info.get("economy_state", "?")
+    cheese = info.get("cheese_response", False)
+    flags = []
+    if banking:
+        flags.append("BANKING")
+    if blocked:
+        flags.append("ATK_BLOCKED")
+    if cheese:
+        flags.append("CHEESE")
+    flag_str = f" [{','.join(flags)}]" if flags else ""
+    bot.client.debug_text_2d(
+        f"  Econ:{econ}{flag_str}",
+        Point2((0.1, _y)), None, 12
+    )
+    _y += _step
+
+    # Line 3: economy metrics (saturation, spending efficiency)
+    sat = info.get("worker_saturation", 0)
+    eff = info.get("spending_efficiency", 0)
+    eff_thresh = info.get("efficiency_threshold", 0)
+    bot.client.debug_text_2d(
+        f"  Sat:{sat:.0%} SpendEff:{eff:.1f}/{eff_thresh:.1f} "
+        f"Starved:{'Y' if info.get('resource_starved') else 'N'} "
+        f"Depl:{'Y' if info.get('bases_depleting') else 'N'}",
+        Point2((0.1, _y)), None, 11
+    )
+    _y += _step
 
     bot._debug_y = _y
 
@@ -1326,28 +1398,12 @@ def render_narrow_choke_points(bot) -> None:
         return
     
     # Group tiles by width (each unique width = one choke)
-    # We only need the center label per choke, not per-tile
     width_to_tiles: dict[float, list[Point2]] = {}
     for tile, w in choke_width_map.items():
         width_to_tiles.setdefault(round(w, 1), []).append(tile)
     
-    # Draw each choke group
-    for width, tiles in width_to_tiles.items():
-        # Find center of this choke's tiles for the label
-        cx = sum(t.x for t in tiles) / len(tiles)
-        cy = sum(t.y for t in tiles) / len(tiles)
-        center = Point2((cx, cy))
-        z = bot.get_terrain_z_height(center)
-        
-        # Width label at choke center
-        bot.client.debug_text_world(
-            f"CHOKE w={width:.1f}",
-            Point3((cx, cy, z + 1.5)),
-            color=(255, 255, 0),
-            size=12,
-        )
-        
-        # Draw tiles as small spheres, capped to avoid crashing the SC2 debug renderer.
+    # Draw each choke group as small spheres, capped to avoid crashing the SC2 debug renderer.
+    for tiles in width_to_tiles.values():
         # Large chokes can have 100+ tiles; rendering all of them every frame
         # exceeds the client's draw call budget and crashes the game.
         max_spheres = 40
@@ -1578,7 +1634,6 @@ def render_refined_choke_debug(
     - Green sphere at the refined choke center
     - Green line across the passage (perpendicular direction, spanning the measured width)
     - Green arrow along the passage axis showing orientation
-    - Width label at the choke center
 
     Args:
         bot: Bot instance
@@ -1628,14 +1683,6 @@ def render_refined_choke_debug(
         color=Point3((0, 180, 0)),
     )
 
-    # Width label at the choke center
-    bot.client.debug_text_world(
-        f"CHOKE w={refined.width:.1f}",
-        Point3((center.x, center.y, z + 1.5)),
-        color=(0, 255, 0),
-        size=12,
-    )
-
     # Dashed-style line from choke center to enemy center if provided
     if enemy_center is not None:
         ez = bot.get_terrain_z_height(enemy_center)
@@ -1657,7 +1704,6 @@ def render_refined_choke_points(bot) -> None:
     - Green sphere at the refined center
     - Green line spanning the measured width (perpendicular to passage)
     - Dark green arrow along the passage axis
-    - Green width label
     """
     if not bot.debug:
         return
@@ -1730,14 +1776,6 @@ def render_refined_choke_points(bot) -> None:
             Point3((center.x, center.y, z + 0.3)),
             Point3((arrow_end.x, arrow_end.y, za + 0.3)),
             color=Point3((0, 180, 0)),
-        )
-
-        # Width label at the refined center
-        bot.client.debug_text_world(
-            f"RC w={refined.width:.1f}",
-            Point3((center.x, center.y, z + 1.5)),
-            color=(0, 255, 0),
-            size=12,
         )
 
 

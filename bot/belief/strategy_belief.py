@@ -594,79 +594,60 @@ class StrategyBelief:
 
         # === Schema v2 features (Step 1: position) ===
 
-        # rax_near_base: proxy barracks near our base?
+        # rax_near_base: proxy barracks near our base? (2 states: yes/not_yes)
         rax_near = getattr(bot, "_barracks_near_our_base", False)
-        rax_near_base = "yes" if rax_near else ("no" if rax_count > 0 else "unknown")
+        rax_near_base = "yes" if rax_near else "not_yes"
 
-        # gw_near_base: proxy gateway near our base?
+        # gw_near_base: proxy gateway near our base? (2 states: yes/not_yes)
         gw_near = getattr(bot, "_gateway_near_our_base", False)
-        gw_near_base = "yes" if gw_near else ("no" if gw_count > 0 else "unknown")
+        gw_near_base = "yes" if gw_near else "not_yes"
 
-        # cannon_near_base: enemy cannon near our base?
+        # cannon_near_base: enemy cannon near our base? (2 states: yes/not_yes)
         cannon_near = getattr(bot, "_cannon_rush_active", False)
-        cannon_seen = any(s.type_id == UnitTypeId.PHOTONCANNON for s in bot.enemy_structures)
-        cannon_near_base = "yes" if cannon_near else ("no" if cannon_seen else "unknown")
+        cannon_near_base = "yes" if cannon_near else "not_yes"
 
-        # bunker_near_base: enemy bunker near our base?
+        # bunker_near_base: enemy bunker near our base? (2 states: yes/not_yes)
         bunker_near = getattr(bot, "_bunker_near_base", False)
-        bunker_seen = any(s.type_id == UnitTypeId.BUNKER for s in bot.enemy_structures)
-        bunker_near_base = "yes" if bunker_near else ("no" if bunker_seen else "unknown")
+        bunker_near_base = "yes" if bunker_near else "not_yes"
 
         # === Schema v2 features (Step 2: timing) ===
 
-        # rax_timing: when was first barracks seen?
-        # Bins: <25=very_early (proxy), 25-45=early (cheese), 45-90=standard, >90=late, none
+        # rax_timing: when was first barracks seen? (3 states: none/early/standard)
+        # Collapsed from 5 bins to 3: early=<45s (proxy/cheese), standard=>=45s, none=unseen
         rax_time = getattr(bot, "_barracks_seen_time", None)
         if rax_time is None:
             rax_timing = "none"
-        elif rax_time < 25:
-            rax_timing = "very_early"
         elif rax_time < 45:
             rax_timing = "early"
-        elif rax_time < 90:
-            rax_timing = "standard"
         else:
-            rax_timing = "late"
+            rax_timing = "standard"
 
-        # pool_timing: when was first spawning pool seen?
-        # Bins: <25=very_early (12-pool), 25-40=early (speedling), 40-80=standard, >80=late, none
+        # pool_timing: when was first spawning pool seen? (3 states: none/early/standard)
+        # early=<40s (12-pool/speedling), standard=>=40s, none=unseen
         if pool_time is None:
             pool_timing = "none"
-        elif pool_time < 25:
-            pool_timing = "very_early"
         elif pool_time < 40:
             pool_timing = "early"
-        elif pool_time < 80:
-            pool_timing = "standard"
         else:
-            pool_timing = "late"
+            pool_timing = "standard"
 
-        # gw_timing: when was first gateway seen?
-        # Bins: <20=very_early (proxy), 20-40=early, 40-80=standard, >80=late, none
+        # gw_timing: when was first gateway seen? (3 states: none/early/standard)
+        # early=<40s (proxy), standard=>=40s, none=unseen
         gw_time = getattr(bot, "_gateway_seen_time", None)
         if gw_time is None:
             gw_timing = "none"
-        elif gw_time < 20:
-            gw_timing = "very_early"
         elif gw_time < 40:
             gw_timing = "early"
-        elif gw_time < 80:
-            gw_timing = "standard"
         else:
-            gw_timing = "late"
+            gw_timing = "standard"
 
-        # nat_timing: when did enemy natural start?
-        # Bins: <60=very_early (greedy), 60-120=early (standard macro),
-        #       120-240=late (all-in), >240=none (all-in/no expansion)
+        # nat_timing: when did enemy natural start? (3 states: none/early/standard)
+        # early=<120s (standard macro), standard=>=120s (late/all-in), none=no expansion
         nat_time = getattr(bot, "_enemy_nat_started_at", None)
         if nat_time is None:
             nat_timing = "none"
-        elif nat_time < 60:
-            nat_timing = "very_early"
         elif nat_time < 120:
             nat_timing = "early"
-        elif nat_time < 240:
-            nat_timing = "late"
         else:
             nat_timing = "standard"
 

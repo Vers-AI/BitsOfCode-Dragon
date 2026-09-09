@@ -171,6 +171,20 @@ tags:
 - [x] Put debug in game
 - [x] Fix Gatekeeper off in non-PvZ
 - [ ] Use action request to rescue stuck units
+- [ ] Custom gas stealer logic — replace ARES gas steal preventer
+  - Root cause: ARES `_handle_gas_steal` deadlocks the build runner when an enemy
+    worker oscillates near our geysers. The preventer assigns/removes a guard worker
+    frame-to-frame as the enemy probe moves in/out of the 12-tile radius, so
+    `worker.build_gas()` never fires. Meanwhile `do_step()` has already set
+    `current_step_started = True` and delegated to the preventer, blocking all
+    subsequent build steps until the 800-mineral fail-safe force-completes the build.
+  - Workaround in place: `ShouldHandleGasSteal: False` on all builds.
+  - Goal: implement our own gas steal prevention in `bot/managers/` that:
+    1. Only activates when we actually need gas (build order has a GAS step coming)
+    2. Assigns a guard worker that stays committed (no churn on enemy range exit)
+    3. Builds the assimilator via the standard `do_step()` path, not a separate
+       delegation that can deadlock
+    4. Releases the guard worker once the assimilator starts or the threat clears
 
 ---
 

@@ -20,20 +20,24 @@ from ares.behaviors.macro import (
     GasBuildingController,
     UpgradeController,
     BuildStructure,
+    TechUp,
 )
-from ares.consts import UnitRole, WORKER_TYPES
-from ares.consts import LOSS_MARGINAL_OR_BETTER, ID, TARGET
+from ares.consts import UnitRole, WORKER_TYPES, LOSS_DECISIVE_OR_WORSE
+from ares.consts import ID, TARGET
 
-from bot.utilities.performance_monitor import get_economy_state
+from bot.utilities.performance_monitor import get_economy_state, get_resource_pressure
 from bot.intel import get_enemy_intel_quality
+from bot.managers.reactions import assess_threat
 from bot.utilities.debug import render_detection_cannon_debug
 from bot.combat.target_scoring import COUNTER_TABLE
 from bot.constants import (
     MEMORY_EXPIRY_TIME,
     STALE_INTEL_THRESHOLD,
     RESOURCE_PRESSURE_MAX_NUDGE,
-    RESOURCE_IMBALANCE_RATIO,
     FREEFLOW_INCOME_RATIO_THRESHOLD,
+    THREAT_BLOCK_EXPANSION_LEVEL,
+    EXPANSION_INTEL_URGENCY_BLOCK,
+    EXPANSION_PASSIVE_ENEMY_TIME,
     BuildProfile,
     BUILD_PROFILES,
     PVT_STANDARD_2023_PROFILE,
@@ -452,54 +456,76 @@ def _get_gas_ratio(unit_type: UnitTypeId) -> float:
 
 
 def reorder_priorities_by_resources(composition: dict, bot) -> dict:
-    """Layer 1: Reorder unit priorities based on current resource balance.
-    
-    When mineral-rich/gas-poor: low-gas units (Zealots) get priority 0.
-    When gas-rich/mineral-poor: high-gas units (HT, Disruptor) get priority 0.
-    When balanced: return composition unchanged.
-    
-    This directly addresses the SpawnController break-on-unaffordable problem:
-    by putting affordable units first in priority order, the controller builds
-    them before hitting the unaffordable gas-heavy unit and breaking.
-    
+    """Layer 4: Push unaffordable units behind affordable ones in priority order.
+
+    Only reorders units that can't currently be afforded — those are the ones
+    that would cause the SpawnController's non-freeflow `break` to kill the
+    entire production loop. Affordable units keep their effectiveness-based
+    priority from the counter nudge (step 1), so the strategic choice of
+    "build the most effective unit first" is preserved.
+
+    When balanced (no resource pressure): return composition unchanged.
+    When gas-rich/mineral-starved: unaffordable high-gas units stay near front
+    (they might be affordable next frame when gas accumulates), unaffordable
+    low-gas units go to back (we're waiting for minerals, not gas).
+    When mineral-rich/gas-starved: the reverse.
+
     The composition dict is never mutated — returns a new dict.
-    
+
     Perf note: O(k log k) sort where k = unit types in comp (~5). Negligible.
-    
+
     Args:
         composition: Army composition dict {UnitTypeId: {"proportion": ..., "priority": ...}}
         bot: Bot instance for resource access
-        
+
     Returns:
         New composition dict with reordered priorities (proportions unchanged)
     """
-    minerals = bot.minerals
-    vespene = bot.vespene
-    
-    # Detect imbalance direction
-    mineral_rich = minerals > RESOURCE_IMBALANCE_RATIO * max(vespene, 1)
-    gas_rich = vespene > RESOURCE_IMBALANCE_RATIO * max(minerals, 1)
-    
+    # Detect imbalance direction via shared economy signal (instantaneous bank)
+    pressure = get_resource_pressure(bot, sustained=False)
+    mineral_rich = pressure == "GAS_STARVED"
+    gas_rich = pressure == "MINERAL_STARVED"
+
     if not mineral_rich and not gas_rich:
         return composition  # Balanced — keep original priorities
-    
-    # Sort unit types by gas_ratio: ascending if mineral-rich (cheap-gas first),
-    # descending if gas-rich (expensive-gas first)
-    unit_types = list(composition.keys())
-    unit_types.sort(
+
+    # Split units into affordable (keep effectiveness priority) and
+    # unaffordable (sort by gas ratio to push them to the back).
+    # This prevents the SpawnController break while preserving the
+    # counter-nudge's effectiveness-based priority for units we can build.
+    affordable: list = []
+    unaffordable: list = []
+    for unit_type in composition:
+        if bot.can_afford(unit_type):
+            affordable.append(unit_type)
+        else:
+            unaffordable.append(unit_type)
+
+    # No unaffordable units — nothing to reorder
+    if not unaffordable:
+        return composition
+
+    # Sort unaffordable by gas_ratio: ascending if mineral-rich (cheap-gas
+    # first — they're closer to affordable), descending if gas-rich
+    unaffordable.sort(
         key=lambda ut: _get_gas_ratio(ut),
         reverse=gas_rich,
     )
-    
-    # Assign new priorities: 0 = highest (first in sorted order)
+
+    # Affordable units keep their existing priority (from counter nudge).
+    # Unaffordable units get pushed behind all affordable ones.
+    # Within each group, preserve relative order (stable sort).
+    affordable.sort(key=lambda ut: composition[ut]["priority"])
+    ordered = affordable + unaffordable
+
     reordered: dict = {}
-    for new_priority, unit_type in enumerate(unit_types):
+    for new_priority, unit_type in enumerate(ordered):
         info = composition[unit_type]
         reordered[unit_type] = {
             "proportion": info["proportion"],
             "priority": new_priority,
         }
-    
+
     return reordered
 
 
@@ -524,12 +550,11 @@ def resource_pressure_nudge(composition: dict, bot) -> dict:
     Returns:
         New composition dict with resource-pressure-adjusted proportions
     """
-    minerals = bot.minerals
-    vespene = bot.vespene
-    
-    # Detect imbalance
-    gas_starved = minerals > RESOURCE_IMBALANCE_RATIO * max(vespene, 1)
-    mineral_starved = vespene > RESOURCE_IMBALANCE_RATIO * max(minerals, 1)
+    # Detect imbalance via shared economy signal (instantaneous bank —
+    # composition nudging should react to what we can afford right now)
+    pressure = get_resource_pressure(bot, sustained=False)
+    gas_starved = pressure == "GAS_STARVED"
+    mineral_starved = pressure == "MINERAL_STARVED"
     
     if not gas_starved and not mineral_starved:
         return composition  # Balanced — no pressure nudge needed
@@ -783,80 +808,263 @@ def is_base_depleted(bot) -> bool:
     )
 
 
+def _can_expand_natural_under_attack(bot) -> bool:
+    """
+    Simple defender's advantage check: allow the natural expansion during an
+    attack if we have a shield battery near the natural and haven't taken it yet.
+
+    The natural is behind our wall — the defender's advantage (wall, battery,
+    high ground) lets a smaller army hold while the Nexus builds. The
+    ExpansionController's own ground-grid safety check is the final gate: if
+    enemies are physically at the natural, it won't place the Nexus.
+
+    This is the simple version — see plan/expansion_improvement_plan.md #6 for
+    the enhanced version (wall building check, threat-level thresholds, etc.).
+    """
+    # Only applies when expanding to the natural (1 base → 2)
+    if len(bot.townhalls) >= 2:
+        return False
+
+    # Must have a completed shield battery near the natural
+    nat_pos = bot.mediator.get_own_nat
+    battery_at_nat = bot.structures(UnitTypeId.SHIELDBATTERY).ready.filter(
+        lambda b: cy_distance_to(b.position, nat_pos) < 20.0
+    )
+    return bool(battery_at_nat)
+
+
+def _has_map_control(bot) -> bool:
+    """
+    Determines whether the bot has enough map control to safely expand.
+
+    Based on pro expansion principles (race-neutral signals only):
+      - Expand behind aggression (commenced attack = map control)
+      - Don't expand under direct attack or combat threats near bases
+      - Don't expand blind when intel is very stale (enemy could be timing)
+      - Expand if opponent is passive/turtling (army not seen in a long time)
+      - Expand if no enemy army has ever been seen (no known threat)
+      - Defender's advantage: allow natural expansion behind a battery
+        even when under attack (simple version; see plan for enhancement)
+
+    The ExpansionController independently verifies the expansion location is
+    safe via the ground grid, so this function only answers: "is it generally
+    safe to send a worker out?"
+
+    Race-specific signals (opponent base-count mirroring, all-in detection,
+    worker economy comparison) are deferred — see plan/expansion_improvement_plan.md.
+    """
+    # ── HARD GATES: block expansion entirely ──────────────────────────
+
+    # Gate 1: Under direct attack — defense first, never expand.
+    # Exception: defender's advantage allows the natural behind a battery.
+    if bot._under_attack:
+        if not _can_expand_natural_under_attack(bot):
+            return False
+
+    # Gate 2: Combat threat near our bases — defense system is engaged
+    # Uses the threat system (assess_threat) for consistency with defense logic.
+    # Only blocks for real combat threats, not harassment handled by defenders.
+    ground_near = bot.mediator.get_ground_enemy_near_bases
+    flying_near = bot.mediator.get_flying_enemy_near_bases
+    all_threat_tags: set[int] = set()
+    for enemy_tags in ground_near.values():
+        all_threat_tags.update(enemy_tags)
+    for enemy_tags in flying_near.values():
+        all_threat_tags.update(enemy_tags)
+
+    if all_threat_tags:
+        threatening_units = bot.enemy_units.tags_in(all_threat_tags)
+        if threatening_units:
+            threat_info = assess_threat(bot, threatening_units, bot.own_army, return_details=True)
+            assert isinstance(threat_info, dict), "assess_threat with return_details=True should return dict"
+            if threat_info.get("threat_level", 0) >= THREAT_BLOCK_EXPANSION_LEVEL:
+                return False
+
+    # ── POSITIVE SIGNALS: expand when any is true ──────────────────────
+
+    # Signal 1: "Expand behind aggression" — army has commenced attack.
+    # The opponent is forced to defend, buying time for the expansion.
+    # Reuses handle_attack_toggles' global can_win_fight decision (proper
+    # unit filtering + intel-quality gating) instead of a second sim.
+    if bot._commenced_attack:
+        return True
+
+    # Signal 2: No enemy army ever seen — no known threat exists.
+    # The ExpansionController still verifies the location via ground grid.
+    if not bot._enemy_army_ever_seen:
+        return True
+
+    # Signal 3: "Opponent is turtling/passive" — we've seen the enemy army
+    # before, but haven't seen it in a long time AND no threats are near our
+    # bases. If the opponent isn't attacking, we can safely invest in economy.
+    # Race-neutral: a passive opponent isn't pressuring us regardless of race.
+    time_since_seen = bot.time - bot._last_enemy_army_visible_time
+    if time_since_seen > EXPANSION_PASSIVE_ENEMY_TIME:
+        return True
+
+    # ── CAUTIOUS GATES: grey zone (seen enemy recently, not attacking) ──
+
+    # We've seen the enemy recently but our army hasn't commenced attack.
+    # This is the danger zone: the enemy could be setting up a timing attack.
+    # Gate on intel freshness: if intel is very stale (urgency high), we're
+    # blind to the enemy's current position — don't expand blind.
+    # If intel is fresh enough, we have enough recent info to risk expanding.
+    if bot._intel_urgency >= EXPANSION_INTEL_URGENCY_BLOCK:
+        return False
+
+    # Intel is fresh enough: we've seen the enemy recently and have a
+    # reasonable picture of their army. The threat system didn't flag a
+    # blocking threat. The ExpansionController's location safety check
+    # is the final gate.
+    return True
+
+
 def expansion_checker(bot, main_army) -> int:
     """
     Evaluates multiple factors to determine when to expand:
-    1. Resource starvation (production idle due to lack of income)
-    2. Base depletion (worker saturation with declining income)
-    3. Army safety for expansion
+    1. Map control (using army's global assessment + enemy proximity)
+    2. Resource starvation (production idle due to lack of income)
+    3. Base depletion (worker saturation with declining income)
     4. Spending efficiency using python-sc2 score metrics
-    
+
     Returns the recommended expansion count.
     """
     current_bases = len(bot.townhalls)
     current_workers = bot.workers.amount
     optimal_workers = calculate_optimal_worker_count(bot)
     worker_saturation = current_workers / optimal_workers if optimal_workers > 0 else 0
-    
+
     mineral_collection_rate = bot.state.score.collection_rate_minerals
     idle_production_time = bot.state.score.idle_production_time
     expansion_count = current_bases
-    
+
     # Calculate spending efficiency (SQ-style)
     current_unspent = bot.minerals
     spending_efficiency = mineral_collection_rate / (current_unspent + 1) if mineral_collection_rate > 0 else 0
-    
-    # Safety check - only expand if safe (filter workers from both armies)
-    own_combat_units = [u for u in bot.own_army if u.type_id not in WORKER_TYPES]
-    enemy_combat_units = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES]
-    army_safe = bot.mediator.can_win_fight(
-        own_units=own_combat_units,
-        enemy_units=enemy_combat_units,
-        timing_adjust=True,
-        good_positioning=False,
-        workers_do_no_damage=True,
-    ) in LOSS_MARGINAL_OR_BETTER
-    
-    if not army_safe:
-        return expansion_count
-    
+
+    # Map control gate: if we don't have map control, don't add new expansions.
+    # Unlike the old army_safe early-return, this doesn't bypass the game-state
+    # fallback below — it only prevents *new* expansion_count increments.
+    has_map_control = _has_map_control(bot)
+
     resource_starved = (
         idle_production_time > 30.0  # Production buildings idle for 30+ seconds
         and current_unspent < 500    # Low mineral bank
         and mineral_collection_rate > 0  # But we do have some income
     )
-    
+
     bases_depleting = is_base_depleted(bot)
-    
+
     # Spending efficiency thresholds (dynamic by game state)
     if bot.game_state == 0:      # Early: should spend quickly
         efficiency_threshold = 1.5
     elif bot.game_state == 1:    # Mid: more complex economy
-        efficiency_threshold = 1.0  
+        efficiency_threshold = 1.0
     else:                        # Late: can bank for big investments
         efficiency_threshold = 0.5
-    
+
     # Low spending efficiency = banking too much relative to income
     inefficient_spending = spending_efficiency < efficiency_threshold
-    
-    if resource_starved:
-        expansion_count = current_bases + 1
-    elif bases_depleting:
-        expansion_count = current_bases + 1
-    elif inefficient_spending and worker_saturation > 0.7:
-        expansion_count = current_bases + 1
-    
-    # Game state-based fallback expansions (minimal safety net)
-    if bot.game_state >= 1 and current_bases < 2:
-        expansion_count = max(expansion_count, 2)
-    elif bot.game_state >= 2 and current_bases < 3:
-        expansion_count = max(expansion_count, 3)
-    
-    # Limit early expansion with small army
-    if current_bases == 1 and len(main_army) < 5 and bot.game_state == 0:
-        expansion_count = 1
-    
+
+    if has_map_control:
+        if resource_starved:
+            expansion_count = current_bases + 1
+        elif bases_depleting:
+            expansion_count = current_bases + 1
+        elif inefficient_spending and worker_saturation > 0.7:
+            expansion_count = current_bases + 1
+
+    # Game state-based fallback expansions (minimal safety net).
+    # Gated behind map control: don't expand while under pressure even if
+    # the game-state timer says we "should" have more bases by now.
+    # The ExpansionController independently verifies the location is safe.
+    if has_map_control:
+        if bot.game_state >= 1 and current_bases < 2:
+            expansion_count = max(expansion_count, 2)
+        elif bot.game_state >= 2 and current_bases < 3:
+            expansion_count = max(expansion_count, 3)
+
+    # Debug snapshot — read by render_expansion_debug() in debug.py
+    triggered_by = "none"
+    if has_map_control:
+        if resource_starved:
+            triggered_by = "starved"
+        elif bases_depleting:
+            triggered_by = "depleting"
+        elif inefficient_spending and worker_saturation > 0.7:
+            triggered_by = "inefficient"
+        elif bot.game_state >= 1 and current_bases < 2:
+            triggered_by = "gamestate_mid"
+        elif bot.game_state >= 2 and current_bases < 3:
+            triggered_by = "gamestate_late"
+
+    bot._expansion_debug = {
+        "current_bases": current_bases,
+        "target_bases": expansion_count,
+        "wants_expand": expansion_count > current_bases,
+        "has_map_control": has_map_control,
+        "triggered_by": triggered_by,
+        "resource_starved": resource_starved,
+        "bases_depleting": bases_depleting,
+        "inefficient_spending": inefficient_spending,
+        "worker_saturation": worker_saturation,
+        "spending_efficiency": spending_efficiency,
+        "efficiency_threshold": efficiency_threshold,
+    }
+
     return expansion_count
+
+
+def _safe_to_invest_in_tech(bot) -> bool:
+    """Is it safe to spend minerals on tech buildings/upgrades right now?
+
+    Uses two dimensions:
+      1. Resource pressure: can the bank absorb the cost?
+         (same signal as GasBuildingController and nudge pipeline)
+      2. Situation severity: are we in a fight we might lose?
+         Combines _under_attack / is_early_defensive with the combat sim
+         margin. Being under attack alone doesn't block tech — winning
+         while under attack is exactly when tech investment pays off.
+         Only block when we're losing badly enough that every mineral
+         needs to go to army.
+    """
+    # Bank is drained — can't afford tech buildings without starving army
+    if get_resource_pressure(bot, sustained=False) != "BALANCED":
+        return False
+
+    # Check if we're in a threatened situation at all
+    under_pressure = (
+        getattr(bot, '_under_attack', False)
+        or bot.reaction_manager.is_early_defensive
+    )
+
+    if not under_pressure:
+        return True  # Safe macro — resource pressure is the only concern
+
+    # We're under pressure. Check the combat sim to see if we're holding.
+    # The sim accounts for positioning (good_positioning=True), so a
+    # defender's advantage is reflected in the result.
+    try:
+        own_combat = [u for u in bot.own_army if u.type_id not in WORKER_TYPES]
+        enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES and not u.is_structure]
+        if not own_combat or not enemy_combat:
+            return True  # No fight to sim — safe to invest
+
+        fight_result = bot.mediator.can_win_fight(
+            own_units=own_combat,
+            enemy_units=enemy_combat,
+            timing_adjust=True,
+            good_positioning=True,
+            workers_do_no_damage=True,
+        )
+        # TIE or better: we're holding — tech investment will pay off
+        # when the attack breaks. LOSS_DECISIVE or worse: every mineral
+        # needs to go to army production.
+        if fight_result in LOSS_DECISIVE_OR_WORSE:
+            return False
+        return True
+    except Exception:
+        return True  # Sim failed — don't block upgrades on uncertainty
 
 
 def get_desired_upgrades(bot) -> list[UpgradeId]:
@@ -877,14 +1085,22 @@ def get_desired_upgrades(bot) -> list[UpgradeId]:
         if not bot.pending_or_complete_upgrade(upgrade) and predicate(bot):
             upgrades.append(upgrade)
     
-    # Gate early upgrades if economy not ready (use centralized economy state)
+    # Gate 1: Economy can't sustain investment long-term (income too low)
     economy_state = get_economy_state(bot)
     if economy_state in ("recovery", "reduced"):
         return upgrades
     
-    # Also gate if army is too small (need units before upgrades)
+    # Gate 2: Army too small — need units before upgrades
     if bot.supply_army < 15:
         return upgrades
+    
+    # Gate 3: Situational safety — can we afford to divert minerals from
+    # army production right now? Checks bank balance, threat state, and
+    # combat sim margin. Being under attack doesn't block tech — only
+    # blocks when losing badly (LOSS_DECISIVE or worse). Prevents the
+    # post-build-runner tech cascade from draining the mineral bank.
+    if not _safe_to_invest_in_tech(bot):
+        return []
     
     return upgrades
 
@@ -901,7 +1117,7 @@ def _train_warp_prism(bot) -> None:
 
     total_prisms = (bot.units(UnitTypeId.WARPPRISM).amount +
                     bot.units(UnitTypeId.WARPPRISMPHASING).amount +
-                    cy_unit_pending(bot, UnitTypeId.WARPPRISM))
+                    bot.already_pending(UnitTypeId.WARPPRISM))
     if total_prisms >= target_count:
         return
     if not bot.can_afford(UnitTypeId.WARPPRISM):
@@ -1046,20 +1262,17 @@ def select_army_composition(bot, main_army: Units) -> dict:
     # Step 2: Resource-pressure nudge (shifts proportions toward affordable units)
     comp = resource_pressure_nudge(comp, bot)
     
-    # Step 3: Priority reorder (puts affordable unit types first in SpawnController loop)
+    # Step 4: Priority reorder — push unaffordable units behind affordable ones
+    # Only touches units we can't afford right now; affordable units keep their
+    # effectiveness-based priority from step 1. Prevents SpawnController break
+    # in non-freeflow mode without overriding the strategic choice.
     comp = reorder_priorities_by_resources(comp, bot)
     
     # Cache for debug overlay
     bot._last_base_comp = selected_composition
     bot._last_nudged_comp = comp
-    # Store resource pressure state for debug display
-    minerals, vespene = bot.minerals, bot.vespene
-    if minerals > RESOURCE_IMBALANCE_RATIO * max(vespene, 1):
-        bot._resource_pressure = "GAS_STARVED"
-    elif vespene > RESOURCE_IMBALANCE_RATIO * max(minerals, 1):
-        bot._resource_pressure = "MIN_STARVED"
-    else:
-        bot._resource_pressure = "BALANCED"
+    # Resource pressure state for debug display (same signal as the nudge above)
+    bot._resource_pressure = get_resource_pressure(bot, sustained=False)
     
     return comp
 
@@ -1068,6 +1281,13 @@ def _train_observers(bot) -> None:
     """Train observers to target count from the active BuildProfile.
     Supports dynamic observer_target (e.g., 2021 build returns 1 when detection needed, 0 otherwise).
     Returns early if profile says 0 observers and no detection trigger is active.
+
+    Uses already_pending() instead of cy_unit_pending() because cy_unit_pending only
+    inspects orders[0] on each production structure. When an Observer is queued behind
+    another unit (e.g. Immortal in slot 0), cy_unit_pending returns 0 and the function
+    would re-issue an observer train order every step until the front unit completes —
+    producing the "3 observers popping out at once" pile-up. already_pending iterates
+    all queued orders via _abilities_count_and_build_progress, so it sees the whole queue.
     """
     profile = get_active_profile(bot)
     target_count = _resolve(profile.observer_target, bot)
@@ -1078,11 +1298,14 @@ def _train_observers(bot) -> None:
         bot.units(UnitTypeId.OBSERVER).amount
         + bot.units(UnitTypeId.OBSERVERSIEGEMODE).amount
     )
-    if cy_unit_pending(bot, UnitTypeId.OBSERVER) or not bot.can_afford(UnitTypeId.OBSERVER):
+    pending = bot.already_pending(UnitTypeId.OBSERVER)
+    total_observers = observer_count + pending
+
+    if pending or not bot.can_afford(UnitTypeId.OBSERVER):
         return
 
     robotics_facilities = bot.structures(UnitTypeId.ROBOTICSFACILITY).ready
-    if observer_count < 1:
+    if total_observers < 1:
         for facility in robotics_facilities:
             facility.train(UnitTypeId.OBSERVER)
             return
@@ -1090,7 +1313,8 @@ def _train_observers(bot) -> None:
     if bot.game_state == 0:
         return
 
-    if observer_count < target_count:
+    # Non-urgent: only train on idle Robos to avoid queuing behind other units.
+    if total_observers < target_count:
         for facility in robotics_facilities.idle:
             facility.train(UnitTypeId.OBSERVER)
             return
@@ -1524,9 +1748,12 @@ async def handle_macro(
     # expansions when existing bases are mining out.
     nexus_under_construction = bot.structures(UnitTypeId.NEXUS).not_ready.amount > 0
     wants_to_expand = expansion_count > len(bot.townhalls)
+    # Defender's advantage: allow banking for the natural during an attack
+    # if we have a shield battery to hold behind (see _can_expand_natural_under_attack)
+    blocked_by_attack = bot._under_attack and not _can_expand_natural_under_attack(bot)
     banking_for_expansion = (
         economy_state == "reduced"
-        and not bot._under_attack
+        and not blocked_by_attack
         and not nexus_under_construction
         and not bot.reaction_manager.is_cheese_response
         and wants_to_expand
@@ -1540,6 +1767,13 @@ async def handle_macro(
         # BuildWorkers (50m) and AutoSupply (100m) can spend. Minerals
         # accumulate and the building manager places the Nexus when affordable.
         macro_plan.add(ExpansionController(to_count=expansion_count, max_pending=1, prioritize=True))
+
+    # Update expansion debug snapshot with banking/build state
+    if hasattr(bot, '_expansion_debug'):
+        bot._expansion_debug["banking"] = banking_for_expansion
+        bot._expansion_debug["blocked_by_attack"] = blocked_by_attack
+        bot._expansion_debug["economy_state"] = economy_state
+        bot._expansion_debug["cheese_response"] = bot.reaction_manager.is_cheese_response
     
     # Always: workers and supply (all economy states)
     # These run after ExpansionController, so they only execute if
@@ -1553,6 +1787,13 @@ async def handle_macro(
     else:
         # Reduced+: gas buildings and spawn from existing production
         gas_target = _resolve(profile.gas_target, bot)
+        # Demand-based gas: only build new assimilators when existing gas
+        # capacity is fully saturated — that's the throughput manager's
+        # (get_optimal_gas_workers) signal that we need more capacity.
+        # When it throttles workers below 3, existing geysers are
+        # underutilized and building more wastes 75m that could go to army.
+        if get_optimal_gas_workers(bot) < 3:
+            gas_target = min(gas_target, bot.gas_buildings.amount)
         macro_plan.add(GasBuildingController(to_count=gas_target, max_pending=2))
         
         spawn_target = warp_prism[0].position if warp_prism else spawn_location
@@ -1572,12 +1813,22 @@ async def handle_macro(
         else:
             macro_plan.add(SpawnController(army_composition, spawn_target=spawn_target, freeflow_mode=spawn_freeflow))
         
+        # Cheese response: ProductionController and UpgradeController both use
+        # TechUp to auto-build missing tech, but they're gated to moderate/full
+        # economy. Cheese keeps economy in reduced/recovery, so TechUp never
+        # fires. This ensures tech buildings (e.g. Cyber Core for Stalkers)
+        # get built even when the build runner was force-completed early.
+        if bot.reaction_manager.is_cheese_response:
+            for unit_type in army_composition:
+                if not bot.tech_ready_for_unit(unit_type):
+                    macro_plan.add(TechUp(unit_type, base_location=production_location))
+        
         # Expansion logic: moderate+ gets full expansion, reduced gets safety net to 2 bases
-        # Skip expansions when under attack - focus resources on defense
+        # Skip expansions when under attack (unless defender's advantage applies)
         # No expansions during cheese response — focus entirely on defense
         # Note: when banking_for_expansion, ExpansionController was already
         # added at the top with prioritize=True, so we skip adding it again here.
-        if not banking_for_expansion and not bot._under_attack and not bot.reaction_manager.is_cheese_response:
+        if not banking_for_expansion and not blocked_by_attack and not bot.reaction_manager.is_cheese_response:
             if economy_state in ("moderate", "full"):
                 macro_plan.add(ExpansionController(to_count=expansion_count, max_pending=1))
             elif wants_to_expand:

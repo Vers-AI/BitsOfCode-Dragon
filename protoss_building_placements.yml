@@ -3,7 +3,7 @@ Incorporeal:
     VsAll:
       FirstPylon:
         - [ [ 62.0, 134.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 62.0, 131.0 ] ]
       ThreeByThreesWall:
         - [ [ 62.5, 128.5 ], [ 59.5, 129.5 ], [ 66.5, 129.5 ] ]
@@ -22,7 +22,7 @@ Incorporeal:
     VsAll:
       FirstPylon:
         - [ [ 94.0, 31.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 94.0, 34.0 ] ]
       ThreeByThreesWall:
         - [ [ 89.5, 34.5 ], [ 93.5, 36.5 ], [ 96.5, 34.5 ] ]
@@ -43,7 +43,7 @@ Persephone:
     VsAll:
       FirstPylon:
         - [ [ 69.0, 144.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 71.0, 145.0 ] ]
       ThreeByThreesWall:
         - [ [ 71.5, 138.5 ], [ 73.5, 142.5 ], [ 74.5, 145.5 ] ]
@@ -60,7 +60,7 @@ Persephone:
     VsAll:
       FirstPylon:
         - [ [ 69.0, 36.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 71.0, 39.0 ] ]
       ThreeByThreesWall:
         - [ [ 74.5, 35.5 ], [ 72.5, 39.5 ], [ 69.5, 41.5 ] ]
@@ -79,7 +79,7 @@ Pylon:
     VsAll:
       FirstPylon:
         - [ [ 104.0, 169.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 105.0, 166.0 ] ]
       ThreeByThreesWall:
         - [ [ 104.5, 163.5 ], [ 107.5, 164.5 ], [ 109.5, 168.5 ] ]
@@ -96,7 +96,7 @@ Pylon:
     VsAll:
       FirstPylon:
         - [ [ 143.0, 78.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 141.0, 80.0 ] ]
       ThreeByThreesWall:
         - [ [ 144.5, 83.5 ], [ 140.5, 82.5 ], [ 138.5, 79.5 ] ]
@@ -115,7 +115,7 @@ Torches:
     VsAll:
       FirstPylon:
         - [ [ 92.0, 154.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 93.0, 152.0 ] ]
       ThreeByThreesWall:
         - [ [ 91.5, 148.5 ], [ 90.5, 151.5 ], [ 86.5, 153.5 ] ]
@@ -134,7 +134,7 @@ Torches:
     VsAll:
       FirstPylon:
         - [ [ 92.0, 54.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 93.0, 56.0 ] ]
       ThreeByThreesWall:
         - [ [ 91.5, 59.5 ], [ 89.5, 55.5 ], [ 86.5, 55.5 ] ]
@@ -155,7 +155,7 @@ LeyLines:
     VsAll:
       FirstPylon:
         - [ [ 153.0, 105.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 151.0, 103.0 ] ]
       ThreeByThreesWall:
         - [ [ 147.5, 107.5 ], [ 148.5, 103.5 ], [ 149.5, 100.5 ] ]
@@ -172,7 +172,7 @@ LeyLines:
     VsAll:
       FirstPylon:
         - [ [ 45.0, 69.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 47.0, 70.0 ] ]
       ThreeByThreesWall:
         - [ [ 50.5, 66.5 ], [ 49.5, 70.5 ], [ 48.5, 73.5 ] ]
@@ -191,7 +191,7 @@ Ultralove:
     VsAll:
       FirstPylon:
         - [ [ 110.0, 138.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 113.0, 135.0 ] ]
       ThreeByThreesWall:
         - [ [ 111.5, 132.5 ], [ 110.5, 135.5 ], [ 106.5, 137.5 ] ]
@@ -208,7 +208,7 @@ Ultralove:
     VsAll:
       FirstPylon:
         - [ [ 73.0, 46.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 71.0, 48.0 ] ]
       ThreeByThreesWall:
         - [ [ 72.5, 51.5 ], [ 73.5, 48.5 ], [ 77.5, 46.5 ] ]
@@ -227,7 +227,7 @@ Magannatha:
     VsAll:
       FirstPylon:
         - [ [ 32.0, 114.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 33.0, 116.0 ] ]
       ThreeByThreesWall:
         - [ [ 37.5, 113.5 ], [ 36.5, 110.5 ], [ 32.5, 108.5 ] ]
@@ -246,7 +246,7 @@ Magannatha:
     VsAll:
       FirstPylon:
         - [ [ 114.0, 32.0 ] ]
-      PylonsWall:
+      Pylons:
         - [ [ 116.0, 33.0 ] ]
       ThreeByThreesWall:
         - [ [ 113.5, 37.5 ], [ 110.5, 36.5 ], [ 108.5, 32.5 ] ]

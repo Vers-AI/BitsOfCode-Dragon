@@ -192,7 +192,10 @@ def derive_strategy_label(row: dict) -> str:
     observed) and first_under_attack_time instead.
     """
     # Priority 0: API strategy_category (ground truth from enriched endpoint)
-    api_category = (row.get("strategy_category_api") or "").strip().lower()
+    raw_api = row.get("strategy_category_api")
+    if raw_api is None or (isinstance(raw_api, float) and pd.isna(raw_api)):
+        raw_api = ""
+    api_category = str(raw_api).strip().lower()
     if api_category == "timing":
         api_category = "timing_attack"
     if api_category in ("cheese", "all_in", "timing_attack", "macro"):
@@ -628,30 +631,44 @@ def build_training_data(matches: pd.DataFrame, api_url: str = API_BASE) -> pd.Da
         row["ravager_seen"] = 1 if units.get("ravager", 0) > 0 else 0
 
         # === Schema v2 features (Step 1: position) ===
-        # Position booleans aren't directly in the API — derive from struct counts.
-        # If we saw the structure but it wasn't near our base, it's "no".
-        # If we never saw it, it's "unknown". This is a training-side approximation;
-        # the runtime bot has the actual _barracks_near_our_base booleans.
+        # struct_first_seen is used as fallback for rax/gw timing (see below).
         struct_first = row.get("struct_first_seen", {}) or {}
-        row["rax_near_base"] = "unknown"  # API doesn't expose position data yet
-        row["gw_near_base"] = "unknown"
-        row["cannon_near_base"] = "unknown"
-        row["bunker_near_base"] = "unknown"
+        # Position booleans come from the API match record (emitted by game_report.py).
+        # API sends: 1=yes (near our base), 0=no (seen but not near), -1=unknown (never seen).
+        # Map to BN state strings. Unknown stays "unknown" so the BN can learn from
+        # the absence of observation rather than treating it as "no".
+        def _pos_str(val) -> str:
+            if val == 1 or val is True:
+                return "yes"
+            if val == 0 or val is False:
+                return "no"
+            return "unknown"
+
+        row["rax_near_base"] = _pos_str(match.get("rax_near_base", -1))
+        row["gw_near_base"] = _pos_str(match.get("gw_near_base", -1))
+        row["cannon_near_base"] = _pos_str(match.get("cannon_near_base", -1))
+        row["bunker_near_base"] = _pos_str(match.get("bunker_near_base", -1))
 
         # === Schema v2 features (Step 2: timing) ===
         # Use match-level timing fields directly — the event-based struct_first_seen
         # is unreliable (API often returns only the last batch of events at ~714s).
-        # pool_start and nat_start are populated at match level from rush_detect
-        # telemetry and are far more accurate for early-game timing.
+        # pool_start, nat_start, rax_start, and gw_start are all populated at match
+        # level from rush_detect/enemy_timings telemetry and are far more accurate
+        # for early-game timing than event-derived struct_first_seen.
         pool_time = row.get("pool_start", -1)
         row["pool_timing_raw"] = pool_time if pool_time and pool_time > 0 else -1
 
-        # rax/gw timing: fall back to struct_first_seen (no match-level equivalent)
-        rax_time = struct_first.get("barracks")
-        row["rax_timing_raw"] = rax_time if rax_time is not None else -1
+        # rax/gw timing: prefer match-level rax_start/gw_start (from enemy_timings.py
+        # via game_report.py), fall back to struct_first_seen if missing.
+        rax_time = match.get("rax_start", -1)
+        if rax_time is None or rax_time < 0:
+            rax_time = struct_first.get("barracks", -1)
+        row["rax_timing_raw"] = rax_time if rax_time is not None and rax_time > 0 else -1
 
-        gw_time = struct_first.get("gateway")
-        row["gw_timing_raw"] = gw_time if gw_time is not None else -1
+        gw_time = match.get("gw_start", -1)
+        if gw_time is None or gw_time < 0:
+            gw_time = struct_first.get("gateway", -1)
+        row["gw_timing_raw"] = gw_time if gw_time is not None and gw_time > 0 else -1
 
         # nat_timing: use nat_start from match level (populated for ~78% of matches)
         nat_time = row.get("nat_start", -1)
@@ -770,32 +787,43 @@ def discretize_features(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     # === Schema v2: Position features (Step 1) ===
-    # These are "unknown" in training data (API doesn't expose position data yet).
-    # When the API starts providing position data, update build_training_data()
-    # to extract it and replace these defaults.
+    # Collapse to 2 states: "yes" (near our base — proxy/cannon rush) vs
+    # "not_yes" (everything else: seen-not-near OR unknown).
+    # The key signal is "yes" — it's the proxy indicator. Collapsing "no" and
+    # "unknown" keeps that signal while cutting CPD size 3x per variable.
+    # Memory constraint: 15 parents with 3 states each = 5.2 GiB CPD → OOM.
+    # Reducing to 2 states per position var keeps the CPD trainable.
+    def _pos_collapse(val) -> str:
+        return "yes" if val == "yes" or val == 1 or val is True else "not_yes"
     for col in ["rax_near_base", "gw_near_base", "cannon_near_base", "bunker_near_base"]:
         if col not in df.columns:
-            df[col] = "unknown"
+            df[col] = "not_yes"
+        else:
+            df[col] = df[col].apply(_pos_collapse)
 
     # === Schema v2: Timing features (Step 2) ===
-    # rax_timing: <25=very_early (proxy), 25-45=early, 45-90=standard, >90=late, none
+    # Collapse from 5 states (none/very_early/early/standard/late) to 3 states
+    # (none/early/standard). The key signal is "early" (proxy/cheese) vs
+    # "standard" (macro). "very_early" → "early" (same signal: aggressive).
+    # "late" → "standard" (late = still macro, not cheese).
+    # This cuts timing from 5^4=625 to 3^4=81 combinations — 8x CPD reduction.
     df["rax_timing"] = df["rax_timing_raw"].fillna(-1).apply(
-        lambda t: "none" if t < 0 else ("very_early" if t < 25 else ("early" if t < 45 else ("standard" if t < 90 else "late")))
+        lambda t: "none" if t < 0 else ("early" if t < 45 else "standard")
     )
 
     # pool_timing: <25=very_early (12-pool), 25-40=early, 40-80=standard, >80=late, none
     df["pool_timing"] = df["pool_timing_raw"].fillna(-1).apply(
-        lambda t: "none" if t < 0 else ("very_early" if t < 25 else ("early" if t < 40 else ("standard" if t < 80 else "late")))
+        lambda t: "none" if t < 0 else ("early" if t < 40 else "standard")
     )
 
     # gw_timing: <20=very_early (proxy), 20-40=early, 40-80=standard, >80=late, none
     df["gw_timing"] = df["gw_timing_raw"].fillna(-1).apply(
-        lambda t: "none" if t < 0 else ("very_early" if t < 20 else ("early" if t < 40 else ("standard" if t < 80 else "late")))
+        lambda t: "none" if t < 0 else ("early" if t < 40 else "standard")
     )
 
     # nat_timing: <60=very_early (greedy), 60-120=early (macro), 120-240=late (all-in), >240=none, none=-1
     df["nat_timing"] = df["nat_timing_raw"].fillna(-1).apply(
-        lambda t: "none" if t < 0 else ("very_early" if t < 60 else ("early" if t < 120 else ("late" if t < 240 else "standard")))
+        lambda t: "none" if t < 0 else ("early" if t < 120 else "standard")
     )
 
     return df
@@ -1080,7 +1108,10 @@ def filter_ground_truth_only(df: pd.DataFrame) -> pd.DataFrame:
     before = len(df)
 
     def _api_label(row) -> str | None:
-        raw = (row.get("strategy_category_api") or "").strip().lower()
+        raw = row.get("strategy_category_api")
+        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+            raw = ""
+        raw = str(raw).strip().lower()
         if raw == "timing":
             raw = "timing_attack"
         if raw in ("cheese", "all_in", "timing_attack", "macro"):

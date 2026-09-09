@@ -1230,37 +1230,9 @@ With 5 position + 4 timing features added to the existing 7, the CPD grows to ~4
 
 **Alternative**: If the CPD gets too large for naive Bayes, switch to a sklearn classifier (see Step 3).
 
-### Step 3: Consider Upgrading from Naive Bayes
+### ~~Step 3: Consider Upgrading from Naive Bayes~~ — Superseded by Roadmap below
 
-Naive Bayes assumes all features are independent given the class. This is wrong for SC2 — `rax_near_base` and `rax_timing` are correlated (proxy rax is both near AND very early). Naive Bayes double-counts this evidence.
-
-**Option A: Keep naive Bayes with more features** (current architecture, just bigger)
-- Pro: No code changes to inference path, just bigger CPD
-- Pro: Still numpy lookup, no dependencies
-- Con: Double-counts correlated evidence, may over/under-confidence
-- Verdict: Good enough if we accept some miscalibration
-
-**Option B: Switch to sklearn classifier** (scikit-learn 1.8.0 already in container)
-- RandomForestClassifier or GradientBoostingClassifier
-- Handles feature interactions natively
-- Export as joblib pickle (joblib 1.5.3 in container)
-- Replace `BNInference` class with `SklearnInference`
-- Pro: Better accuracy, handles correlations, no independence assumption
-- Pro: Feature importance scores for debugging
-- Con: Different model architecture — need to rewrite inference path
-- Con: No interpretability (RF is a black box vs BN's transparent CPDs)
-- Verdict: Better long-term, but bigger change
-
-**Option C: Small neural network** (torch 2.10.0 CPU in container)
-- 7+8 input features → 16 hidden → 4 output (strategy categories)
-- Train with PyTorch, export to TorchScript
-- Pro: Captures any interaction pattern
-- Pro: TorchScript is fast at runtime
-- Con: Overkill for 4-class problem with <1000 training samples
-- Con: More complex training pipeline, hyperparameter tuning
-- Verdict: Only if data grows to 2000+ games and simpler models plateau
-
-**Recommendation**: Start with Option A (more features in naive Bayes) for immediate improvement. If accuracy plateaus or double-counting causes issues, move to Option B (sklearn). Option C is future work.
+The original Step 3 explored three options (naive Bayes with more features, sklearn classifier, small neural network). That exploration is complete. The decision: fix inputs first, then upgrade the algorithm if needed. See the **Roadmap** section below for the current plan.
 
 ### ~~Step 4: Mismatch Detector~~ — DONE (Implemented in telemetry API)
 
@@ -1284,33 +1256,51 @@ Implemented as two new API endpoints in `telemetry/pigbot/api.py`:
 
 3. ~~**`derive_strategy_label()` proxy_rax heuristic**~~ — **FIXED (2026-06-19).** Tightened from `rax < 180s` to `rax < 45s` (or `rax_near_base == "yes"`). proxy_gateway tightened from `gw < 180s` to `gw < 30s` (or `gw_near_base == "yes"`). Prevents false positives like match 4829911 (standard 1-rax FE at 52s was being labeled cheese).
 
-### Implementation Order
+## Roadmap
 
-| Step | Effort | Impact | Priority |
-|------|--------|--------|----------|
-| ~~4: Mismatch detector~~ | ~~Low~~ | ~~High~~ | ~~DONE~~ |
-| ~~1: Position features in BN~~ | ~~Medium~~ | ~~High~~ | ~~DONE — code complete, model retrained~~ |
-| ~~2: Timing features in BN~~ | ~~Medium~~ | ~~High~~ | ~~DONE — code complete, model retrained~~ |
-| 3: sklearn upgrade | High (rewrite inference path) | Medium — better but bigger change | Next |
-| ~~5: Training data quality~~ | ~~Medium~~ | ~~Medium~~ | ~~DONE~~ |
+**Current state:** Schema v2 BN (15 parent variables) deployed. 6 of 15 features were degenerate — 4 position features hardcoded to `"unknown"` in training data, 2 timing features truncated. Baseline accuracy: 42.6% overall (16,000 games). Bot-side code to emit the 6 missing fields is written (v0.12.3, not yet deployed). API-side endpoint updated to expose the new fields with backward-compatible defaults.
 
-Steps 1 and 2 can be done together in a single training cycle. Step 4 (mismatch detector) is independent and can be done in parallel.
+### Phase A — Fix Inputs (in progress)
+
+- Deploy bot v0.12.3: emits `rax_start`, `gw_start`, `rax_near_base`, `gw_near_base`, `cannon_near_base`, `bunker_near_base` in match telemetry
+- `build_training_data()` in training script updated to read the 6 fields from the API instead of hardcoding defaults
+- Accumulate games on the ladder with the new fields populated
+- Retrain naive Bayes model with clean data
+- Measure accuracy via training log (`/mnt/forge/telemetry/pigbot/training_log.json`)
+- **Gate:** If accuracy reaches ~60% and the bot's decision-making improves, Phase A may be sufficient. If naive Bayes plateaus below ~55% with clean inputs, proceed to Phase B.
+
+### Phase B — Algorithm Upgrade (conditional)
+
+- Train a sklearn `GradientBoostingClassifier` offline on the same telemetry data
+- Compare accuracy against the naive Bayes model side by side
+- If sklearn wins by a meaningful margin, swap the runtime inference path:
+  - Replace `bn_inference.py` (numpy CPD lookup) with `joblib.load()` + `predict_proba()`
+  - Remove `export_bn_model.py` step (sklearn models save/load directly via joblib)
+  - Keep opponent prior and map prior multiplication as post-hoc Bayesian update on sklearn output
+  - Keep confidence thresholds in ReactionManager unchanged
+- **Trade-off:** sklearn sacrifices per-prediction transparency (no CPD traceability) for higher accuracy. Global feature importances are available but individual prediction reasoning becomes opaque. With naive Bayes, any wrong prediction can be traced to specific CPD entries. With sklearn, debugging is empirical — tweak features, retrain, observe.
+- **No container changes needed:** scikit-learn 1.8.0 is already installed in the AI Arena container. Deployment uses `joblib.load()` which is also already available.
+
+### Phase C — Continuous Improvement (ongoing)
+
+- Retrain after every significant ladder session (every ~200-500 new games)
+- Append to training log after each retrain to track accuracy trend over time
+- Monitor for feature drift (new maps, balance patches, meta shifts) that may degrade model performance
+- If sklearn is adopted, periodically retrain with fresh data to prevent staleness
 
 ### Constraints
 
-- **AI Arena container**: scikit-learn 1.8.0, numpy 2.0.2, scipy 1.17.0, torch 2.10.0 CPU all available. No new dependencies needed for Steps 1-4. Step 3 (sklearn upgrade) uses existing sklearn.
-- **Runtime performance**: BN lookup stays sub-ms even with 15 parent variables (numpy fancy indexing). sklearn predict() on a RandomForest with 100 trees is ~0.1ms. Both well within the 0.5ms frame budget.
-- **Training data volume**: API now has 500 games with strategy_category labels (up from 200). Position features (rax_near_base etc.) are in the training code but default to "unknown" — the API doesn't expose position data yet. When the API starts providing position data, retrain to activate those features.
+- **AI Arena container**: scikit-learn 1.8.0, numpy 2.0.2, scipy 1.17.0, torch 2.10.0 CPU, pandas 2.3.3, joblib 1.5.3 all available. No new dependencies needed for any phase. pgmpy is NOT in the container but is dev-only (training); runtime uses numpy .npz lookup (current) or joblib .pkl (Phase B).
+- **Runtime performance**: BN lookup stays sub-ms even with 15 parent variables (numpy fancy indexing). sklearn predict() on a GradientBoostingClassifier is ~0.1ms. Both well within the 0.5ms frame budget.
 - **Competition safety**: All changes feature-gated. BN model falls back to existing 7-variable model if new model file is missing. Auto-TRUE guards remain available as fallback (even though currently disabled by config).
 
 ### Success Metrics
 
-| Metric | Current | Target |
+| Metric | Current (2026-07-18) | Target |
 |--------|---------|--------|
-| Level-1 accuracy (bot vs replay) | Unknown — need mismatch detector | ≥85% after Step 1+2 |
-| Cheese false positive rate (macro games tagged cheese) | Unknown — 4829911 is one known case | <10% after Step 1+2 |
-| Cheese false negative rate (cheese games tagged macro) | Unknown | <15% after Step 1+2 |
-| Mismatch count per 100 games | Unknown | <15 after Step 1+2, <8 after Step 3 |
+| Level-1 accuracy (bot vs replay) | 42.6% overall | ≥60% after Phase A, ≥70% after Phase B |
+| Cheese false positive rate | 127 FPs in ~700 matches | <10% after Phase A |
+| Cheese false negative rate | 294 FNs in ~700 matches | <15% after Phase A |
 | BN confidence on correct predictions | Unknown | >0.7 average |
 
 ### Connection to Auto-TRUE Guards
@@ -1338,12 +1328,14 @@ The end state: BN as the sole strategy classifier, no deterministic guards neede
 - ✅ Bot version bumped to 0.11.0.
 
 **Current model state:**
-- Position features have only 1 state each (`"unknown"`) — the API doesn't expose position data yet. The model can't use these features until the API provides position data and the model is retrained.
+- Position features have only 1 state each (`"unknown"`) in the current model — the training data had no position values. Bot v0.12.3 now emits these fields; once deployed and games accumulate, retraining will activate them.
 - Timing features have partial states: `nat_timing` has 4 states, `gw_timing`/`pool_timing`/`rax_timing` have 2 each. These will improve as more games accumulate timing data.
 - The 7 original variables work fully and are the primary discriminators.
 - When the bot passes `rax_near_base="yes"` at runtime but the model only has `"unknown"`, `BNInference` falls back to index 0 — effectively ignoring that feature. No crash, no wrong prediction, just a missed opportunity.
+- API-side: `match-level-full` endpoint now exposes all 6 new fields with backward-compatible defaults for old game records. Once v0.12.3 is deployed, new games will populate real values.
 
-**Not yet done:**
-- ❌ Step 3: sklearn upgrade — recommended as the next step. The naive Bayes independence assumption double-counts correlated evidence (e.g., `rax_near_base=yes` and `rax_timing=very_early` are the same signal). sklearn (RandomForest/GradientBoosting) handles feature interactions natively and is available in the AI Arena container (scikit-learn 1.8.0). See the discussion above for the full rationale.
-- ❌ API-side: Position data (`rax_near_base` etc.) not yet in `match-level-full` endpoint. When added, retrain to activate the position features.
-- ❌ Mismatch measurement: Need to run games with the new model and compare bot predictions vs replay labels via `/api/mismatches` to measure improvement.
+**Next:**
+- Deploy v0.12.3 to AI Arena ladder
+- Accumulate ~200-500 games with the 6 new fields populated
+- Retrain and measure accuracy via training log
+- If naive Bayes plateaus below ~55% with clean inputs, proceed to Phase B (sklearn)

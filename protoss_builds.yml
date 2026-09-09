@@ -14,13 +14,14 @@ BuildChoices:
     Terran:
         BotName: TerranRace
         Cycle:
-            - B2GM_PVT_Stalker_Centric_2021
             - B2GM_PVT_Standard_Build
+            - B2GM_PVT_Stalker_Centric_2021
+            
             
     Zerg:
         BotName: ZergRace
         Cycle:
-            #- B2GM_PVZ_Standard_Build
+            - B2GM_PVZ_Standard_Build
             - Parting_PvZ_Soul_Train
     Random:
         BotName: RandomRace
@@ -62,7 +63,7 @@ Builds:
                 [enemy_spawn, enemy_nat, map_center, fourth,third, enemy_nat]
             - 16 GAS
             - 20 EXPAND
-            - 20 CORE @ reaper_wall
+            - 20 CYBERNETICSCORE @ reaper_wall
             - 21 PYLON
             - 21 GAS
             - 22 WARPGATERESEARCH
@@ -100,7 +101,7 @@ Builds:
             - 16 GAS
             - 18 CHRONO @ NEXUS 
             - 20 EXPAND
-            - 20 CORE @ reaper_wall
+            - 20 CYBERNETICSCORE @ reaper_wall
             - 21 PYLON
             - 21 GAS
             - 22 WARPGATERESEARCH
@@ -137,7 +138,7 @@ Builds:
             - 16 CHRONO @ NEXUS
             - 16 GAS
             - 20 EXPAND
-            - 20 CORE @ nat_wall
+            - 20 CYBERNETICSCORE @ nat_wall
             - 21 PYLON
             - 21 GAS
             - 22 WARPGATERESEARCH
@@ -176,7 +177,7 @@ Builds:
             - 16 GATEWAY @ nat_wall
             - 16 GAS
             - 20 EXPAND
-            - 20 CORE @ nat_wall
+            - 20 CYBERNETICSCORE @ nat_wall
             - 21 GAS
             - 21 PYLON
             # - 22 ADEPT  # No Adept code yet — add back when Adept micro exists
@@ -199,7 +200,8 @@ Builds:
     B2GM_PVP_2-Gate_Expand:
         # Build constant worker production till this supply
         ConstantWorkerProductionTill: 26
-        # After 0 supply turn AutoSupply on
+        ShouldHandleGasSteal: False
+        # After 33 supply turn AutoSupply on
         AutoSupplyAtSupply: 33
         OpeningBuildOrder:
             - 14 PYLON @ ramp
@@ -208,21 +210,23 @@ Builds:
             - 16 WORKER_SCOUT:
                 [nat, spawn,enemy_spawn, enemy_spawn,fourth,third, nat, spawn]
             - 17 GAS X2
-            - 19 GATEWAY @ ramp
-            - 20 CORE @ ramp
-            - 21 PYLON
-            - 23 STALKER X2
+            - 18 GATEWAY @ ramp
+            - 19 CYBERNETICSCORE @ ramp
+            - 19 PYLON
             - 21 PYLON @ nat_wall
-            - 22 SENTRY X2
-            - 22 CHRONO @ NEXUS 
-            - 27 WARPGATERESEARCH
-            - 28 EXPAND
-            - 34 STALKER X2
-            - 34 SHIELDBATTERY @ nat_wall
-            - 35 ROBOTICSFACILITY
-            - 36 STALKER X2
-            - 38 IMMORTAL
-       
+            - 21 STALKER X2
+            - 23 CHRONO @ GATEWAY
+            - 23 CHRONO @ GATEWAY
+            - 26 SENTRY
+            - 26 PYLON
+            - 26 SENTRY
+            - 28 EXPAND 
+            - 30 SHIELDBATTERY @ nat_wall
+            - 30 WARPGATERESEARCH
+            - 30 CHRONO @ CYBERNETICSCORE
+            - 32 ROBOTICSFACILITY
+            - 32 STALKER X2
+            - 36 IMMORTAL       
 
             
             
@@ -231,6 +235,7 @@ Builds:
     B2GM_PVP_4-Gate_ALL-IN:
         # Build constant worker production till this supply
         ConstantWorkerProductionTill: 44
+        ShouldHandleGasSteal: False
         # After 0 supply turn AutoSupply on
         AutoSupplyAtSupply: 33
         OpeningBuildOrder:
@@ -242,7 +247,7 @@ Builds:
             - 16 GAS
             - 18 GAS
             - 19 GATEWAY @ ramp
-            - 20 CORE @ ramp
+            - 20 CYBERNETICSCORE @ ramp
             - 21 PYLON
             - 22 WARPGATERESEARCH
             - 22 CHRONO @ NEXUS 
@@ -258,53 +263,63 @@ Builds:
     Cheese_Reaction_Build:
         # Cheese reaction Build order — PvZ / Random: wall at natural
         ConstantWorkerProductionTill: 20
-        AutoSupplyAtSupply: 0
+        ShouldHandleGasSteal: False
+        AutoSupplyAtSupply: 20
         OpeningBuildOrder:
-            - 0 PYLON @ nat_wall
-            - 0 GATEWAY @ nat_wall
-            - 0 CYBERNETICSCORE @ nat_wall
-            - 0 ZEALOT
-            - 0 CHRONO @ GATEWAY
-            - 0 SHIELDBATTERY @ nat_wall
-            - 0 ZEALOT
-            - 0 CHRONO @ GATEWAY
-            - 0 PYLON @ nat_wall
+            - 14 PYLON @ nat_wall
+            - 14 CHRONO @ NEXUS
+            - 16 GAS
+            - 16 GATEWAY @ nat_wall
+            - 16 PYLON @ nat_wall
+            - 20 GATEWAY @ nat_wall
+            - 20 CYBERNETICSCORE @ nat_wall
+            - 20 ZEALOT
+            - 22 CHRONO @ GATEWAY
+            - 22 ZEALOT
+            - 24 SHIELDBATTERY @ nat_wall
+
+
 
     Cheese_Reaction_Build_Protoss:
         # Cheese reaction Build order — PvP: wall at main ramp
-        ConstantWorkerProductionTill: 20
-        AutoSupplyAtSupply: 0
+        ConstantWorkerProductionTill: 26
+        ShouldHandleGasSteal: False
+        AutoSupplyAtSupply: 22
         OpeningBuildOrder:
-            - 0 PYLON @ ramp
-            - 0 GATEWAY @ ramp
-            - 0 CYBERNETICSCORE @ ramp
-            - 0 ZEALOT
-            - 0 CHRONO @ GATEWAY
-            - 0 SHIELDBATTERY @ ramp
-            - 0 ZEALOT
-            - 0 PYLON @ ramp
-            - 0 STALKER
-            - 0 CHRONO @ GATEWAY
-            - 0 SENTRY
+            - 14 PYLON @ ramp
+            - 14 CHRONO @ NEXUS
+            - 16 GATEWAY
+            - 17 GAS X2
+            - 17 GATEWAY @ ramp
+            - 19 CYBERNETICSCORE @ ramp
+            - 22 ZEALOT
+            - 22 PYLON 
+            - 24 SHIELDBATTERY @ ramp
+            - 26 SENTRY
+            - 26 CHRONO @ GATEWAY
+            - 26 STALKER
 
     Cheese_Reaction_Build_Terran:
         # Cheese reaction Build order — PvT: reaper wall & main ramp
-        ConstantWorkerProductionTill: 20
-        AutoSupplyAtSupply: 0
+        ConstantWorkerProductionTill: 23
+        ShouldHandleGasSteal: False
+        AutoSupplyAtSupply: 20
         OpeningBuildOrder:
-            - 0 PYLON @ reaper_wall
-            - 0 GATEWAY @ reaper_wall
-            - 0 CYBERNETICSCORE @ reaper_wall
-            - 0 ZEALOT
-            - 0 PYLON @ ramp
-            - 0 CHRONO @ GATEWAY
-            - 0 SHIELDBATTERY @ ramp
-            - 0 ZEALOT
+            - 14 PYLON @ reaper_wall
+            - 16 GATEWAY @ reaper_wall
+            - 16 GAS
+            - 20 ZEALOT
+            - 20 PYLON @ ramp
+            - 20 CYBERNETICSCORE @ reaper_wall
+            - 20 CHRONO @ GATEWAY
+            - 23 GATEWAY
+            - 23 SHIELDBATTERY @ ramp
 
     AllIn_Reaction_Build:
         # All-in reaction Build order — PvZ / Random: wall at natural
         # Stand-in: mirrors Cheese_Reaction_Build until dedicated all-in logic is added
         ConstantWorkerProductionTill: 20
+        ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
             - 0 PYLON @ nat_wall
@@ -321,6 +336,7 @@ Builds:
         # All-in reaction Build order — PvP: wall at main ramp
         # Stand-in: mirrors Cheese_Reaction_Build_Protoss until dedicated all-in logic is added
         ConstantWorkerProductionTill: 20
+        ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
             - 0 PYLON @ ramp
@@ -339,6 +355,7 @@ Builds:
         # All-in reaction Build order — PvT: reaper wall & main ramp
         # Stand-in: mirrors Cheese_Reaction_Build_Terran until dedicated all-in logic is added
         ConstantWorkerProductionTill: 20
+        ShouldHandleGasSteal: False
         AutoSupplyAtSupply: 0
         OpeningBuildOrder:
             - 0 PYLON @ reaper_wall

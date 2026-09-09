@@ -42,7 +42,7 @@ from bot.combat import (
 from bot.intel import update_enemy_intel_tracking
 from bot.utilities.choke_grid import create_choke_grid, create_narrow_choke_points, refine_all_chokes
 from cython_extensions import cy_distance_to
-from bot.utilities.debug import render_narrow_choke_points, render_refined_choke_points, render_nexus_ability_debug
+from bot.utilities.debug import render_narrow_choke_points, render_refined_choke_points, render_nexus_ability_debug, render_expansion_debug
 from ares.behaviors.macro import Mining
 #debugs
 from bot.utilities.use_disruptor_nova import UseDisruptorNova
@@ -94,6 +94,11 @@ class PiG_Bot(AresBot):
 
         # Flags for in-game logic
         self._commenced_attack = False
+        # Attack telemetry accumulators — persist across the whole game,
+        # unlike the boolean above which only reflects the current state.
+        self._attack_initiation_count = 0  # Total times attack was initiated
+        self._total_attack_time = 0.0     # Cumulative seconds spent in attack state
+        self._current_attack_start = 0.0  # Timestamp current attack began (0 = not attacking)
         self._economy_switch_triggered = False  # One-way transition from base to economy-gated composition
         self._rush_time_seconds = 0.0  # Rush time calculated in on_start
         self._under_attack = False
@@ -131,7 +136,7 @@ class PiG_Bot(AresBot):
         # Production nudging cache (set by select_army_composition for debug overlay)
         self._last_base_comp: dict = {}
         self._last_nudged_comp: dict = {}
-        self._resource_pressure: str = "BALANCED"  # GAS_STARVED, MIN_STARVED, or BALANCED
+        self._resource_pressure: str = "BALANCED"  # GAS_STARVED, MINERAL_STARVED, or BALANCED
         
         # Intel urgency system (gradual build/decay to avoid oscillation)
         # 0.0 = no urgency, 1.0 = max urgency
@@ -257,14 +262,15 @@ class PiG_Bot(AresBot):
         from bot.intel import compute_rush_distance_tier
         self.rush_distance_tier = compute_rush_distance_tier(self)
         
+        # Load opponent profiles for cross-game priors (Phase 4)
+        # Must run before print_startup_report so the prior summary can be included.
+        self._belief_updater.load_opponent()
+
         # Print startup report with all initial game info
         print_startup_report(self)
 
         # Initialize telemetry context (binds match_id, env, game info)
         init_context(self)
-
-        # Load opponent profiles for cross-game priors (Phase 4)
-        self._belief_updater.load_opponent()
 
         # Register reaction handlers (maps StrategyCategory + level2 → handler fn)
         self.reaction_manager.register_handlers()
@@ -397,6 +403,8 @@ class PiG_Bot(AresBot):
             self.reaction_manager.update(self)
             self.reaction_manager.execute(self)
         else:
+            self.reaction_manager.execute(self)
+
             # Macro calls (only run if build order is complete)
             await handle_macro(
                 bot=self,
@@ -438,6 +446,9 @@ class PiG_Bot(AresBot):
         # Control BASE_DEFENDER units every frame (separated from allocation in threat_detection)
         control_defenders(self)
 
+        # Expansion debug overlay — after combat renders so it chains off _debug_y
+        render_expansion_debug(self)
+
         # Update active novas every frame (critical for trajectory correction)
         if hasattr(self, 'nova_manager') and self.nova_manager:
             try:
@@ -471,10 +482,12 @@ class PiG_Bot(AresBot):
         # Update game state based on game time
         current_time = self.time
         
+        from bot.constants import BUILD_FORCE_COMPLETE_MINERALS
+
         # Fail-safe: Force complete build if banking too many minerals.
         # Runs in ALL game states — a stuck build runner blocks handle_macro()
         # entirely, so this must not be gated to early game only.
-        if self.minerals > 800 and not self.build_order_runner.build_completed:
+        if self.minerals > BUILD_FORCE_COMPLETE_MINERALS and not self.build_order_runner.build_completed:
             self.build_order_runner.set_build_completed()
             print(f"Build order force-completed at {self.time:.1f}s due to high minerals")
         

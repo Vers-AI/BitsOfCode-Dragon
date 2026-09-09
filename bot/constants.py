@@ -17,7 +17,7 @@ from sc2.data import Race
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.upgrade_id import UpgradeId
 
-from cython_extensions import cy_structure_pending_ares, cy_unit_pending
+from cython_extensions import cy_structure_pending_ares
 
 # Lazy import to avoid circular dependency — get_economy_state is only called inside lambdas
 # that execute at runtime, so the import resolves correctly by then.
@@ -58,13 +58,32 @@ COMMON_UNIT_IGNORE_TYPES: set[UnitTypeId] = {
 }
 """Units to ignore in combat targeting and threat calculations - non-threatening scouts, supply, temporary units"""
 
-DISRUPTOR_IGNORE_TYPES: set[UnitTypeId] = COMMON_UNIT_IGNORE_TYPES | {
+TARGET_IGNORE_TYPES: set[UnitTypeId] = COMMON_UNIT_IGNORE_TYPES | {
     UnitTypeId.SCV,
     UnitTypeId.DRONE,
     UnitTypeId.PROBE,
     UnitTypeId.BROODLING,
 }
-"""Units to ignore for Disruptor nova targeting - includes workers (too low value)"""
+"""Units to ignore for ability targeting (FF, Disruptor nova, etc.) — extends
+COMMON_UNIT_IGNORE_TYPES with workers (too low value to spend abilities on) and
+broodlings (short-lived ~8s Swarm Host spawns, not worth 50 energy to block)."""
+
+DISRUPTOR_IGNORE_TYPES: set[UnitTypeId] = TARGET_IGNORE_TYPES
+"""Alias retained for backward compat — see TARGET_IGNORE_TYPES."""
+
+STATIC_DEFENSE_TYPES: set[UnitTypeId] = {
+    UnitTypeId.BUNKER,
+    UnitTypeId.MISSILETURRET,
+    UnitTypeId.PHOTONCANNON,
+    UnitTypeId.SPINECRAWLER,
+    UnitTypeId.SPORECRAWLER,
+    UnitTypeId.PLANETARYFORTRESS,
+    UnitTypeId.SPINECRAWLERUPROOTED,
+    UnitTypeId.SPORECRAWLERUPROOTED,
+    UnitTypeId.AUTOTURRET,
+}
+"""Enemy static defenses to include in tactical combat sims. Excludes
+ShieldBattery (no weapon — ARES sim warning: only include units that can attack)."""
 
 # ===== COMBAT PARAMETERS =====
 MELEE_RANGE_THRESHOLD = 3.0
@@ -307,6 +326,23 @@ UNDER_ATTACK_RATIO_THRESHOLD = 0.4
 
 UNDER_ATTACK_CLEAR_VALUE = 5.0
 """Threat value below which under_attack clears (hysteresis to prevent flickering)"""
+
+# ===== EXPANSION MAP CONTROL =====
+THREAT_BLOCK_EXPANSION_LEVEL = 5
+"""Minimum threat_level from assess_threat to block expansion (combat threats only).
+    Below this, harassment/patrol threats are handled by defenders without
+    blocking the natural expansion."""
+
+EXPANSION_INTEL_URGENCY_BLOCK = 0.7
+"""Intel urgency above which we won't expand blind (we've seen the enemy army
+    but intel has gone very stale — they could be setting up a timing).
+    Race-neutral: being blind is dangerous regardless of opponent race.
+    Below this, we have enough recent intel to risk sending a worker out."""
+
+EXPANSION_PASSIVE_ENEMY_TIME = 60.0
+"""Seconds since last seeing enemy army after which we classify the opponent
+    as passive/turtling. Race-neutral: if we haven't seen combat units in 60s
+    and no threats are near our bases, the opponent is not attacking us."""
 
 # ===== EARLY GAME DEFENSE =====
 EARLY_GAME_TIME_LIMIT = 600.0
@@ -1072,6 +1108,13 @@ FREEFLOW_INCOME_RATIO_THRESHOLD = 3.0
 FREEFLOW_BANK_THRESHOLD = 800
 """Resource bank threshold for triggering freeflow when spending is inefficient."""
 
+BUILD_FORCE_COMPLETE_MINERALS = 1000
+"""Mineral bank that force-completes the opening build order.
+
+Fail-safe in bot.py: if minerals exceed this and the build runner hasn't
+finished, we mark it complete so macro freeflow can take over. A stuck
+build runner blocks handle_macro() entirely, so this runs in all game states."""
+
 
 # ===== BUILD PROFILES =====
 # Each build gets a BuildProfile that bundles all build-specific macro settings.
@@ -1231,7 +1274,7 @@ def _needs_warp_prism(bot) -> bool:
     """
     total_prisms = (bot.units(UnitTypeId.WARPPRISM).amount +
                     bot.units(UnitTypeId.WARPPRISMPHASING).amount +
-                    cy_unit_pending(bot, UnitTypeId.WARPPRISM))
+                    bot.already_pending(UnitTypeId.WARPPRISM))
     return (bot.structures(UnitTypeId.ROBOTICSFACILITY).ready
             and bot.structures(UnitTypeId.TEMPLARARCHIVE).ready
             and bot.structures(UnitTypeId.ROBOTICSBAY).ready

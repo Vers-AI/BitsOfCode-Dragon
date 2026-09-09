@@ -81,16 +81,10 @@ class ReactionManager:
         self._reaction_start_time: float = -1.0
         self._transitioned: bool = False
 
-        # Tracks the last time an enemy combat unit was near our bases.
-        # Used by the cheese transition to detect a sustained threat-free window.
         self._last_threat_near_base_time: float = -1.0
 
-        # Handler registry: category → {level2_label → handler}
-        # Handlers are set after module init to avoid circular imports.
         self._handlers: dict[StrategyCategory, dict[str, Callable]] = {}
-        # Category defaults: category → fallback handler (used when no specific handler matches)
         self._category_defaults: dict[StrategyCategory, Optional[Callable]] = {}
-        # Deactivation checks: strategy → should_deactivate function
         self._deactivation_checks: dict[str, Callable] = {}
 
     def register_handlers(self) -> None:
@@ -304,14 +298,17 @@ class ReactionManager:
                 build_name = _all_in_build_for_race(bot)
             else:
                 build_name = config.build
-            # PvT/PvP cheese/all-in builds use ramp/reaper_wall — different placement
-            # from the standard build, so always strip already-completed steps
-            # to avoid doubling up buildings at the wrong location. PvZ uses
-            # the same nat_wall as the standard build, so keep the existing
-            # Cyber Core check for that case.
-            # TODO: needs more testing — the True branch for PvT/PvP caused
-            # regressions; reverted to original Cyber Core check for all races.
-            remove_completed = bot.structures(UnitTypeId.CYBERNETICSCORE).exists
+            # Strip already-completed steps only if the original build has
+            # placed its first structure. If a Pylon exists or a worker is en
+            # route to build one, the standard build has progressed past step 0
+            # and we need to prune its steps to avoid doubling up buildings.
+            # If nothing is built yet (e.g. frame 1 switch), keep all steps so
+            # the reaction build plays exactly as written — including early
+            # chrono, which remove_completed=True would always strip.
+            remove_completed = (
+                bot.structures(UnitTypeId.PYLON).amount > 0
+                or bot.not_started_but_in_building_tracker(UnitTypeId.PYLON) > 0
+            )
             bot.build_order_runner.switch_opening(build_name, remove_completed=remove_completed)
 
             # Cancel fast-expanding Nexus if category says to.
@@ -346,12 +343,14 @@ class ReactionManager:
         if not self.is_active:
             return
 
-        # Check strategy-specific deactivation (e.g., no more enemy workers near base)
         if self._active_strategy in self._deactivation_checks:
-            should_deactivate = self._deactivation_checks[self._active_strategy](bot)
-            if should_deactivate:
-                self.deactivate(bot)
-                return
+            threat_gone = self._deactivation_checks[self._active_strategy](bot)
+            if threat_gone:
+                if self._last_threat_near_base_time >= 0.0:
+                    self.deactivate(bot)
+                    return
+            else:
+                self._last_threat_near_base_time = bot.time
 
         # Category-default: cheese/all-in transitions to standard army, then
         # fully deactivates once _under_attack clears (threat_detection's

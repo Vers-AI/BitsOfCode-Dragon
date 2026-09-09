@@ -9,11 +9,40 @@ Limitations: Transition events only emit on value change; periodic snapshots sam
 from sc2.ids.unit_typeid import UnitTypeId
 from ares.consts import UnitRole, WORKER_TYPES, TIE_OR_BETTER
 from sc2.data import Race
+from cython_extensions import cy_distance_to
 from bot.constants import StrategyCategory, STRATEGY_LABELS
 from bot.managers.macro import get_economy_state
 from bot.utilities.telemetry import (
     log_event, log_transition, log_match, log_event_no_sample,
 )
+
+
+def _bool_to_int(value: bool, seen: bool) -> int:
+    """Encode a position boolean for telemetry: 1=yes, 0=no (seen but not near), -1=unknown."""
+    if value:
+        return 1
+    return 0 if seen else -1
+
+
+def _cannon_near_base_int(bot) -> int:
+    """Encode cannon-near-base as int. No persistent attr exists, so derive at game end.
+
+    Mirrors strategy_belief.py: checks _cannon_rush_active (reaction manager flag)
+    and falls back to geometric proximity of visible cannons.
+    """
+    if getattr(bot, "_cannon_rush_active", False):
+        return 1
+    cannons = [s for s in bot.enemy_structures
+               if s.type_id == UnitTypeId.PHOTONCANNON]
+    if not cannons:
+        return -1
+    our_nat = bot.mediator.get_own_nat
+    near = any(
+        cy_distance_to(c.position, bot.start_location) < 25.0
+        or cy_distance_to(c.position, our_nat) < 25.0
+        for c in cannons
+    )
+    return 1 if near else 0
 
 
 def _get_cheese_type(bot) -> str:
@@ -73,7 +102,7 @@ def _get_fight_result(bot):
     """Get can_win_fight EngagementResult, returning None on error."""
     try:
         own_combat = [u for u in bot.own_army if u.type_id not in WORKER_TYPES]
-        enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES]
+        enemy_combat = [u for u in bot.enemy_army if u.type_id not in WORKER_TYPES and not u.is_structure]
         return bot.mediator.can_win_fight(
             own_units=own_combat,
             enemy_units=enemy_combat,
@@ -171,6 +200,25 @@ def print_startup_report(bot) -> None:
     print(f"  Rush Distance Tier: {bot.rush_distance_tier}")
     rush_time_str = f"{bot._rush_time_seconds:.1f}s" if bot._rush_time_seconds > 0 else "unknown"
     print(f"  Rush Time: {rush_time_str}")
+
+    # Opponent prior (if known from cross-game profiles)
+    opponent = getattr(bot._belief_updater, "_opponent", None)
+    if opponent is not None:
+        opponent_id = getattr(bot, 'opponent_id', None)
+        enemy_race = bot.enemy_race.name if hasattr(bot, 'enemy_race') else "Unknown"
+        summary = opponent.describe_prior(opponent_id, enemy_race)
+        if summary is not None:
+            print(f"  Opponent Prior: {summary}")
+        print(f"  Opponent Profiles Loaded: {opponent.profile_count}")
+
+    # Map prior (if known from training data)
+    map_prior = getattr(bot._belief_updater, "_map_prior", None)
+    if map_prior is not None:
+        map_summary = map_prior.describe_prior(bot.game_info.map_name)
+        if map_summary is not None:
+            print(f"  Map Prior: {map_summary}")
+        print(f"  Map Priors Loaded: {map_prior.map_count}")
+
     print("="*60 + "\n")
 
 
@@ -695,11 +743,20 @@ def emit_match_record(bot, game_result, game_time: float,
         # Result.Undecided or unknown — likely a crash/disconnect
         result = "undecided"
 
+    # Flush an in-progress attack so the accumulator reflects total time
+    # even if the game ended mid-engagement (on_end may not pass through combat).
+    _current_start = getattr(bot, '_current_attack_start', 0.0)
+    if _current_start > 0:
+        bot._total_attack_time = getattr(bot, '_total_attack_time', 0.0) + (game_time - _current_start)
+        bot._current_attack_start = 0.0
+
     match_fields = {
         "result": result,
         "length": round(game_time, 1),
         "cheese_type": cheese_type,
         "commenced_attack": getattr(bot, '_commenced_attack', False),
+        "attack_initiation_count": getattr(bot, '_attack_initiation_count', 0),
+        "total_attack_time": round(getattr(bot, '_total_attack_time', 0.0), 1),
         "used_cheese_response": bot.reaction_manager.is_cheese_response,
         "sq": round(pm.get_current_sq(), 1),
         "mineral_sq": round(pm.get_mineral_sq(), 1),
@@ -732,6 +789,21 @@ def emit_match_record(bot, game_result, game_time: float,
         "ling_seen": _get_rush_timing('_first_ling_seen_time', bot),
         "ling_contact": _get_rush_timing('_first_ling_contact_nat_time', bot),
         "rush_distance_seconds": round(getattr(bot, '_rush_time_seconds', 0.0), 1),
+        # Schema v2 BN features (Phase 5 Steps 1+2) — position + timing.
+        # Position booleans: 1=yes, 0=no (seen but not near), -1=unknown (never seen).
+        # These feed the API's match-level-full endpoint so train_strategy_belief.py
+        # can use real position data instead of hardcoding "unknown".
+        "rax_start": _get_rush_timing('_barracks_seen_time', bot),
+        "gw_start": _get_rush_timing('_gateway_seen_time', bot),
+        "rax_near_base": _bool_to_int(getattr(bot, '_barracks_near_our_base', False),
+                                      seen=bool(getattr(bot, '_barracks_count', 0))),
+        "gw_near_base": _bool_to_int(getattr(bot, '_gateway_near_our_base', False),
+                                     seen=bool(getattr(bot, '_gateway_count', 0)
+                                               + getattr(bot, '_warpgate_count', 0))),
+        "cannon_near_base": _cannon_near_base_int(bot),
+        "bunker_near_base": _bool_to_int(getattr(bot, '_bunker_near_base', False),
+                                         seen=any(s.type_id == UnitTypeId.BUNKER
+                                                  for s in bot.enemy_structures)),
     })
 
     # Zerg-specific cheese detection fields (only set for Zerg/Random)
